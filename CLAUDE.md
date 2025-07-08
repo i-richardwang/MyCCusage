@@ -89,3 +89,28 @@ import { Button } from "@workspace/ui/components/button"
 - Shared configs in `packages/eslint-config/`
 - Configurations for base, Next.js, and React components
 - Uses TypeScript ESLint parser and rules
+
+## Database & ORM
+
+**Database Setup:**
+- PostgreSQL database hosted on Neon
+- Drizzle ORM for type-safe database operations
+- Environment-based configuration via `DATABASE_URL`
+
+**Schema Location:**
+- Database schema: `apps/web/src/db/schema.ts`
+- Database connection: `apps/web/src/db/index.ts`
+- Drizzle config: `apps/web/drizzle.config.ts`
+
+**Database Commands (run from apps/web/):**
+```bash
+pnpm db:generate             # Generate migration files from schema changes
+pnpm db:migrate              # Apply migrations to database
+pnpm db:push                 # Push schema changes directly
+pnpm db:studio               # Open Drizzle Studio to view/edit data
+```
+
+**Key Tables:**
+- `usage_records` - Claude API usage data with daily aggregation
+  - Unique constraint on `date` field for upsert operations
+  - Includes tokens, costs, and raw ccusage data
