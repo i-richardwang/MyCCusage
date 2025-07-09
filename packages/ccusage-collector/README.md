@@ -10,11 +10,13 @@ This package automatically collects your local Claude Code usage data and syncs 
 
 ```bash
 npm install -g ccusage-collector
+npm install -g pm2
 ```
 
 ## Prerequisites
 
 - Node.js ≥20
+- PM2 process manager (for reliable background execution)
 - Claude Code CLI installed and configured
 - Access to a deployed My Claude Code Usage Dashboard
 
@@ -26,10 +28,10 @@ npm install -g ccusage-collector
 ccusage-collector --api-key=your-api-key --endpoint=https://example.com/api/usage-sync
 ```
 
-### 2. Scheduled sync (run every 4 hours)
+### 2. Scheduled sync (recommended - runs in background)
 
 ```bash
-ccusage-collector --api-key=your-api-key --endpoint=https://example.com/api/usage-sync --schedule="0 */4 * * *"
+pm2 start ccusage-collector -- --api-key=your-api-key --endpoint=https://example.com/api/usage-sync --schedule="0 */4 * * *"
 ```
 
 ### 3. Test data collection (dry run)
@@ -58,9 +60,9 @@ ccusage-collector --api-key=test --endpoint=https://example.com/api/usage-sync -
 ccusage-collector --api-key=sk-1234567890abcdef --endpoint=https://myccusage.example.com/api/usage-sync
 ```
 
-### Scheduled sync (every 6 hours)
+### Scheduled sync (every 6 hours) - Background execution
 ```bash
-ccusage-collector \
+pm2 start ccusage-collector -- \
   --api-key=sk-1234567890abcdef \
   --endpoint=https://myccusage.example.com/api/usage-sync \
   --schedule="0 */6 * * *"
@@ -74,23 +76,14 @@ ccusage-collector \
   --dry-run
 ```
 
-### Custom retry settings
-```bash
-ccusage-collector \
-  --api-key=sk-1234567890abcdef \
-  --endpoint=https://myccusage.example.com/api/usage-sync \
-  --max-retries=5 \
-  --retry-delay=2000
-```
-
 ## Cron Schedule Examples
 
 | Schedule | Description |
 |----------|-------------|
 | `"0 */4 * * *"` | Every 4 hours |
+| `"*/10 * * * *"` | Every 10 minutes |
 | `"0 0 * * *"` | Daily at midnight |
 | `"0 */1 * * *"` | Every hour |
-| `"*/30 * * * *"` | Every 30 minutes |
 | `"0 9,17 * * 1-5"` | 9 AM and 5 PM on weekdays |
 
 ## Setup Guide
@@ -111,7 +104,10 @@ API_KEY=your-secret-api-key-here
 ### 3. Install and Run Collector
 ```bash
 npm install -g ccusage-collector
-ccusage-collector --api-key=your-secret-api-key-here --endpoint=https://your-domain.com/api/usage-sync
+npm install -g pm2
+
+# Start background sync
+pm2 start ccusage-collector -- --api-key=your-secret-api-key-here --endpoint=https://your-domain.com/api/usage-sync --schedule="0 */4 * * *"
 ```
 
 ## Data Collection
@@ -136,13 +132,42 @@ The collector syncs:
 - **Individual record failures**: Continues processing other records
 - **Detailed logging**: Clear error messages and debugging info
 
-## Scheduling
+## Process Management with PM2
 
-When using the `--schedule` option, the collector:
-- Runs immediately once on startup
-- Schedules future runs based on cron expression
-- Continues running until stopped (Ctrl+C)
-- Logs each scheduled execution
+For reliable background execution, use PM2 to manage the collector process:
+
+### Start Background Sync
+```bash
+pm2 start ccusage-collector -- --api-key=your-key --endpoint=https://your-domain.com/api/usage-sync --schedule="0 */4 * * *"
+```
+
+### Check Status
+```bash
+pm2 list                    # Show all processes
+pm2 show ccusage-collector  # Show detailed info
+pm2 logs ccusage-collector  # View logs
+pm2 monit                   # Real-time monitoring
+```
+
+### Control Process
+```bash
+pm2 stop ccusage-collector     # Stop process
+pm2 restart ccusage-collector  # Restart process
+pm2 delete ccusage-collector   # Remove process
+```
+
+### Auto-start on Boot
+```bash
+pm2 startup                    # Generate startup script
+pm2 save                       # Save current process list
+```
+
+### Benefits of PM2
+- **Automatic restart** if process crashes
+- **Background execution** - no need to keep terminal open
+- **Process monitoring** and logging
+- **Prevents duplicate instances** - safe to run multiple times
+- **Cross-platform** - works on Windows, Linux, and macOS
 
 ## Troubleshooting
 
@@ -215,5 +240,3 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 - 🐛 [Report bugs](https://github.com/i-richardwang/MyCCusage/issues)
 - 💡 [Request features](https://github.com/i-richardwang/MyCCusage/issues)
-- 📖 [Documentation](https://github.com/i-richardwang/MyCCusage/tree/main/docs)
-- 💬 [Discussions](https://github.com/i-richardwang/MyCCusage/discussions)
