@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useCallback } from "react"
 import { useUsageStats } from "@/hooks/use-usage-stats"
 import { StatsCards } from "@/components/stats-cards"
 import { PlanComparison } from "@/components/plan-comparison"
@@ -8,10 +8,46 @@ import { ChartTabs } from "@/components/chart-tabs"
 import { RecentActivity } from "@/components/recent-activity"
 import { FilterBar } from "@/components/filter-bar"
 import { TimeRange } from "@/types/chart-types"
+import { type DateRange } from "react-day-picker"
 
 export default function Page() {
   const { stats, loading, error } = useUsageStats()
   const [timeRange, setTimeRange] = useState<TimeRange>("all")
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined)
+
+  // Helper function to calculate date range from preset time range
+  const getDateRangeFromTimeRange = useCallback((range: TimeRange): DateRange | undefined => {
+    if (range === "all" || range === "custom") return undefined
+    
+    const today = new Date()
+    const days = range === "7d" ? 7 : range === "14d" ? 14 : 30
+    const from = new Date(today)
+    from.setDate(from.getDate() - days)
+    
+    return { from, to: today }
+  }, [])
+
+  // Handle time range change from dropdown
+  const handleTimeRangeChange = useCallback((newTimeRange: TimeRange) => {
+    setTimeRange(newTimeRange)
+    // Always update dateRange to show corresponding dates for preset ranges
+    const correspondingDateRange = getDateRangeFromTimeRange(newTimeRange)
+    setDateRange(correspondingDateRange)
+  }, [getDateRangeFromTimeRange])
+
+  // Handle custom date range change from picker
+  const handleDateRangeChange = useCallback((newDateRange: DateRange | undefined) => {
+    setDateRange(newDateRange)
+    // Only switch to custom if user actually selected a valid date range
+    if (newDateRange?.from && newDateRange?.to) {
+      setTimeRange("custom")
+    }
+  }, [])
+
+  // Convert DateRange to the format expected by filter functions
+  const customDateRange = dateRange?.from && dateRange?.to 
+    ? { from: dateRange.from, to: dateRange.to }
+    : undefined
 
   if (loading) {
     return (
@@ -54,14 +90,6 @@ export default function Page() {
 
       {/* Main content area */}
       <div className="container mx-auto px-4 sm:px-6 py-8 space-y-8">
-        {/* Statistics cards section */}
-        <StatsCards
-          totalCost={stats.totals.totalCost}
-          totalTokens={stats.totals.totalTokens}
-          avgDailyCost={stats.totals.avgDailyCost}
-          activeDays={stats.totals.recordCount}
-        />
-
         {/* Plan comparison section */}
         <PlanComparison 
           currentCycleCost={stats.currentCycle.totalCost}
@@ -72,7 +100,16 @@ export default function Page() {
         {/* Global filter bar */}
         <FilterBar 
           timeRange={timeRange}
-          onTimeRangeChange={setTimeRange}
+          onTimeRangeChange={handleTimeRangeChange}
+          dateRange={dateRange}
+          onDateRangeChange={handleDateRangeChange}
+        />
+
+        {/* Statistics cards section */}
+        <StatsCards
+          dailyData={stats.daily}
+          timeRange={timeRange}
+          customDateRange={customDateRange}
         />
 
         {/* Chart tabs section */}
@@ -82,10 +119,15 @@ export default function Page() {
           deviceData={stats.deviceData} 
           totals={stats.totals}
           timeRange={timeRange}
+          customDateRange={customDateRange}
         />
 
         {/* Recent activity table section */}
-        <RecentActivity dailyData={stats.daily} timeRange={timeRange} />
+        <RecentActivity 
+          dailyData={stats.daily} 
+          timeRange={timeRange}
+          customDateRange={customDateRange}
+        />
       </div>
     </div>
   )

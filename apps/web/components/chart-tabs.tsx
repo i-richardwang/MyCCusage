@@ -22,25 +22,29 @@ interface ChartTabsProps {
     totalCacheReadTokens: number
   }
   timeRange: TimeRange
+  customDateRange?: { from: Date; to: Date }
 }
 
-export function ChartTabs({ dailyData, devices, deviceData, totals, timeRange }: ChartTabsProps) {
+export function ChartTabs({ dailyData, devices, deviceData, totals, timeRange, customDateRange }: ChartTabsProps) {
 
   // Use custom hooks for chart data
-  const { chartData: multiDeviceChartData, chartConfig: multiDeviceChartConfig } = useMultiDeviceChartData(
+  const { chartData: multiDeviceChartData, chartConfig: multiDeviceChartConfig, activeDevices: activeCostDevices } = useMultiDeviceChartData(
     deviceData,
     devices,
-    timeRange
+    timeRange,
+    customDateRange
   )
 
   const { chartData: tokenBreakdownData, chartConfig: tokenBreakdownConfig } = useTokenBreakdownChartData(
     dailyData,
-    timeRange
+    timeRange,
+    customDateRange
   )
-  const { chartData: multiDeviceTokenData, chartConfig: multiDeviceTokenConfig } = useMultiDeviceTokenData(
+  const { chartData: multiDeviceTokenData, chartConfig: multiDeviceTokenConfig, activeDevices: activeTokenDevices } = useMultiDeviceTokenData(
     deviceData,
     devices,
-    timeRange
+    timeRange,
+    customDateRange
   )
 
 
@@ -80,7 +84,7 @@ export function ChartTabs({ dailyData, devices, deviceData, totals, timeRange }:
                 >
                   <AreaChart data={multiDeviceChartData}>
                     <defs>
-                      {devices.map((device, deviceIndex) => {
+                      {activeCostDevices.map((device, deviceIndex) => {
                         const color = CHART_COLORS[deviceIndex % CHART_COLORS.length]
                         return (
                           <linearGradient key={device.deviceId} id={`fill${device.deviceId}`} x1="0" y1="0" x2="0" y2="1">
@@ -127,7 +131,7 @@ export function ChartTabs({ dailyData, devices, deviceData, totals, timeRange }:
                         />
                       }
                     />
-                    {devices.map((device) => (
+                    {activeCostDevices.map((device) => (
                       <Area
                         key={device.deviceId}
                         dataKey={device.deviceId}
@@ -179,7 +183,7 @@ export function ChartTabs({ dailyData, devices, deviceData, totals, timeRange }:
                       content={<ChartTooltipContent hideLabel />}
                     />
                     <ChartLegend content={<ChartLegendContent />} />
-                    {devices.map((device, index) => (
+                    {activeTokenDevices.map((device, index) => (
                       <Bar
                         key={device.deviceId}
                         dataKey={device.deviceId}
@@ -188,7 +192,7 @@ export function ChartTabs({ dailyData, devices, deviceData, totals, timeRange }:
                         radius={
                           index === 0 
                             ? [0, 0, 4, 4] 
-                            : index === devices.length - 1
+                            : index === activeTokenDevices.length - 1
                             ? [4, 4, 0, 0]
                             : [0, 0, 0, 0]
                         }

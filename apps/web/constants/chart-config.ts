@@ -37,5 +37,6 @@ export const TIME_RANGE_DAYS = {
   "all": Infinity,
   "7d": 7,
   "14d": 14,
-  "30d": 30
+  "30d": 30,
+  "custom": 0 // Custom range handled separately
 } as const

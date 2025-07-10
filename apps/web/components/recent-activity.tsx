@@ -7,9 +7,10 @@ import { filterByTimeRange } from "@/hooks/use-chart-data"
 interface RecentActivityProps {
   dailyData: DailyRecord[]
   timeRange: TimeRange
+  customDateRange?: { from: Date; to: Date }
 }
 
-export function RecentActivity({ dailyData, timeRange }: RecentActivityProps) {
+export function RecentActivity({ dailyData, timeRange, customDateRange }: RecentActivityProps) {
   const formatCurrency = (amount: number) => {
     return `$${amount.toFixed(4)}`
   }
@@ -25,7 +26,7 @@ export function RecentActivity({ dailyData, timeRange }: RecentActivityProps) {
   }
 
   // Apply time range filter, then show only the most recent 8 records
-  const filteredData = filterByTimeRange(dailyData, timeRange)
+  const filteredData = filterByTimeRange(dailyData, timeRange, customDateRange)
   const recentData = filteredData.slice(0, 8)
 
   return (
