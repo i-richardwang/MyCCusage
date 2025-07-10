@@ -35,7 +35,7 @@ export function RecentActivity({ dailyData }: RecentActivityProps) {
   const recentData = dailyData.slice(0, 8)
 
   return (
-    <Card>
+    <Card className="pt-0">
       <CardHeader className="flex items-center gap-2 space-y-0 border-b py-5 sm:flex-row">
         <div className="grid flex-1 gap-1">
           <CardTitle>Recent Activity</CardTitle>
@@ -44,7 +44,7 @@ export function RecentActivity({ dailyData }: RecentActivityProps) {
           </CardDescription>
         </div>
       </CardHeader>
-      <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
+      <CardContent className="px-2 py-4 sm:px-6 sm:py-4">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>

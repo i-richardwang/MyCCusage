@@ -4,7 +4,7 @@ import * as React from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@workspace/ui/components/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@workspace/ui/components/tabs"
 import { Progress } from "@workspace/ui/components/progress"
-import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@workspace/ui/components/chart"
+import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@workspace/ui/components/chart"
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, XAxis } from "recharts"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
 
@@ -36,7 +36,6 @@ export function ChartTabs({ dailyData, totals }: ChartTabsProps) {
   // Prepare chart data
   const fullChartData = dailyData.map(record => ({
     date: record.date,
-    displayDate: new Date(record.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
     cost: record.totalCost,
     tokens: record.totalTokens / 1000000, // Convert to millions
     inputTokens: record.inputTokens / 1000000,
@@ -81,7 +80,7 @@ export function ChartTabs({ dailyData, totals }: ChartTabsProps) {
       label: "Cache Tokens",
       color: "var(--chart-3)"
     }
-  }
+  } satisfies ChartConfig
 
   // Calculate cache hit rate
   const cacheHitRate = totals.totalCacheReadTokens > 0 
@@ -100,7 +99,7 @@ export function ChartTabs({ dailyData, totals }: ChartTabsProps) {
       <TabsContent value="overview">
         <div className="space-y-6">
           {/* Daily cost trend chart */}
-          <Card>
+          <Card className="pt-0">
             <CardHeader className="flex items-center gap-2 space-y-0 border-b py-5 sm:flex-row">
               <div className="grid flex-1 gap-1">
                 <CardTitle>Daily Cost Trend</CardTitle>
@@ -150,11 +149,18 @@ export function ChartTabs({ dailyData, totals }: ChartTabsProps) {
                   </defs>
                   <CartesianGrid vertical={false} />
                   <XAxis
-                    dataKey="displayDate"
+                    dataKey="date"
                     tickLine={false}
                     axisLine={false}
                     tickMargin={8}
                     minTickGap={32}
+                    tickFormatter={(value) => {
+                      const date = new Date(value)
+                      return date.toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                      })
+                    }}
                   />
                   <ChartTooltip
                     cursor={false}
@@ -182,7 +188,7 @@ export function ChartTabs({ dailyData, totals }: ChartTabsProps) {
           </Card>
           
           {/* Token usage chart */}
-          <Card>
+          <Card className="pt-0">
             <CardHeader className="flex items-center gap-2 space-y-0 border-b py-5 sm:flex-row">
               <div className="grid flex-1 gap-1">
                 <CardTitle>Token Usage</CardTitle>
@@ -199,11 +205,18 @@ export function ChartTabs({ dailyData, totals }: ChartTabsProps) {
                 <BarChart data={filteredData}>
                   <CartesianGrid vertical={false} />
                   <XAxis
-                    dataKey="displayDate"
+                    dataKey="date"
                     tickLine={false}
                     axisLine={false}
                     tickMargin={8}
                     minTickGap={32}
+                    tickFormatter={(value) => {
+                      const date = new Date(value)
+                      return date.toLocaleDateString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                      })
+                    }}
                   />
                   <ChartTooltip
                     cursor={false}
@@ -219,7 +232,7 @@ export function ChartTabs({ dailyData, totals }: ChartTabsProps) {
 
       {/* Token analysis tab */}
       <TabsContent value="tokens">
-        <Card>
+        <Card className="pt-0">
           <CardHeader className="flex items-center gap-2 space-y-0 border-b py-5 sm:flex-row">
             <div className="grid flex-1 gap-1">
               <CardTitle>Token Breakdown Analysis</CardTitle>
@@ -271,11 +284,18 @@ export function ChartTabs({ dailyData, totals }: ChartTabsProps) {
                 </defs>
                 <CartesianGrid vertical={false} />
                 <XAxis
-                  dataKey="displayDate"
+                  dataKey="date"
                   tickLine={false}
                   axisLine={false}
                   tickMargin={8}
                   minTickGap={32}
+                  tickFormatter={(value) => {
+                    const date = new Date(value)
+                    return date.toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                    })
+                  }}
                 />
                 <ChartTooltip
                   cursor={false}
@@ -311,7 +331,7 @@ export function ChartTabs({ dailyData, totals }: ChartTabsProps) {
 
       {/* Trends tab */}
       <TabsContent value="trends">
-        <Card>
+        <Card className="pt-0">
           <CardHeader className="flex items-center gap-2 space-y-0 border-b py-5 sm:flex-row">
             <div className="grid flex-1 gap-1">
               <CardTitle>Usage Trends & Insights</CardTitle>
@@ -320,7 +340,7 @@ export function ChartTabs({ dailyData, totals }: ChartTabsProps) {
               </CardDescription>
             </div>
           </CardHeader>
-          <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
+          <CardContent className="px-2 py-4 sm:px-6 sm:py-4">
             <div className="space-y-6">
               {/* Cost efficiency */}
               <div className="space-y-3">

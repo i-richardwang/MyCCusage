@@ -33,6 +33,7 @@ export default function Page() {
     )
   }
 
+
   return (
     <div className="min-h-screen">
       {/* Header navigation */}
@@ -58,7 +59,11 @@ export default function Page() {
         />
 
         {/* Plan comparison section */}
-        <PlanComparison totalCost={stats.totals.totalCost} />
+        <PlanComparison 
+          currentCycleCost={stats.currentCycle.totalCost}
+          billingCycleLabel={stats.billingCycle.label}
+          daysRemaining={stats.billingCycle.daysRemaining}
+        />
 
         {/* Chart tabs section */}
         <ChartTabs dailyData={stats.daily} totals={stats.totals} />

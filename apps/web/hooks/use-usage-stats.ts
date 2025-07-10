@@ -15,7 +15,24 @@ interface DailyRecord {
 }
 
 interface UsageStats {
+  billingCycle: {
+    startDate: string
+    endDate: string
+    label: string
+    startDay: number
+    daysRemaining: number
+  }
   totals: {
+    totalCost: number
+    totalTokens: number
+    totalInputTokens: number
+    totalOutputTokens: number
+    totalCacheCreationTokens: number
+    totalCacheReadTokens: number
+    recordCount: number
+    avgDailyCost: number
+  }
+  currentCycle: {
     totalCost: number
     totalTokens: number
     totalInputTokens: number
