@@ -2,6 +2,7 @@ import { exec } from 'child_process'
 import { promisify } from 'util'
 import axios from 'axios'
 import type { UsageData, SyncResult, CollectorConfig } from './types.js'
+import { getDeviceInfo } from './utils/device-info.js'
 
 const execAsync = promisify(exec)
 
@@ -21,10 +22,21 @@ export class UsageCollector {
       console.log('Collecting usage data...')
       const { stdout } = await execAsync('npx ccusage daily --json')
       
-      const data: UsageData = JSON.parse(stdout)
+      const rawData = JSON.parse(stdout)
       
-      if (!data.daily || !Array.isArray(data.daily)) {
+      if (!rawData.daily || !Array.isArray(rawData.daily)) {
         throw new Error('Invalid usage data format')
+      }
+      
+      // Get device information
+      const deviceInfo = getDeviceInfo()
+      console.log(`Device: ${deviceInfo.deviceName} (${deviceInfo.deviceId})`)
+      
+      // Combine raw data with device info
+      const data: UsageData = {
+        device: deviceInfo,
+        daily: rawData.daily,
+        totals: rawData.totals
       }
       
       console.log(`Collected ${data.daily.length} daily records`)

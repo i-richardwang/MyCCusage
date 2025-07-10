@@ -29,6 +29,9 @@ importers:
       '@workspace/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      ccusage-collector:
+        specifier: workspace:*
+        version: link:../../packages/ccusage-collector
       drizzle-orm:
         specifier: ^0.44.2
         version: 0.44.2(@types/pg@8.15.4)(pg@8.16.3)

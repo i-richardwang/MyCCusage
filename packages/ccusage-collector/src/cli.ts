@@ -8,7 +8,7 @@ import type { CollectorConfig } from './types.js'
 program
   .name('ccusage-collector')
   .description('Collect and sync Claude Code usage statistics')
-  .version('0.1.0')
+  .version('0.2.0')
 
 program
   .option('-k, --api-key <key>', 'API key for authentication')

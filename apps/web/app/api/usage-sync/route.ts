@@ -1,38 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/db/index'
-import { usageRecords } from '@/db/schema'
-import { eq } from 'drizzle-orm'
+import { db } from '@/src/db'
+import { devices, usageRecords } from '@/src/db/schema'
+import { eq, and } from 'drizzle-orm'
+import type { UsageData } from 'ccusage-collector'
 
-interface DailyUsageRecord {
-  date: string
-  inputTokens: number
-  outputTokens: number
-  cacheCreationTokens: number
-  cacheReadTokens: number
-  totalTokens: number
-  totalCost: number
-  modelsUsed: string[]
-  modelBreakdowns: Array<{
-    modelName: string
-    inputTokens: number
-    outputTokens: number
-    cacheCreationTokens: number
-    cacheReadTokens: number
-    cost: number
-  }>
-}
-
-interface UsageSyncRequest {
-  daily: DailyUsageRecord[]
-  totals: {
-    inputTokens: number
-    outputTokens: number
-    cacheCreationTokens: number
-    cacheReadTokens: number
-    totalCost: number
-    totalTokens: number
-  }
-}
+type UsageSyncRequest = UsageData
 
 export async function POST(request: NextRequest) {
   try {
@@ -56,11 +28,49 @@ export async function POST(request: NextRequest) {
 
     const body: UsageSyncRequest = await request.json()
     
+    if (!body.device || !body.device.deviceId || !body.device.deviceName) {
+      return NextResponse.json(
+        { error: 'Invalid request format: device information is required' },
+        { status: 400 }
+      )
+    }
+    
     if (!body.daily || !Array.isArray(body.daily)) {
       return NextResponse.json(
         { error: 'Invalid request format: daily array is required' },
         { status: 400 }
       )
+    }
+
+    // Ensure device exists in database (upsert device)
+    const existingDevice = await db
+      .select()
+      .from(devices)
+      .where(eq(devices.deviceId, body.device.deviceId))
+      .limit(1)
+
+    if (existingDevice.length === 0) {
+      // Create new device
+      await db
+        .insert(devices)
+        .values({
+          deviceId: body.device.deviceId,
+          deviceName: body.device.deviceName
+        })
+      console.log(`Created new device: ${body.device.deviceName} (${body.device.deviceId})`)
+    } else {
+      // Update device name if changed
+      const currentDevice = existingDevice[0]
+      if (currentDevice && currentDevice.deviceName !== body.device.deviceName) {
+        await db
+          .update(devices)
+          .set({
+            deviceName: body.device.deviceName,
+            updatedAt: new Date()
+          })
+          .where(eq(devices.deviceId, body.device.deviceId))
+        console.log(`Updated device name: ${body.device.deviceName} (${body.device.deviceId})`)
+      }
     }
 
     // Process each daily record
@@ -78,11 +88,14 @@ export async function POST(request: NextRequest) {
           continue
         }
 
-        // Upsert record (update if exists, insert if not)
+        // Upsert record (update if exists for this device+date, insert if not)
         const existingRecord = await db
           .select()
           .from(usageRecords)
-          .where(eq(usageRecords.date, record.date))
+          .where(and(
+            eq(usageRecords.deviceId, body.device.deviceId),
+            eq(usageRecords.date, record.date)
+          ))
           .limit(1)
 
         if (existingRecord.length > 0) {
@@ -100,12 +113,16 @@ export async function POST(request: NextRequest) {
               rawData: record,
               updatedAt: new Date()
             })
-            .where(eq(usageRecords.date, record.date))
+            .where(and(
+              eq(usageRecords.deviceId, body.device.deviceId),
+              eq(usageRecords.date, record.date)
+            ))
         } else {
           // Insert new record
           await db
             .insert(usageRecords)
             .values({
+              deviceId: body.device.deviceId,
               date: record.date,
               inputTokens: record.inputTokens,
               outputTokens: record.outputTokens,

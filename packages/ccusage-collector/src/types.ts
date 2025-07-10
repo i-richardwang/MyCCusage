@@ -1,3 +1,8 @@
+export interface DeviceInfo {
+  deviceId: string
+  deviceName: string
+}
+
 export interface DailyUsageRecord {
   date: string
   inputTokens: number
@@ -18,6 +23,7 @@ export interface DailyUsageRecord {
 }
 
 export interface UsageData {
+  device: DeviceInfo
   daily: DailyUsageRecord[]
   totals: {
     inputTokens: number

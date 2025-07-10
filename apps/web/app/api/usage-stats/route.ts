@@ -42,20 +42,21 @@ export async function GET() {
       .from(usageRecords)
       .where(sql`${usageRecords.date} >= ${cycleStartDate} AND ${usageRecords.date} <= ${cycleEndDate}`)
 
-    // Get daily records for charts and tables (last 30 days)
+    // Get daily records for charts and tables (last 30 days) - sum across all devices per day
     const dailyRecords = await db
       .select({
         date: usageRecords.date,
-        totalCost: usageRecords.totalCost,
-        totalTokens: usageRecords.totalTokens,
-        inputTokens: usageRecords.inputTokens,
-        outputTokens: usageRecords.outputTokens,
-        cacheCreationTokens: usageRecords.cacheCreationTokens,
-        cacheReadTokens: usageRecords.cacheReadTokens,
-        modelsUsed: usageRecords.modelsUsed,
-        createdAt: usageRecords.createdAt
+        totalCost: sql<number>`SUM(${usageRecords.totalCost})::numeric`,
+        totalTokens: sql<number>`SUM(${usageRecords.totalTokens})::bigint`,
+        inputTokens: sql<number>`SUM(${usageRecords.inputTokens})::bigint`,
+        outputTokens: sql<number>`SUM(${usageRecords.outputTokens})::bigint`,
+        cacheCreationTokens: sql<number>`SUM(${usageRecords.cacheCreationTokens})::bigint`,
+        cacheReadTokens: sql<number>`SUM(${usageRecords.cacheReadTokens})::bigint`,
+        modelsUsed: sql<string[]>`ARRAY[]::text[]`, // Empty array - simplified
+        createdAt: sql<Date>`MAX(${usageRecords.createdAt})`
       })
       .from(usageRecords)
+      .groupBy(usageRecords.date)
       .orderBy(desc(usageRecords.date))
       .limit(30)
 
