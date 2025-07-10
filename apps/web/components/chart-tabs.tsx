@@ -7,19 +7,14 @@ import { Progress } from "@workspace/ui/components/progress"
 import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@workspace/ui/components/chart"
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, XAxis } from "recharts"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
-
-interface DailyRecord {
-  date: string
-  totalCost: number
-  totalTokens: number
-  inputTokens: number
-  outputTokens: number
-  cacheCreationTokens: number
-  cacheReadTokens: number
-}
+import { useSingleDeviceChartData, useMultiDeviceChartData } from "@/hooks/use-chart-data"
+import { DailyRecord, DeviceRecord, Device, TimeRange } from "@/types/chart-types"
+import { BASE_CHART_CONFIG, CHART_COLORS } from "@/constants/chart-config"
 
 interface ChartTabsProps {
   dailyData: DailyRecord[]
+  devices: Device[]
+  deviceData: DeviceRecord[]
   totals: {
     totalCost: number
     totalTokens: number
@@ -30,57 +25,19 @@ interface ChartTabsProps {
   }
 }
 
-export function ChartTabs({ dailyData, totals }: ChartTabsProps) {
-  const [timeRange, setTimeRange] = React.useState("30d")
+export function ChartTabs({ dailyData, devices, deviceData, totals }: ChartTabsProps) {
+  const [timeRange, setTimeRange] = React.useState<TimeRange>("30d")
 
-  // Prepare chart data
-  const fullChartData = dailyData.map(record => ({
-    date: record.date,
-    cost: record.totalCost,
-    tokens: record.totalTokens / 1000000, // Convert to millions
-    inputTokens: record.inputTokens / 1000000,
-    outputTokens: record.outputTokens / 1000000,
-    cacheTokens: (record.cacheCreationTokens + record.cacheReadTokens) / 1000000
-  })).reverse() // Reverse array for chronological order
+  // Use custom hooks for chart data
+  const { chartData: multiDeviceChartData, chartConfig: multiDeviceChartConfig } = useMultiDeviceChartData(
+    deviceData,
+    devices,
+    timeRange
+  )
 
-  // Filter data based on time range
-  const filteredData = fullChartData.filter((item) => {
-    const date = new Date(item.date)
-    const referenceDate = new Date()
-    let daysToSubtract = 30
-    if (timeRange === "7d") {
-      daysToSubtract = 7
-    } else if (timeRange === "14d") {
-      daysToSubtract = 14
-    }
-    const startDate = new Date(referenceDate)
-    startDate.setDate(startDate.getDate() - daysToSubtract)
-    return date >= startDate
-  })
+  const filteredData = useSingleDeviceChartData(dailyData, timeRange)
+  const chartConfig = BASE_CHART_CONFIG satisfies ChartConfig
 
-  // Chart configuration
-  const chartConfig = {
-    cost: {
-      label: "Cost",
-      color: "var(--chart-1)"
-    },
-    tokens: {
-      label: "Tokens",
-      color: "var(--chart-2)"
-    },
-    inputTokens: {
-      label: "Input Tokens",
-      color: "var(--chart-1)"
-    },
-    outputTokens: {
-      label: "Output Tokens",
-      color: "var(--chart-2)"
-    },
-    cacheTokens: {
-      label: "Cache Tokens",
-      color: "var(--chart-3)"
-    }
-  } satisfies ChartConfig
 
   // Calculate cache hit rate
   const cacheHitRate = totals.totalCacheReadTokens > 0 
@@ -107,7 +64,7 @@ export function ChartTabs({ dailyData, totals }: ChartTabsProps) {
                   Showing usage costs over time
                 </CardDescription>
               </div>
-              <Select value={timeRange} onValueChange={setTimeRange}>
+              <Select value={timeRange} onValueChange={(value) => setTimeRange(value as TimeRange)}>
                 <SelectTrigger
                   className="hidden w-[160px] rounded-lg sm:ml-auto sm:flex"
                   aria-label="Select a value"
@@ -129,23 +86,28 @@ export function ChartTabs({ dailyData, totals }: ChartTabsProps) {
             </CardHeader>
             <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
               <ChartContainer
-                config={chartConfig}
+                config={multiDeviceChartConfig}
                 className="aspect-auto h-[250px] w-full"
               >
-                <AreaChart data={filteredData}>
+                <AreaChart data={multiDeviceChartData}>
                   <defs>
-                    <linearGradient id="fillCost" x1="0" y1="0" x2="0" y2="1">
-                      <stop
-                        offset="5%"
-                        stopColor="var(--color-cost)"
-                        stopOpacity={0.8}
-                      />
-                      <stop
-                        offset="95%"
-                        stopColor="var(--color-cost)"
-                        stopOpacity={0.1}
-                      />
-                    </linearGradient>
+                    {devices.map((device, deviceIndex) => {
+                      const color = CHART_COLORS[deviceIndex % CHART_COLORS.length]
+                      return (
+                        <linearGradient key={device.deviceId} id={`fill${device.deviceId}`} x1="0" y1="0" x2="0" y2="1">
+                          <stop
+                            offset="5%"
+                            stopColor={color}
+                            stopOpacity={0.8}
+                          />
+                          <stop
+                            offset="95%"
+                            stopColor={color}
+                            stopOpacity={0.1}
+                          />
+                        </linearGradient>
+                      )
+                    })}
                   </defs>
                   <CartesianGrid vertical={false} />
                   <XAxis
@@ -176,12 +138,17 @@ export function ChartTabs({ dailyData, totals }: ChartTabsProps) {
                       />
                     }
                   />
-                  <Area
-                    dataKey="cost"
-                    type="natural"
-                    fill="url(#fillCost)"
-                    stroke="var(--color-cost)"
-                  />
+                  {devices.map((device) => (
+                    <Area
+                      key={device.deviceId}
+                      dataKey={device.deviceId}
+                      type="natural"
+                      fill={`url(#fill${device.deviceId})`}
+                      stroke={multiDeviceChartConfig[device.deviceId]?.color}
+                      stackId="a"
+                    />
+                  ))}
+                  <ChartLegend content={<ChartLegendContent />} />
                 </AreaChart>
               </ChartContainer>
             </CardContent>

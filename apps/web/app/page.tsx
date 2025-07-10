@@ -66,7 +66,12 @@ export default function Page() {
         />
 
         {/* Chart tabs section */}
-        <ChartTabs dailyData={stats.daily} totals={stats.totals} />
+        <ChartTabs 
+          dailyData={stats.daily} 
+          devices={stats.devices} 
+          deviceData={stats.deviceData} 
+          totals={stats.totals} 
+        />
 
         {/* Recent activity table section */}
         <RecentActivity dailyData={stats.daily} />

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/src/db'
-import { usageRecords } from '@/src/db/schema'
-import { sql, desc } from 'drizzle-orm'
+import { usageRecords, devices } from '@/src/db/schema'
+import { sql, desc, eq } from 'drizzle-orm'
 import { getCurrentBillingCycle, getDaysRemainingInBillingCycle } from '@/lib/billing-cycle'
 
 export async function GET() {
@@ -60,6 +60,37 @@ export async function GET() {
       .orderBy(desc(usageRecords.date))
       .limit(30)
 
+    // Get device-specific daily records for multi-device charts (last 30 days)
+    const deviceDailyRecords = await db
+      .select({
+        date: usageRecords.date,
+        deviceId: usageRecords.deviceId,
+        totalCost: sql<number>`${usageRecords.totalCost}::numeric`,
+        totalTokens: sql<number>`${usageRecords.totalTokens}::bigint`,
+        inputTokens: sql<number>`${usageRecords.inputTokens}::bigint`,
+        outputTokens: sql<number>`${usageRecords.outputTokens}::bigint`,
+        cacheCreationTokens: sql<number>`${usageRecords.cacheCreationTokens}::bigint`,
+        cacheReadTokens: sql<number>`${usageRecords.cacheReadTokens}::bigint`,
+      })
+      .from(usageRecords)
+      .orderBy(desc(usageRecords.date))
+      .limit(300) // Allow for more records to cover multiple devices
+
+    // Get device information with usage statistics
+    const deviceInfo = await db
+      .select({
+        deviceId: devices.deviceId,
+        deviceName: devices.deviceName,
+        lastActiveDate: sql<string>`MAX(${usageRecords.date})`,
+        totalRecords: sql<number>`COUNT(${usageRecords.id})`,
+        totalCost: sql<number>`SUM(${usageRecords.totalCost})::numeric`,
+        createdAt: devices.createdAt,
+        updatedAt: devices.updatedAt
+      })
+      .from(devices)
+      .leftJoin(usageRecords, eq(devices.deviceId, usageRecords.deviceId))
+      .groupBy(devices.deviceId, devices.deviceName, devices.createdAt, devices.updatedAt)
+
     const totals = totalStats[0]
     const currentCycleTotals = currentCycleStats[0]
     
@@ -73,6 +104,29 @@ export async function GET() {
       cacheReadTokens: Number(record.cacheReadTokens),
       modelsUsed: record.modelsUsed as string[],
       createdAt: record.createdAt
+    }))
+
+    // Process device-specific data for multi-device charts
+    const deviceData = deviceDailyRecords.map(record => ({
+      date: record.date,
+      deviceId: record.deviceId,
+      totalCost: Number(record.totalCost),
+      totalTokens: Number(record.totalTokens),
+      inputTokens: Number(record.inputTokens),
+      outputTokens: Number(record.outputTokens),
+      cacheCreationTokens: Number(record.cacheCreationTokens),
+      cacheReadTokens: Number(record.cacheReadTokens),
+    }))
+
+    // Create device info map with accurate statistics
+    const devicesData = deviceInfo.map((device, index) => ({
+      deviceId: device.deviceId,
+      deviceName: device.deviceName || `Device ${index + 1}`,
+      recordCount: Number(device.totalRecords || 0),
+      totalCost: Number(device.totalCost || 0),
+      lastActiveDate: device.lastActiveDate,
+      createdAt: device.createdAt,
+      updatedAt: device.updatedAt
     }))
 
     // Calculate derived metrics
@@ -107,7 +161,9 @@ export async function GET() {
         recordCount: Number(currentCycleTotals?.recordCount || 0),
         avgDailyCost: Number(currentCycleTotals?.recordCount || 0) > 0 ? Number(currentCycleTotals?.totalCost || 0) / Number(currentCycleTotals?.recordCount || 0) : 0
       },
-      daily: dailyData
+      daily: dailyData,
+      devices: devicesData,
+      deviceData: deviceData
     })
   } catch (error) {
     console.error('Error fetching usage stats:', error)

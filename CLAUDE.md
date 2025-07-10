@@ -45,50 +45,18 @@ pnpm typecheck             # Run TypeScript compiler check
 ```bash
 pnpm dlx shadcn@latest add button -c apps/web
 ```
-This places components in `packages/ui/src/components/` and makes them available to all apps.
 
 ## Component System
 
-**UI Package Structure:**
-- Components are in `packages/ui/src/components/`
-- Utilities are in `packages/ui/src/lib/`
-- Global styles are in `packages/ui/src/styles/globals.css`
-
-**Component Import Pattern:**
+**Import Pattern:**
 ```tsx
 import { Button } from "@workspace/ui/components/button"
 ```
 
-**Component Architecture:**
-- Built on Radix UI primitives
-- Uses `class-variance-authority` for variant management
+**Architecture:**
+- Built on Radix UI primitives with shadcn/ui
 - Styled with Tailwind CSS
-- Supports theme switching with `next-themes`
-
-## Build System
-
-**Turbo Configuration:**
-- Build tasks run in dependency order
-- Lint tasks run in parallel
-- Dev mode is persistent and uncached
-- TypeScript checking with `check-types` task
-
-**Package Management:**
-- Uses pnpm workspaces
-- Workspace dependencies use `workspace:*` protocol
-- Node.js ≥20 required
-
-## TypeScript & Linting
-
-**TypeScript:**
-- Strict mode enabled
-- Shared configs in `packages/typescript-config/`
-- Different configs for Next.js apps vs libraries
-
-**ESLint:**
-- Shared configs in `packages/eslint-config/`
-- Configurations for base, Next.js, and React components
-- Uses TypeScript ESLint parser and rules
+- TypeScript strict mode enabled
 
 ## Database & ORM
 
@@ -111,59 +79,176 @@ pnpm db:studio               # Open Drizzle Studio to view/edit data
 ```
 
 **Key Tables:**
-- `usage_records` - Claude API usage data with daily aggregation
-  - Unique constraint on `date` field for upsert operations
-  - Includes tokens, costs, and raw ccusage data
+- `usage_records` - Claude API usage data with daily aggregation per device
+- `devices` - Device information and metadata
+- Both tables use unique constraints for upsert operations
 
-## UI Design Standards
+## Chart Development Standards
 
-### shadcn/ui Component Guidelines
+### Architecture Overview
 
-**Chart Components:**
-- Always import `ChartConfig` and use `satisfies ChartConfig` for type safety
-- Chart configuration should follow this pattern:
+**Chart System Structure:**
+```
+/types/chart-types.ts          # Unified type definitions
+/constants/chart-config.ts     # Configuration constants  
+/hooks/use-chart-data.ts       # Data processing hooks
+/components/[chart-name].tsx   # UI rendering components
+/api/[endpoint]/route.ts       # Backend queries
+```
+
+### Adding New Charts - Standard Process
+
+**1. Define Types (types/chart-types.ts)**
 ```tsx
-const chartConfig = {
-  cost: {
-    label: "Cost",
+// Add new interfaces following existing patterns
+interface NewChartRecord {
+  date: string
+  [key: string]: string | number  // Chart-specific fields
+}
+
+interface NewChartData {
+  chartData: NewChartRecord[]
+  chartConfig: Record<string, { label: string; color: string }>
+}
+```
+
+**2. Add Configuration (constants/chart-config.ts)**
+```tsx
+export const NEW_CHART_CONFIG = {
+  field1: {
+    label: "Field 1",
     color: "var(--chart-1)"
   },
-  // ... other chart series
-} satisfies ChartConfig
+  field2: {
+    label: "Field 2", 
+    color: "var(--chart-2)"
+  }
+} as const
 ```
 
-**Card Component Layout Standards:**
-- **Chart containers**: Use `<Card className="pt-0">` to provide proper spacing for charts
-- **Non-chart containers**: Use `<Card>` (no pt-0) to maintain vertical centering
-- **Statistics cards**: Use `<Card>` (no pt-0) to ensure content is vertically centered
-
-**CardContent Spacing Rules:**
-- **Chart containers**: `className="px-2 pt-4 sm:px-6 sm:pt-6"` (charts need top space, tight bottom)
-- **Non-chart containers**: `className="px-2 py-4 sm:px-6 sm:py-4"` (symmetric vertical spacing)
-- **Statistics cards**: `className="p-6"` (symmetric padding on all sides)
-
-**Chart XAxis Standards:**
-- Use inline `tickFormatter` functions for date formatting
-- Set `dataKey="date"` directly on chart data
-- Example:
+**3. Create Data Hook (hooks/use-chart-data.ts)**
 ```tsx
-<XAxis
-  dataKey="date"
-  tickLine={false}
-  axisLine={false}
-  tickMargin={8}
-  minTickGap={32}
-  tickFormatter={(value) => {
-    const date = new Date(value)
-    return date.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-    })
-  }}
-/>
+export function useNewChartData(
+  rawData: RawDataType[],
+  timeRange: TimeRange
+): NewChartData {
+  return useMemo(() => {
+    // Data transformation logic
+    const processedData = rawData.map(record => ({
+      date: record.date,
+      // Transform fields
+    }))
+    
+    // Apply time filtering
+    const filteredData = filterByTimeRange(processedData, timeRange)
+    
+    return {
+      chartData: filteredData,
+      chartConfig: NEW_CHART_CONFIG
+    }
+  }, [rawData, timeRange])
+}
 ```
 
-**Container Hierarchy:**
-- All major sections follow the pattern: `Card` > `CardHeader` > `CardContent`
-- CardHeader uses: `className="flex items-center gap-2 space-y-0 border-b py-5 sm:flex-row"`
-- Maintain consistent grid layouts and responsive breakpoints
+**4. API Query Optimization**
+```tsx
+// In /api/[endpoint]/route.ts
+const newChartData = await db
+  .select({
+    // Select only needed fields
+    date: table.date,
+    value: sql<number>`SUM(${table.value})::numeric`,
+    // Use aggregation when possible
+  })
+  .from(table)
+  .groupBy(table.date)
+  .orderBy(desc(table.date))
+  .limit(appropriate_limit)
+```
+
+### Adding New API Queries - Standards
+
+**1. Query Structure Pattern**
+```tsx
+// Always use typed select with explicit field mapping
+const results = await db
+  .select({
+    fieldName: sql<ExpectedType>`SQL_EXPRESSION`,
+    // Use proper type casting (::numeric, ::bigint, etc.)
+  })
+  .from(primaryTable)
+  .leftJoin(relatedTable, eq(primaryTable.id, relatedTable.foreignId))
+  .where(sql`appropriate_filters`)
+  .groupBy(groupingFields)
+  .orderBy(desc(orderField))
+```
+
+**2. Performance Considerations**
+- Use `sql<Type>` for aggregations with proper PostgreSQL casting
+- Limit results appropriately (30 for daily, 300 for device-specific)
+- Add database indexes for frequently queried fields
+- Use LEFT JOIN instead of multiple queries when possible
+
+**3. Data Processing Standards**
+```tsx
+// Transform database results to chart format
+const processedData = rawResults.map(record => ({
+  // Convert numeric fields explicitly
+  numericField: Number(record.numericField || 0),
+  // Handle optional fields safely
+  optionalField: record.optionalField || defaultValue,
+  // Preserve date strings as-is for chart compatibility
+  date: record.date
+}))
+```
+
+### shadcn/ui Chart Implementation
+
+**Card Layout Standards:**
+- **Chart containers**: `<Card className="pt-0">`
+- **CardContent**: `className="px-2 pt-4 sm:px-6 sm:pt-6"`
+- **CardHeader**: `className="flex items-center gap-2 space-y-0 border-b py-5 sm:flex-row"`
+
+**Chart Configuration Pattern:**
+```tsx
+const chartConfig = PREDEFINED_CONFIG satisfies ChartConfig
+
+<ChartContainer config={chartConfig} className="aspect-auto h-[250px] w-full">
+  <AreaChart data={chartData}>
+    <CartesianGrid vertical={false} />
+    <XAxis
+      dataKey="date"
+      tickFormatter={(value) => {
+        const date = new Date(value)
+        return date.toLocaleDateString("en-US", {
+          month: "short", day: "numeric"
+        })
+      }}
+    />
+    <ChartTooltip content={<ChartTooltipContent />} />
+    <ChartLegend content={<ChartLegendContent />} />
+  </AreaChart>
+</ChartContainer>
+```
+
+### Key Principles
+
+**Type Safety:**
+- Always use shared types from `/types/chart-types.ts`
+- Use `satisfies ChartConfig` for chart configurations
+- Explicit type casting for database queries
+
+**Performance:**
+- Use `useMemo` for expensive data transformations
+- Implement proper database aggregation
+- Cache-friendly time range filtering
+
+**Maintainability:**
+- Centralize configuration in constants
+- Separate data logic into custom hooks
+- Keep components focused on UI rendering only
+
+**Consistency:**
+- Follow established naming conventions
+- Use standardized color schemes from CHART_COLORS
+- Maintain uniform spacing and layout patterns

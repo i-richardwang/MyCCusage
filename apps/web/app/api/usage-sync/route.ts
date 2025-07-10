@@ -2,9 +2,22 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/src/db'
 import { devices, usageRecords } from '@/src/db/schema'
 import { eq, and } from 'drizzle-orm'
-import type { UsageData } from 'ccusage-collector'
-
-type UsageSyncRequest = UsageData
+interface UsageSyncRequest {
+  device: {
+    deviceId: string
+    deviceName: string
+  }
+  daily: Array<{
+    date: string
+    totalTokens: number
+    totalCost: number
+    inputTokens: number
+    outputTokens: number
+    cacheCreationTokens: number
+    cacheReadTokens: number
+    modelsUsed: string[]
+  }>
+}
 
 export async function POST(request: NextRequest) {
   try {

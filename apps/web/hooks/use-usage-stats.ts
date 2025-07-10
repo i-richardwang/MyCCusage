@@ -1,18 +1,7 @@
 "use client"
 
 import { useEffect, useState } from 'react'
-
-interface DailyRecord {
-  date: string
-  totalCost: number
-  totalTokens: number
-  inputTokens: number
-  outputTokens: number
-  cacheCreationTokens: number
-  cacheReadTokens: number
-  modelsUsed: string[]
-  createdAt: Date
-}
+import { DailyRecord, DeviceRecord, Device } from '@/types/chart-types'
 
 interface UsageStats {
   billingCycle: {
@@ -43,6 +32,8 @@ interface UsageStats {
     avgDailyCost: number
   }
   daily: DailyRecord[]
+  devices: Device[]
+  deviceData: DeviceRecord[]
 }
 
 export function useUsageStats() {
