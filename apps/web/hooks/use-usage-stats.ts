@@ -2,10 +2,30 @@
 
 import { useEffect, useState } from 'react'
 
-interface UsageStats {
+interface DailyRecord {
+  date: string
   totalCost: number
   totalTokens: number
-  recordCount: number
+  inputTokens: number
+  outputTokens: number
+  cacheCreationTokens: number
+  cacheReadTokens: number
+  modelsUsed: string[]
+  createdAt: Date
+}
+
+interface UsageStats {
+  totals: {
+    totalCost: number
+    totalTokens: number
+    totalInputTokens: number
+    totalOutputTokens: number
+    totalCacheCreationTokens: number
+    totalCacheReadTokens: number
+    recordCount: number
+    avgDailyCost: number
+  }
+  daily: DailyRecord[]
 }
 
 export function useUsageStats() {

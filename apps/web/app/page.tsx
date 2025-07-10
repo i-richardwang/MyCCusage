@@ -1,7 +1,10 @@
 "use client"
 
-import { MetricCard } from "@/components/metric-card"
 import { useUsageStats } from "@/hooks/use-usage-stats"
+import { StatsCards } from "@/components/stats-cards"
+import { PlanComparison } from "@/components/plan-comparison"
+import { ChartTabs } from "@/components/chart-tabs"
+import { RecentActivity } from "@/components/recent-activity"
 
 export default function Page() {
   const { stats, loading, error } = useUsageStats()
@@ -22,29 +25,46 @@ export default function Page() {
     )
   }
 
-  return (
-    <div className="container mx-auto p-6">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight">Claude Code Usage Monitor</h1>
-        <p className="text-muted-foreground">Monitor your Claude API usage statistics</p>
+  if (!stats) {
+    return (
+      <div className="flex items-center justify-center min-h-svh">
+        <div className="text-lg">No data available</div>
       </div>
-      
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        <MetricCard
-          title="Total Cost"
-          value={`$${stats?.totalCost.toFixed(4) || '0.0000'}`}
-          description="Total API costs"
+    )
+  }
+
+  return (
+    <div className="min-h-screen">
+      {/* Header navigation */}
+      <div className="border-b bg-background/95 backdrop-blur sticky top-0 z-50">
+        <div className="container mx-auto px-4 sm:px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">Claude Code Usage Monitor</h1>
+              <p className="text-sm text-muted-foreground">Monitor your Claude API usage statistics</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Main content area */}
+      <div className="container mx-auto px-4 sm:px-6 py-8 space-y-8">
+        {/* Statistics cards section */}
+        <StatsCards
+          totalCost={stats.totals.totalCost}
+          totalTokens={stats.totals.totalTokens}
+          avgDailyCost={stats.totals.avgDailyCost}
+          activeDays={stats.totals.recordCount}
         />
-        <MetricCard
-          title="Total Tokens"
-          value={stats?.totalTokens.toLocaleString() || '0'}
-          description="Total tokens processed"
-        />
-        <MetricCard
-          title="Total Records"
-          value={stats?.recordCount.toLocaleString() || '0'}
-          description="Number of usage records"
-        />
+
+        {/* Plan comparison section */}
+        <PlanComparison totalCost={stats.totals.totalCost} />
+
+        {/* Chart tabs section */}
+        <ChartTabs dailyData={stats.daily} totals={stats.totals} />
+
+        {/* Recent activity table section */}
+        <RecentActivity dailyData={stats.daily} />
       </div>
     </div>
   )
