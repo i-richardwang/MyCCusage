@@ -46,7 +46,7 @@ export interface ChartRecord {
   cacheTokens: number
 }
 
-export type TimeRange = "7d" | "14d" | "30d"
+export type TimeRange = "all" | "7d" | "14d" | "30d"
 
 export interface ChartConfig {
   [key: string]: {

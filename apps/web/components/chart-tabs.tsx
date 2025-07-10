@@ -1,15 +1,13 @@
 "use client"
 
-import * as React from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@workspace/ui/components/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@workspace/ui/components/tabs"
 import { Progress } from "@workspace/ui/components/progress"
-import { ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@workspace/ui/components/chart"
+import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@workspace/ui/components/chart"
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, XAxis } from "recharts"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
-import { useSingleDeviceChartData, useMultiDeviceChartData } from "@/hooks/use-chart-data"
+import { useMultiDeviceChartData, useTokenBreakdownChartData, useMultiDeviceTokenData } from "@/hooks/use-chart-data"
 import { DailyRecord, DeviceRecord, Device, TimeRange } from "@/types/chart-types"
-import { BASE_CHART_CONFIG, CHART_COLORS } from "@/constants/chart-config"
+import { CHART_COLORS } from "@/constants/chart-config"
 
 interface ChartTabsProps {
   dailyData: DailyRecord[]
@@ -23,10 +21,10 @@ interface ChartTabsProps {
     totalCacheCreationTokens: number
     totalCacheReadTokens: number
   }
+  timeRange: TimeRange
 }
 
-export function ChartTabs({ dailyData, devices, deviceData, totals }: ChartTabsProps) {
-  const [timeRange, setTimeRange] = React.useState<TimeRange>("30d")
+export function ChartTabs({ dailyData, devices, deviceData, totals, timeRange }: ChartTabsProps) {
 
   // Use custom hooks for chart data
   const { chartData: multiDeviceChartData, chartConfig: multiDeviceChartConfig } = useMultiDeviceChartData(
@@ -35,8 +33,15 @@ export function ChartTabs({ dailyData, devices, deviceData, totals }: ChartTabsP
     timeRange
   )
 
-  const filteredData = useSingleDeviceChartData(dailyData, timeRange)
-  const chartConfig = BASE_CHART_CONFIG satisfies ChartConfig
+  const { chartData: tokenBreakdownData, chartConfig: tokenBreakdownConfig } = useTokenBreakdownChartData(
+    dailyData,
+    timeRange
+  )
+  const { chartData: multiDeviceTokenData, chartConfig: multiDeviceTokenConfig } = useMultiDeviceTokenData(
+    deviceData,
+    devices,
+    timeRange
+  )
 
 
   // Calculate cache hit rate
@@ -55,145 +60,145 @@ export function ChartTabs({ dailyData, devices, deviceData, totals }: ChartTabsP
       {/* Overview tab */}
       <TabsContent value="overview">
         <div className="space-y-6">
-          {/* Daily cost trend chart */}
-          <Card className="pt-0">
-            <CardHeader className="flex items-center gap-2 space-y-0 border-b py-5 sm:flex-row">
-              <div className="grid flex-1 gap-1">
-                <CardTitle>Daily Cost Trend</CardTitle>
-                <CardDescription>
-                  Showing usage costs over time
-                </CardDescription>
-              </div>
-              <Select value={timeRange} onValueChange={(value) => setTimeRange(value as TimeRange)}>
-                <SelectTrigger
-                  className="hidden w-[160px] rounded-lg sm:ml-auto sm:flex"
-                  aria-label="Select a value"
+
+          {/* Cost and Token charts - side by side */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Cost trend chart */}
+            <Card className="pt-0">
+              <CardHeader className="flex items-center gap-2 space-y-0 border-b py-5 sm:flex-row">
+                <div className="grid flex-1 gap-1">
+                  <CardTitle>Cost Trend</CardTitle>
+                  <CardDescription>
+                    Usage costs over time
+                  </CardDescription>
+                </div>
+              </CardHeader>
+              <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
+                <ChartContainer
+                  config={multiDeviceChartConfig}
+                  className="aspect-auto h-[250px] w-full"
                 >
-                  <SelectValue placeholder="Last 30 days" />
-                </SelectTrigger>
-                <SelectContent className="rounded-xl">
-                  <SelectItem value="30d" className="rounded-lg">
-                    Last 30 days
-                  </SelectItem>
-                  <SelectItem value="14d" className="rounded-lg">
-                    Last 14 days
-                  </SelectItem>
-                  <SelectItem value="7d" className="rounded-lg">
-                    Last 7 days
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </CardHeader>
-            <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
-              <ChartContainer
-                config={multiDeviceChartConfig}
-                className="aspect-auto h-[250px] w-full"
-              >
-                <AreaChart data={multiDeviceChartData}>
-                  <defs>
-                    {devices.map((device, deviceIndex) => {
-                      const color = CHART_COLORS[deviceIndex % CHART_COLORS.length]
-                      return (
-                        <linearGradient key={device.deviceId} id={`fill${device.deviceId}`} x1="0" y1="0" x2="0" y2="1">
-                          <stop
-                            offset="5%"
-                            stopColor={color}
-                            stopOpacity={0.8}
-                          />
-                          <stop
-                            offset="95%"
-                            stopColor={color}
-                            stopOpacity={0.1}
-                          />
-                        </linearGradient>
-                      )
-                    })}
-                  </defs>
-                  <CartesianGrid vertical={false} />
-                  <XAxis
-                    dataKey="date"
-                    tickLine={false}
-                    axisLine={false}
-                    tickMargin={8}
-                    minTickGap={32}
-                    tickFormatter={(value) => {
-                      const date = new Date(value)
-                      return date.toLocaleDateString("en-US", {
-                        month: "short",
-                        day: "numeric",
-                      })
-                    }}
-                  />
-                  <ChartTooltip
-                    cursor={false}
-                    content={
-                      <ChartTooltipContent
-                        labelFormatter={(value) => {
-                          return new Date(value).toLocaleDateString("en-US", {
-                            month: "short",
-                            day: "numeric",
-                          })
-                        }}
-                        indicator="dot"
-                      />
-                    }
-                  />
-                  {devices.map((device) => (
-                    <Area
-                      key={device.deviceId}
-                      dataKey={device.deviceId}
-                      type="natural"
-                      fill={`url(#fill${device.deviceId})`}
-                      stroke={multiDeviceChartConfig[device.deviceId]?.color}
-                      stackId="a"
+                  <AreaChart data={multiDeviceChartData}>
+                    <defs>
+                      {devices.map((device, deviceIndex) => {
+                        const color = CHART_COLORS[deviceIndex % CHART_COLORS.length]
+                        return (
+                          <linearGradient key={device.deviceId} id={`fill${device.deviceId}`} x1="0" y1="0" x2="0" y2="1">
+                            <stop
+                              offset="5%"
+                              stopColor={color}
+                              stopOpacity={0.8}
+                            />
+                            <stop
+                              offset="95%"
+                              stopColor={color}
+                              stopOpacity={0.1}
+                            />
+                          </linearGradient>
+                        )
+                      })}
+                    </defs>
+                    <CartesianGrid vertical={false} />
+                    <XAxis
+                      dataKey="date"
+                      tickLine={false}
+                      axisLine={false}
+                      tickMargin={8}
+                      minTickGap={32}
+                      tickFormatter={(value) => {
+                        const date = new Date(value)
+                        return date.toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                        })
+                      }}
                     />
-                  ))}
-                  <ChartLegend content={<ChartLegendContent />} />
-                </AreaChart>
-              </ChartContainer>
-            </CardContent>
-          </Card>
-          
-          {/* Token usage chart */}
-          <Card className="pt-0">
-            <CardHeader className="flex items-center gap-2 space-y-0 border-b py-5 sm:flex-row">
-              <div className="grid flex-1 gap-1">
-                <CardTitle>Token Usage</CardTitle>
-                <CardDescription>
-                  Daily token consumption (in millions)
-                </CardDescription>
-              </div>
-            </CardHeader>
-            <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
-              <ChartContainer
-                config={chartConfig}
-                className="aspect-auto h-[250px] w-full"
-              >
-                <BarChart data={filteredData}>
-                  <CartesianGrid vertical={false} />
-                  <XAxis
-                    dataKey="date"
-                    tickLine={false}
-                    axisLine={false}
-                    tickMargin={8}
-                    minTickGap={32}
-                    tickFormatter={(value) => {
-                      const date = new Date(value)
-                      return date.toLocaleDateString("en-US", {
-                        month: "short",
-                        day: "numeric",
-                      })
-                    }}
-                  />
-                  <ChartTooltip
-                    cursor={false}
-                    content={<ChartTooltipContent indicator="dashed" />}
-                  />
-                  <Bar dataKey="tokens" fill="var(--color-tokens)" radius={4} />
-                </BarChart>
-              </ChartContainer>
-            </CardContent>
-          </Card>
+                    <ChartTooltip
+                      cursor={false}
+                      content={
+                        <ChartTooltipContent
+                          labelFormatter={(value) => {
+                            return new Date(value).toLocaleDateString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                            })
+                          }}
+                          indicator="dot"
+                        />
+                      }
+                    />
+                    {devices.map((device) => (
+                      <Area
+                        key={device.deviceId}
+                        dataKey={device.deviceId}
+                        type="natural"
+                        fill={`url(#fill${device.deviceId})`}
+                        stroke={multiDeviceChartConfig[device.deviceId]?.color}
+                        stackId="a"
+                      />
+                    ))}
+                    <ChartLegend content={<ChartLegendContent />} />
+                  </AreaChart>
+                </ChartContainer>
+              </CardContent>
+            </Card>
+            
+            {/* Token usage chart */}
+            <Card className="pt-0">
+              <CardHeader className="flex items-center gap-2 space-y-0 border-b py-5 sm:flex-row">
+                <div className="grid flex-1 gap-1">
+                  <CardTitle>Token Usage</CardTitle>
+                  <CardDescription>
+                    Token consumption over time (millions)
+                  </CardDescription>
+                </div>
+              </CardHeader>
+              <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
+                <ChartContainer
+                  config={multiDeviceTokenConfig}
+                  className="aspect-auto h-[250px] w-full"
+                >
+                  <BarChart data={multiDeviceTokenData}>
+                    <CartesianGrid vertical={false} />
+                    <XAxis
+                      dataKey="date"
+                      tickLine={false}
+                      axisLine={false}
+                      tickMargin={8}
+                      minTickGap={32}
+                      tickFormatter={(value) => {
+                        const date = new Date(value)
+                        return date.toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                        })
+                      }}
+                    />
+                    <ChartTooltip
+                      cursor={false}
+                      content={<ChartTooltipContent hideLabel />}
+                    />
+                    <ChartLegend content={<ChartLegendContent />} />
+                    {devices.map((device, index) => (
+                      <Bar
+                        key={device.deviceId}
+                        dataKey={device.deviceId}
+                        stackId="a"
+                        fill={multiDeviceTokenConfig[device.deviceId]?.color}
+                        radius={
+                          index === 0 
+                            ? [0, 0, 4, 4] 
+                            : index === devices.length - 1
+                            ? [4, 4, 0, 0]
+                            : [0, 0, 0, 0]
+                        }
+                      />
+                    ))}
+                  </BarChart>
+                </ChartContainer>
+              </CardContent>
+            </Card>
+          </div>
         </div>
       </TabsContent>
 
@@ -204,50 +209,28 @@ export function ChartTabs({ dailyData, devices, deviceData, totals }: ChartTabsP
             <div className="grid flex-1 gap-1">
               <CardTitle>Token Breakdown Analysis</CardTitle>
               <CardDescription>
-                Detailed token usage by type over time
+                Detailed token usage by type over time (millions)
               </CardDescription>
             </div>
           </CardHeader>
           <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
-            <ChartContainer config={chartConfig} className="aspect-auto h-[300px] w-full">
-              <AreaChart data={filteredData}>
+            <ChartContainer config={tokenBreakdownConfig} className="aspect-auto h-[300px] w-full">
+              <AreaChart data={tokenBreakdownData}>
                 <defs>
-                  <linearGradient id="fillInput" x1="0" y1="0" x2="0" y2="1">
-                    <stop
-                      offset="5%"
-                      stopColor="var(--color-inputTokens)"
-                      stopOpacity={0.8}
-                    />
-                    <stop
-                      offset="95%"
-                      stopColor="var(--color-inputTokens)"
-                      stopOpacity={0.1}
-                    />
-                  </linearGradient>
-                  <linearGradient id="fillOutput" x1="0" y1="0" x2="0" y2="1">
-                    <stop
-                      offset="5%"
-                      stopColor="var(--color-outputTokens)"
-                      stopOpacity={0.8}
-                    />
-                    <stop
-                      offset="95%"
-                      stopColor="var(--color-outputTokens)"
-                      stopOpacity={0.1}
-                    />
-                  </linearGradient>
-                  <linearGradient id="fillCache" x1="0" y1="0" x2="0" y2="1">
-                    <stop
-                      offset="5%"
-                      stopColor="var(--color-cacheTokens)"
-                      stopOpacity={0.8}
-                    />
-                    <stop
-                      offset="95%"
-                      stopColor="var(--color-cacheTokens)"
-                      stopOpacity={0.1}
-                    />
-                  </linearGradient>
+                  {Object.entries(tokenBreakdownConfig).map(([key, config]) => (
+                    <linearGradient key={key} id={`fill${key}`} x1="0" y1="0" x2="0" y2="1">
+                      <stop
+                        offset="5%"
+                        stopColor={config.color}
+                        stopOpacity={0.8}
+                      />
+                      <stop
+                        offset="95%"
+                        stopColor={config.color}
+                        stopOpacity={0.1}
+                      />
+                    </linearGradient>
+                  ))}
                 </defs>
                 <CartesianGrid vertical={false} />
                 <XAxis
@@ -268,27 +251,16 @@ export function ChartTabs({ dailyData, devices, deviceData, totals }: ChartTabsP
                   cursor={false}
                   content={<ChartTooltipContent indicator="dot" />}
                 />
-                <Area 
-                  dataKey="cacheTokens" 
-                  type="natural"
-                  fill="url(#fillCache)"
-                  stroke="var(--color-cacheTokens)"
-                  stackId="a"
-                />
-                <Area 
-                  dataKey="outputTokens" 
-                  type="natural"
-                  fill="url(#fillOutput)"
-                  stroke="var(--color-outputTokens)"
-                  stackId="a"
-                />
-                <Area 
-                  dataKey="inputTokens" 
-                  type="natural"
-                  fill="url(#fillInput)"
-                  stroke="var(--color-inputTokens)"
-                  stackId="a"
-                />
+                {(Object.keys(tokenBreakdownConfig) as Array<keyof typeof tokenBreakdownConfig>).reverse().map((tokenType) => (
+                  <Area 
+                    key={tokenType}
+                    dataKey={tokenType} 
+                    type="natural"
+                    fill={`url(#fill${tokenType})`}
+                    stroke={tokenBreakdownConfig[tokenType].color}
+                    stackId="a"
+                  />
+                ))}
                 <ChartLegend content={<ChartLegendContent />} />
               </AreaChart>
             </ChartContainer>

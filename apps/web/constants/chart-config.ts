@@ -15,13 +15,16 @@ export const BASE_CHART_CONFIG = {
   tokens: {
     label: "Tokens",
     color: "var(--chart-2)"
-  },
+  }
+} as const
+
+export const TOKEN_BREAKDOWN_CHART_CONFIG = {
   inputTokens: {
     label: "Input Tokens",
     color: "var(--chart-1)"
   },
   outputTokens: {
-    label: "Output Tokens",
+    label: "Output Tokens", 
     color: "var(--chart-2)"
   },
   cacheTokens: {
@@ -31,6 +34,7 @@ export const BASE_CHART_CONFIG = {
 } as const
 
 export const TIME_RANGE_DAYS = {
+  "all": Infinity,
   "7d": 7,
   "14d": 14,
   "30d": 30

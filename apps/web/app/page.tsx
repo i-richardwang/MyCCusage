@@ -1,13 +1,17 @@
 "use client"
 
+import { useState } from "react"
 import { useUsageStats } from "@/hooks/use-usage-stats"
 import { StatsCards } from "@/components/stats-cards"
 import { PlanComparison } from "@/components/plan-comparison"
 import { ChartTabs } from "@/components/chart-tabs"
 import { RecentActivity } from "@/components/recent-activity"
+import { FilterBar } from "@/components/filter-bar"
+import { TimeRange } from "@/types/chart-types"
 
 export default function Page() {
   const { stats, loading, error } = useUsageStats()
+  const [timeRange, setTimeRange] = useState<TimeRange>("all")
 
   if (loading) {
     return (
@@ -65,16 +69,23 @@ export default function Page() {
           daysRemaining={stats.billingCycle.daysRemaining}
         />
 
+        {/* Global filter bar */}
+        <FilterBar 
+          timeRange={timeRange}
+          onTimeRangeChange={setTimeRange}
+        />
+
         {/* Chart tabs section */}
         <ChartTabs 
           dailyData={stats.daily} 
           devices={stats.devices} 
           deviceData={stats.deviceData} 
-          totals={stats.totals} 
+          totals={stats.totals}
+          timeRange={timeRange}
         />
 
         {/* Recent activity table section */}
-        <RecentActivity dailyData={stats.daily} />
+        <RecentActivity dailyData={stats.daily} timeRange={timeRange} />
       </div>
     </div>
   )
