@@ -10,6 +10,7 @@ interface UsageStats {
     label: string
     startDay: number
     daysRemaining: number
+    startDateConfig: string
   }
   totals: {
     totalCost: number
@@ -40,6 +41,13 @@ interface UsageStats {
     totalCacheReadTokens: number
     activeDays: number
     avgDailyCost: number
+  }
+  cumulative: {
+    totalCost: number
+    totalTokens: number
+    activeDays: number
+    earliestDate: string | null
+    latestDate: string | null
   }
   daily: DailyRecord[]
   devices: Device[]

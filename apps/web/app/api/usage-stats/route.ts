@@ -90,6 +90,17 @@ export async function GET() {
     const prevCycleStartDate = formatDateForSQL(previousCycle.startDate)
     const prevCycleEndDate = formatDateForSQL(previousCycle.endDate)
 
+    // Get cumulative stats for ROI calculations
+    const cumulativeStats = await db
+      .select({
+        totalCost: sql<number>`SUM(${usageRecords.totalCost})::numeric`,
+        totalTokens: sql<number>`SUM(${usageRecords.totalTokens})::bigint`,
+        activeDays: sql<number>`COUNT(DISTINCT ${usageRecords.date})::bigint`,
+        earliestDate: sql<string>`MIN(${usageRecords.date})`,
+        latestDate: sql<string>`MAX(${usageRecords.date})`
+      })
+      .from(usageRecords)
+
     // Execute all stats queries in parallel using the unified function
     const [totalStats, currentCycleStats, previousCycleStats] = await Promise.all([
       getUsageStats(),
@@ -186,6 +197,16 @@ export async function GET() {
       updatedAt: device.updatedAt
     }))
 
+    // Process cumulative stats for ROI calculations
+    const cumulativeData = cumulativeStats[0]
+    const processedCumulative = {
+      totalCost: safeNumber(cumulativeData?.totalCost),
+      totalTokens: safeNumber(cumulativeData?.totalTokens),
+      activeDays: safeNumber(cumulativeData?.activeDays),
+      earliestDate: cumulativeData?.earliestDate || null,
+      latestDate: cumulativeData?.latestDate || null
+    }
+
     // Calculate derived metrics
     const activeDays = totals.activeDays
     const avgDailyCost = activeDays > 0 ? totals.totalCost / activeDays : 0
@@ -230,7 +251,8 @@ export async function GET() {
       },
       daily: dailyData,
       devices: devicesData,
-      deviceData: deviceData
+      deviceData: deviceData,
+      cumulative: processedCumulative
     })
   } catch (error) {
     console.error('Error fetching usage stats:', error)

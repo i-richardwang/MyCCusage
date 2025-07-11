@@ -75,7 +75,7 @@ export function FilterBar({ timeRange, onTimeRangeChange, dateRange, onDateRange
             <SelectItem value="7d" className="rounded-lg">
               Last 7 days
             </SelectItem>
-            <SelectItem value="custom" className="rounded-lg">
+            <SelectItem value="custom" className="rounded-lg" disabled>
               Custom
             </SelectItem>
           </SelectContent>

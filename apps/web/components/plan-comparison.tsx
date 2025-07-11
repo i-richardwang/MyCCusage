@@ -1,29 +1,49 @@
 "use client"
 
+import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@workspace/ui/components/card"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
+import { 
+  calculateCumulativeMetrics, 
+  getCumulativeUserStatus, 
+  formatCurrency, 
+  formatSavings,
+  type CumulativeDataInput 
+} from "@/lib/cumulative-metrics"
+
+type ROIMode = 'current' | 'cumulative'
 
 interface PlanComparisonProps {
   currentCycleCost: number
   previousCycleCost: number
   billingCycleLabel?: string
   daysRemaining?: number
+  cumulativeData?: CumulativeDataInput
+  billingStartDate?: string
 }
 
-export function PlanComparison({ currentCycleCost, previousCycleCost, billingCycleLabel, daysRemaining }: PlanComparisonProps) {
-  const formatCurrency = (amount: number) => {
-    return `$${amount.toFixed(2)}`
-  }
-
-  // Calculate value gained from subscription plans
-  const max100Value = currentCycleCost - 100  // How much value gained vs $100 plan
-  const max200Value = currentCycleCost - 200  // How much value gained vs $200 plan
+export function PlanComparison({ 
+  currentCycleCost, 
+  previousCycleCost, 
+  billingCycleLabel, 
+  daysRemaining,
+  cumulativeData,
+  billingStartDate 
+}: PlanComparisonProps) {
+  const [roiMode, setROIMode] = useState<ROIMode>('current')
   
-  // Calculate month-over-month comparison
+  // Calculate cumulative metrics if data is available
+  const cumulativeMetrics = cumulativeData && billingStartDate 
+    ? calculateCumulativeMetrics(cumulativeData, billingStartDate)
+    : null
+
+  // Current cycle calculations
+  const max100Value = currentCycleCost - 100
+  const max200Value = currentCycleCost - 200
   const monthlyChange = currentCycleCost - previousCycleCost
   const monthlyChangePercent = previousCycleCost > 0 ? ((monthlyChange / previousCycleCost) * 100) : 0
   
-  // Dynamic user status based on usage
-  const getUserStatus = () => {
+  const getCurrentUserStatus = () => {
     if (currentCycleCost >= 200) {
       return { title: "Heavy User", subtitle: "Great Value!", color: "text-green-600" }
     } else if (currentCycleCost >= 100) {
@@ -35,7 +55,13 @@ export function PlanComparison({ currentCycleCost, previousCycleCost, billingCyc
     }
   }
   
-  const userStatus = getUserStatus()
+  // Determine which data to display based on mode
+  const isCurrentMode = roiMode === 'current'
+  const userStatus = isCurrentMode ? getCurrentUserStatus() : getCumulativeUserStatus(cumulativeMetrics?.avgMonthlyCost || 0)
+  
+  // Format savings for cumulative mode
+  const vs100Savings = cumulativeMetrics ? formatSavings(cumulativeMetrics.totalSavedVs100) : null
+  const vs200Savings = cumulativeMetrics ? formatSavings(cumulativeMetrics.totalSavedVs200) : null
 
   return (
     <Card className="pt-0">
@@ -45,6 +71,18 @@ export function PlanComparison({ currentCycleCost, previousCycleCost, billingCyc
           <CardDescription>
             Track your subscription returns - how much value you&apos;re harvesting!
           </CardDescription>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium">View:</span>
+          <Select value={roiMode} onValueChange={(value: ROIMode) => setROIMode(value)}>
+            <SelectTrigger className="w-[160px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="current">Current Cycle</SelectItem>
+              <SelectItem value="cumulative">Since Start</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </CardHeader>
       <CardContent className="px-2 py-4 sm:px-6 sm:py-4">
@@ -59,57 +97,102 @@ export function PlanComparison({ currentCycleCost, previousCycleCost, billingCyc
             </CardHeader>
           </Card>
           
-          {/* Current API Value */}
+          {/* API Value Consumed */}
           <Card>
             <CardHeader className="pb-2">
               <CardDescription>API Value Consumed</CardDescription>
-              <CardTitle className="text-3xl">{formatCurrency(currentCycleCost)}</CardTitle>
+              <CardTitle className="text-3xl">
+                {isCurrentMode 
+                  ? formatCurrency(currentCycleCost)
+                  : formatCurrency(cumulativeMetrics?.totalCostAllTime || 0)
+                }
+              </CardTitle>
               <CardDescription>
-                vs last month: 
-                <span className={`ml-1 ${monthlyChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {monthlyChangePercent >= 0 ? '+' : ''}{monthlyChangePercent.toFixed(1)}%
-                </span>
+                {isCurrentMode ? (
+                  <>
+                    vs last month: 
+                    <span className={`ml-1 ${monthlyChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {monthlyChangePercent >= 0 ? '+' : ''}{monthlyChangePercent.toFixed(1)}%
+                    </span>
+                  </>
+                ) : (
+                  `Avg: ${formatCurrency(cumulativeMetrics?.avgMonthlyCost || 0)}/month`
+                )}
               </CardDescription>
             </CardHeader>
           </Card>
           
-          {/* Max $100 Plan */}
+          {/* vs $100 Plan */}
           <Card>
             <CardHeader className="pb-2">
               <CardDescription>vs Max $100/month</CardDescription>
-              <CardTitle className={`text-3xl ${max100Value > 0 ? 'text-green-600' : 'text-blue-600'}`}>
-                {max100Value > 0 ? `+${formatCurrency(Math.abs(max100Value))}` : `-${formatCurrency(Math.abs(max100Value))}`}
+              <CardTitle className={`text-3xl ${
+                isCurrentMode 
+                  ? (max100Value > 0 ? 'text-green-600' : 'text-blue-600')
+                  : vs100Savings?.colorClass || 'text-gray-600'
+              }`}>
+                {isCurrentMode ? (
+                  max100Value > 0 ? `+${formatCurrency(Math.abs(max100Value))}` : `-${formatCurrency(Math.abs(max100Value))}`
+                ) : (
+                  vs100Savings?.text || '$0.00'
+                )}
               </CardTitle>
               <CardDescription>
-                {max100Value > 0 
-                  ? `Bonus Value!` 
-                  : `Almost there!`}
+                {isCurrentMode ? (
+                  max100Value > 0 ? 'Bonus Value!' : 'Almost there!'
+                ) : (
+                  vs100Savings?.description || 'No data'
+                )}
               </CardDescription>
             </CardHeader>
           </Card>
           
-          {/* Max $200 Plan */}
+          {/* vs $200 Plan */}
           <Card>
             <CardHeader className="pb-2">
               <CardDescription>vs Max $200/month</CardDescription>
-              <CardTitle className={`text-3xl ${max200Value > 0 ? 'text-green-600' : 'text-blue-600'}`}>
-                {max200Value > 0 ? `+${formatCurrency(Math.abs(max200Value))}` : `-${formatCurrency(Math.abs(max200Value))}`}
+              <CardTitle className={`text-3xl ${
+                isCurrentMode 
+                  ? (max200Value > 0 ? 'text-green-600' : 'text-blue-600')
+                  : vs200Savings?.colorClass || 'text-gray-600'
+              }`}>
+                {isCurrentMode ? (
+                  max200Value > 0 ? `+${formatCurrency(Math.abs(max200Value))}` : `-${formatCurrency(Math.abs(max200Value))}`
+                ) : (
+                  vs200Savings?.text || '$0.00'
+                )}
               </CardTitle>
               <CardDescription>
-                {max200Value > 0 
-                  ? `Bonus Value!` 
-                  : `Almost there!`}
+                {isCurrentMode ? (
+                  max200Value > 0 ? 'Bonus Value!' : 'Almost there!'
+                ) : (
+                  vs200Savings?.description || 'No data'
+                )}
               </CardDescription>
             </CardHeader>
           </Card>
           
-          {/* Days Remaining */}
+          {/* Days Remaining / Subscription Days */}
           <Card>
             <CardHeader className="pb-2">
-              <CardDescription>Billing Cycle</CardDescription>
-              <CardTitle className="text-3xl">{daysRemaining !== undefined ? daysRemaining : 0} <span className="text-sm font-normal">days remaining</span></CardTitle>
               <CardDescription>
-                {billingCycleLabel}
+                {isCurrentMode ? 'Billing Cycle' : 'Subscription Days'}
+              </CardDescription>
+              <CardTitle className="text-3xl">
+                {isCurrentMode ? (
+                  <>{daysRemaining !== undefined ? daysRemaining : 0} <span className="text-sm font-normal">days remaining</span></>
+                ) : (
+                  <>{cumulativeMetrics?.totalSubscriptionDays || 0} <span className="text-sm font-normal">days</span></>
+                )}
+              </CardTitle>
+              <CardDescription>
+                {isCurrentMode ? (
+                  billingCycleLabel
+                ) : (
+                  cumulativeMetrics?.subscriptionStartDate 
+                    ? `Since ${cumulativeMetrics.subscriptionStartDate.toLocaleDateString()}`
+                    : 'No data'
+                )}
               </CardDescription>
             </CardHeader>
           </Card>
