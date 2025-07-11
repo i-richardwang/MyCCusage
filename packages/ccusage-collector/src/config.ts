@@ -9,6 +9,8 @@ export interface Config {
   scheduleLabel: string
   maxRetries: number
   retryDelay: number
+  deviceId?: string
+  deviceName?: string
 }
 
 export const SCHEDULE_OPTIONS = [
@@ -83,6 +85,26 @@ export class ConfigManager {
 
   getConfigPath(): string {
     return this.configPath
+  }
+
+  updateDeviceInfo(deviceId: string, deviceName: string): void {
+    try {
+      const config = this.loadConfig()
+      if (!config) {
+        throw new Error('No configuration found')
+      }
+
+      const updatedConfig = {
+        ...config,
+        deviceId,
+        deviceName
+      }
+
+      this.saveConfig(updatedConfig)
+    } catch (error) {
+      console.error('Failed to update device info:', error)
+      throw error
+    }
   }
 
   showNoConfigMessage(): void {

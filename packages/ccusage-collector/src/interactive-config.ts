@@ -91,7 +91,10 @@ export class InteractiveConfig {
         schedule: answers.scheduleOption.value,
         scheduleLabel: answers.scheduleOption.label,
         maxRetries: existingConfig?.maxRetries || 3,
-        retryDelay: existingConfig?.retryDelay || 1000
+        retryDelay: existingConfig?.retryDelay || 1000,
+        // Device info will be auto-generated when first needed
+        deviceId: existingConfig?.deviceId,
+        deviceName: existingConfig?.deviceName
       }
 
       // Test configuration

@@ -1,6 +1,7 @@
 import { createHash } from 'crypto'
 import { hostname, networkInterfaces } from 'os'
 import type { DeviceInfo } from '../types.js'
+import { ConfigManager } from '../config.js'
 
 /**
  * Generate a unique device ID based on hostname and MAC address
@@ -43,10 +44,36 @@ export function getDeviceName(): string {
 
 /**
  * Get complete device information
+ * Priority: config file > generate new
  */
 export function getDeviceInfo(): DeviceInfo {
+  const configManager = new ConfigManager()
+  const config = configManager.loadConfig()
+  
+  // If device info exists in config, use it
+  if (config?.deviceId && config?.deviceName) {
+    return {
+      deviceId: config.deviceId,
+      deviceName: config.deviceName
+    }
+  }
+  
+  // Generate new device info and save to config if possible
+  const deviceId = generateDeviceId()
+  const deviceName = getDeviceName()
+  
+  // Try to save to config if config exists
+  if (config) {
+    try {
+      configManager.updateDeviceInfo(deviceId, deviceName)
+      console.log(`📱 Generated and saved device info: ${deviceName} (${deviceId})`)
+    } catch (error) {
+      console.warn('⚠️  Could not save device info to config:', error instanceof Error ? error.message : error)
+    }
+  }
+  
   return {
-    deviceId: generateDeviceId(),
-    deviceName: getDeviceName()
+    deviceId,
+    deviceName
   }
 }

@@ -12,7 +12,7 @@ const configManager = new ConfigManager()
 program
   .name('ccusage-collector')
   .description('Collect and sync Claude Code usage statistics')
-  .version('0.3.0')
+  .version('0.3.1')
 
 // Config command - Interactive configuration
 program
