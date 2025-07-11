@@ -67,3 +67,40 @@ export function getDaysRemainingInBillingCycle(billingStartDay: number = 1): num
   const diffTime = cycle.endDate.getTime() - today.getTime()
   return Math.max(0, Math.ceil(diffTime / (1000 * 60 * 60 * 24)))
 }
+
+/**
+ * Get the previous billing cycle based on the configured start day
+ */
+export function getPreviousBillingCycle(billingStartDay: number = 1): BillingCycle {
+  const currentCycle = getCurrentBillingCycle(billingStartDay)
+  
+  // Go back one month from current cycle start
+  const prevCycleStartMonth = currentCycle.startDate.getMonth() - 1
+  const prevCycleStartYear = prevCycleStartMonth < 0 ? 
+    currentCycle.startDate.getFullYear() - 1 : 
+    currentCycle.startDate.getFullYear()
+  const adjustedPrevMonth = prevCycleStartMonth < 0 ? 11 : prevCycleStartMonth
+  
+  const startDate = new Date(prevCycleStartYear, adjustedPrevMonth, billingStartDay)
+  
+  // End date is the day before current cycle starts
+  const endDate = new Date(currentCycle.startDate)
+  endDate.setDate(endDate.getDate() - 1)
+  endDate.setHours(23, 59, 59, 999)
+  
+  // Generate cycle label
+  const cycleLabel = `${startDate.toLocaleDateString('en-US', { 
+    month: 'short', 
+    day: 'numeric' 
+  })} - ${endDate.toLocaleDateString('en-US', { 
+    month: 'short', 
+    day: 'numeric', 
+    year: 'numeric' 
+  })}`
+
+  return {
+    startDate,
+    endDate,
+    cycleLabel
+  }
+}

@@ -31,6 +31,16 @@ interface UsageStats {
     activeDays: number
     avgDailyCost: number
   }
+  previousCycle: {
+    totalCost: number
+    totalTokens: number
+    totalInputTokens: number
+    totalOutputTokens: number
+    totalCacheCreationTokens: number
+    totalCacheReadTokens: number
+    activeDays: number
+    avgDailyCost: number
+  }
   daily: DailyRecord[]
   devices: Device[]
   deviceData: DeviceRecord[]

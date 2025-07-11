@@ -93,6 +93,7 @@ export default function Page() {
         {/* Plan comparison section */}
         <PlanComparison 
           currentCycleCost={stats.currentCycle.totalCost}
+          previousCycleCost={stats.previousCycle.totalCost}
           billingCycleLabel={stats.billingCycle.label}
           daysRemaining={stats.billingCycle.daysRemaining}
           activeDays={stats.totals.activeDays}

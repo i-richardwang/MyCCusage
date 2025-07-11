@@ -2,18 +2,21 @@ import { NextResponse } from 'next/server'
 import { db } from '@/src/db'
 import { usageRecords, devices } from '@/src/db/schema'
 import { sql, desc, eq } from 'drizzle-orm'
-import { getCurrentBillingCycle, getDaysRemainingInBillingCycle } from '@/lib/billing-cycle'
+import { getCurrentBillingCycle, getDaysRemainingInBillingCycle, getPreviousBillingCycle } from '@/lib/billing-cycle'
 
 export async function GET() {
   try {
     // Get billing cycle configuration
     const billingStartDay = parseInt(process.env.CLAUDE_BILLING_CYCLE_START_DAY || '1')
     const currentCycle = getCurrentBillingCycle(billingStartDay)
+    const previousCycle = getPreviousBillingCycle(billingStartDay)
     
     // Format dates for SQL (YYYY-MM-DD)
     const formatDateForSQL = (date: Date) => date.toISOString().split('T')[0]
     const cycleStartDate = formatDateForSQL(currentCycle.startDate)
     const cycleEndDate = formatDateForSQL(currentCycle.endDate)
+    const prevCycleStartDate = formatDateForSQL(previousCycle.startDate)
+    const prevCycleEndDate = formatDateForSQL(previousCycle.endDate)
 
     // Get aggregate totals (all time)
     const totalStats = await db
@@ -41,6 +44,20 @@ export async function GET() {
       })
       .from(usageRecords)
       .where(sql`${usageRecords.date} >= ${cycleStartDate} AND ${usageRecords.date} <= ${cycleEndDate}`)
+
+    // Get previous billing cycle totals
+    const previousCycleStats = await db
+      .select({
+        totalCost: sql<number>`SUM(${usageRecords.totalCost})::numeric`,
+        totalTokens: sql<number>`SUM(${usageRecords.totalTokens})::bigint`,
+        totalInputTokens: sql<number>`SUM(${usageRecords.inputTokens})::bigint`,
+        totalOutputTokens: sql<number>`SUM(${usageRecords.outputTokens})::bigint`,
+        totalCacheCreationTokens: sql<number>`SUM(${usageRecords.cacheCreationTokens})::bigint`,
+        totalCacheReadTokens: sql<number>`SUM(${usageRecords.cacheReadTokens})::bigint`,
+        activeDays: sql<number>`COUNT(DISTINCT ${usageRecords.date})::bigint`
+      })
+      .from(usageRecords)
+      .where(sql`${usageRecords.date} >= ${prevCycleStartDate} AND ${usageRecords.date} <= ${prevCycleEndDate}`)
 
     // Get daily records for charts and tables (last 30 days) - sum across all devices per day
     const dailyRecords = await db
@@ -91,8 +108,10 @@ export async function GET() {
       .leftJoin(usageRecords, eq(devices.deviceId, usageRecords.deviceId))
       .groupBy(devices.deviceId, devices.deviceName, devices.createdAt, devices.updatedAt)
 
-    const totals = totalStats[0]
-    const currentCycleTotals = currentCycleStats[0]
+    // Process query results 
+    const [totals] = totalStats
+    const [currentCycleTotals] = currentCycleStats
+    const [previousCycleTotals] = previousCycleStats
     
     const dailyData = dailyRecords.map(record => ({
       date: record.date,
@@ -160,6 +179,16 @@ export async function GET() {
         totalCacheReadTokens: Number(currentCycleTotals?.totalCacheReadTokens || 0),
         activeDays: Number(currentCycleTotals?.activeDays || 0),
         avgDailyCost: Number(currentCycleTotals?.activeDays || 0) > 0 ? Number(currentCycleTotals?.totalCost || 0) / Number(currentCycleTotals?.activeDays || 0) : 0
+      },
+      previousCycle: {
+        totalCost: Number(previousCycleTotals?.totalCost || 0),
+        totalTokens: Number(previousCycleTotals?.totalTokens || 0),
+        totalInputTokens: Number(previousCycleTotals?.totalInputTokens || 0),
+        totalOutputTokens: Number(previousCycleTotals?.totalOutputTokens || 0),
+        totalCacheCreationTokens: Number(previousCycleTotals?.totalCacheCreationTokens || 0),
+        totalCacheReadTokens: Number(previousCycleTotals?.totalCacheReadTokens || 0),
+        activeDays: Number(previousCycleTotals?.activeDays || 0),
+        avgDailyCost: Number(previousCycleTotals?.activeDays || 0) > 0 ? Number(previousCycleTotals?.totalCost || 0) / Number(previousCycleTotals?.activeDays || 0) : 0
       },
       daily: dailyData,
       devices: devicesData,

@@ -4,12 +4,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@work
 
 interface PlanComparisonProps {
   currentCycleCost: number
+  previousCycleCost: number
   billingCycleLabel?: string
   daysRemaining?: number
   activeDays?: number
 }
 
-export function PlanComparison({ currentCycleCost, billingCycleLabel, daysRemaining, activeDays }: PlanComparisonProps) {
+export function PlanComparison({ currentCycleCost, previousCycleCost, billingCycleLabel, daysRemaining, activeDays }: PlanComparisonProps) {
   const formatCurrency = (amount: number) => {
     return `$${amount.toFixed(2)}`
   }
@@ -18,16 +19,24 @@ export function PlanComparison({ currentCycleCost, billingCycleLabel, daysRemain
   const max100Value = currentCycleCost - 100  // How much value gained vs $100 plan
   const max200Value = currentCycleCost - 200  // How much value gained vs $200 plan
   
-  // Calculate ROI percentages
-  const max100ROI = ((currentCycleCost / 100) * 100)
-  const max200ROI = ((currentCycleCost / 200) * 100)
+  // Calculate month-over-month comparison
+  const monthlyChange = currentCycleCost - previousCycleCost
+  const monthlyChangePercent = previousCycleCost > 0 ? ((monthlyChange / previousCycleCost) * 100) : 0
   
-  // Determine optimal plan suggestion
-  const suggestedPlan = currentCycleCost <= 100 
-    ? 'Perfect for $100 Plan' 
-    : currentCycleCost <= 200 
-      ? 'Perfect for $200 Plan' 
-      : 'Heavy User - Great Value!'
+  // Dynamic user status based on usage
+  const getUserStatus = () => {
+    if (currentCycleCost >= 200) {
+      return { title: "Heavy User", subtitle: "Great Value!", color: "text-green-600" }
+    } else if (currentCycleCost >= 100) {
+      return { title: "Power User", subtitle: "Good Value!", color: "text-blue-600" }
+    } else if (currentCycleCost >= 50) {
+      return { title: "Regular User", subtitle: "Getting Value", color: "text-yellow-600" }
+    } else {
+      return { title: "Light User", subtitle: "Room to Grow", color: "text-gray-600" }
+    }
+  }
+  
+  const userStatus = getUserStatus()
 
   return (
     <Card className="pt-0">
@@ -35,21 +44,32 @@ export function PlanComparison({ currentCycleCost, billingCycleLabel, daysRemain
         <div className="grid flex-1 gap-1">
           <CardTitle>💰 Subscription Value Analysis</CardTitle>
           <CardDescription>
-            API value consumed this cycle {billingCycleLabel ? `(${billingCycleLabel})` : ''} vs your subscription investment
-            {activeDays !== undefined && ` • ${activeDays} active days of value`}
+            API value consumed this cycle vs your subscription investment
           </CardDescription>
         </div>
       </CardHeader>
       <CardContent className="px-2 py-4 sm:px-6 sm:py-4">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+          {/* User Status */}
+          <Card>
+            <CardHeader className="pb-2 flex items-center h-full">
+              <CardTitle className={`text-2xl ${userStatus.color}`}>
+                <div>{userStatus.title}</div>
+                <div>{userStatus.subtitle}</div>
+              </CardTitle>
+            </CardHeader>
+          </Card>
+          
           {/* Current API Value */}
           <Card>
             <CardHeader className="pb-2">
               <CardDescription>API Value Consumed</CardDescription>
               <CardTitle className="text-3xl">{formatCurrency(currentCycleCost)}</CardTitle>
               <CardDescription>
-                {suggestedPlan}
-                {daysRemaining !== undefined && ` • ${daysRemaining} days remaining`}
+                vs last month: 
+                <span className={`ml-1 ${monthlyChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {monthlyChangePercent >= 0 ? '+' : ''}{monthlyChangePercent.toFixed(1)}%
+                </span>
               </CardDescription>
             </CardHeader>
           </Card>
@@ -57,14 +77,14 @@ export function PlanComparison({ currentCycleCost, billingCycleLabel, daysRemain
           {/* Max $100 Plan */}
           <Card>
             <CardHeader className="pb-2">
-              <CardDescription>vs Max $100/month Plan</CardDescription>
+              <CardDescription>vs Max $100/month</CardDescription>
               <CardTitle className={`text-3xl ${max100Value > 0 ? 'text-green-600' : 'text-blue-600'}`}>
                 {max100Value > 0 ? `+${formatCurrency(Math.abs(max100Value))}` : `-${formatCurrency(Math.abs(max100Value))}`}
               </CardTitle>
               <CardDescription>
                 {max100Value > 0 
-                  ? `Extra value gained vs $100 subscription` 
-                  : `Remaining to break even with $100 plan`}
+                  ? `Extra value gained` 
+                  : `To break even`}
               </CardDescription>
             </CardHeader>
           </Card>
@@ -72,14 +92,25 @@ export function PlanComparison({ currentCycleCost, billingCycleLabel, daysRemain
           {/* Max $200 Plan */}
           <Card>
             <CardHeader className="pb-2">
-              <CardDescription>vs Max $200/month Plan</CardDescription>
+              <CardDescription>vs Max $200/month</CardDescription>
               <CardTitle className={`text-3xl ${max200Value > 0 ? 'text-green-600' : 'text-blue-600'}`}>
                 {max200Value > 0 ? `+${formatCurrency(Math.abs(max200Value))}` : `-${formatCurrency(Math.abs(max200Value))}`}
               </CardTitle>
               <CardDescription>
                 {max200Value > 0 
-                  ? `Extra value gained vs $200 subscription` 
-                  : `Remaining to break even with $200 plan`}
+                  ? `Extra value gained` 
+                  : `To break even`}
+              </CardDescription>
+            </CardHeader>
+          </Card>
+          
+          {/* Days Remaining */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Billing Cycle</CardDescription>
+              <CardTitle className="text-3xl">{daysRemaining !== undefined ? daysRemaining : 0} <span className="text-sm font-normal">days remaining</span></CardTitle>
+              <CardDescription>
+                {billingCycleLabel}
               </CardDescription>
             </CardHeader>
           </Card>
