@@ -22,69 +22,115 @@ npm install -g pm2
 
 ## Quick Start
 
-### 1. Basic sync (run once)
+### 1. Interactive Configuration
 
 ```bash
-ccusage-collector --api-key=your-api-key --endpoint=https://example.com/api/usage-sync
+ccusage-collector config
 ```
 
-### 2. Scheduled sync (recommended - runs in background)
+This will prompt you for:
+- **API Key** (hidden input)
+- **Dashboard URL** (domain only, e.g., https://your-app.com)
+- **Sync Schedule** (user-friendly options like "Every 4 hours")
+
+### 2. Start Background Sync
 
 ```bash
-pm2 start ccusage-collector -- --api-key=your-api-key --endpoint=https://example.com/api/usage-sync --schedule="0 */4 * * *"
+pm2 start ccusage-collector -- start
 ```
 
-### 3. Test data collection (dry run)
+### 3. Check Status
 
 ```bash
-ccusage-collector --api-key=test --endpoint=https://example.com/api/usage-sync --dry-run
+ccusage-collector status
+pm2 status
 ```
 
-## CLI Options
+## Available Commands
 
-| Option | Description | Required | Default |
-|--------|-------------|----------|---------|
-| `-k, --api-key <key>` | API key for authentication | Yes | - |
-| `-e, --endpoint <url>` | API endpoint URL | Yes | - |
-| `-s, --schedule <cron>` | Cron schedule for periodic sync | No | - |
-| `-r, --max-retries <number>` | Maximum retry attempts | No | 3 |
-| `-d, --retry-delay <ms>` | Delay between retries (ms) | No | 1000 |
-| `--dry-run` | Collect data but don't sync | No | false |
-| `-h, --help` | Show help | No | - |
-| `-V, --version` | Show version | No | - |
+| Command | Description |
+|---------|-------------|
+| `ccusage-collector config` | Interactive configuration wizard |
+| `ccusage-collector start` | Start scheduled sync (requires configuration) |
+| `ccusage-collector sync` | Run single sync operation |
+| `ccusage-collector sync --dry-run` | Test data collection without syncing |
+| `ccusage-collector status` | Check configuration status |
+| `ccusage-collector test` | Test configuration and connection |
+| `ccusage-collector --help` | Show help |
+
+## Configuration
+
+Configuration is stored in `~/.ccusage-collector/config.json` with user-only file permissions.
+
+### Interactive Configuration
+
+```bash
+ccusage-collector config
+```
+
+**Sample Configuration Session:**
+```
+🔧 ccusage-collector Configuration Wizard
+=========================================
+
+? Enter your API Key: ********** (hidden input)
+? Enter your dashboard URL (domain only): https://myccusage.example.com
+? Select sync frequency: Every 4 hours
+
+🧪 Testing configuration...
+✅ Configuration test passed!
+✅ Configuration saved successfully!
+
+💡 Start with PM2:
+   pm2 start ccusage-collector -- start
+```
+
+### Available Schedule Options
+
+- Every 30 minutes
+- Every 1 hour
+- Every 2 hours
+- Every 4 hours (recommended)
+- Every 8 hours
+- Once daily
 
 ## Usage Examples
 
-### One-time sync
+### Complete Setup Flow
+
 ```bash
-ccusage-collector --api-key=sk-1234567890abcdef --endpoint=https://myccusage.example.com/api/usage-sync
+# 1. Configure credentials
+ccusage-collector config
+
+# 2. Test the configuration
+ccusage-collector test
+
+# 3. Start background sync
+pm2 start ccusage-collector -- start
+
+# 4. Check status
+ccusage-collector status
+pm2 status
 ```
 
-### Scheduled sync (every 6 hours) - Background execution
+### Maintenance Commands
+
 ```bash
-pm2 start ccusage-collector -- \
-  --api-key=sk-1234567890abcdef \
-  --endpoint=https://myccusage.example.com/api/usage-sync \
-  --schedule="0 */6 * * *"
+# View sync logs
+pm2 logs ccusage-collector
+
+# Restart sync process
+pm2 restart ccusage-collector
+
+# Stop sync process
+pm2 stop ccusage-collector
+
+# Run one-time sync
+ccusage-collector sync
+
+# Test without syncing
+ccusage-collector sync --dry-run
 ```
-
-### Test without syncing
-```bash
-ccusage-collector \
-  --api-key=test \
-  --endpoint=https://myccusage.example.com/api/usage-sync \
-  --dry-run
-```
-
-## Cron Schedule Examples
-
-| Schedule | Description |
-|----------|-------------|
-| `"0 */4 * * *"` | Every 4 hours |
-| `"*/10 * * * *"` | Every 10 minutes |
-| `"0 0 * * *"` | Daily at midnight |
-| `"0 */1 * * *"` | Every hour |
-| `"0 9,17 * * 1-5"` | 9 AM and 5 PM on weekdays |
 
 ## Setup Guide
 
@@ -101,13 +147,17 @@ Set the `API_KEY` environment variable in your dashboard deployment:
 API_KEY=your-secret-api-key-here
 ```
 
-### 3. Install and Run Collector
+### 3. Install and Configure Collector
 ```bash
+# Install globally
 npm install -g ccusage-collector
 npm install -g pm2
 
+# Configure
+ccusage-collector config
+
 # Start background sync
-pm2 start ccusage-collector -- --api-key=your-secret-api-key-here --endpoint=https://your-domain.com/api/usage-sync --schedule="0 */4 * * *"
+pm2 start ccusage-collector -- start
 ```
 
 ## Data Collection
@@ -117,82 +167,90 @@ The collector:
 - Collects historical data (not just recent usage)
 - Syncs complete usage records to your dashboard
 - Supports upsert operations (updates existing records)
+- Generates unique device fingerprints for multi-device tracking
 
 ### Data Format
 The collector syncs:
 - Daily usage metrics (tokens, costs, models)
 - Token breakdowns (input, output, cache creation/read)
 - Model usage statistics
-- Raw usage data for detailed analysis
+- Device information for multi-device analytics
 
 ## Error Handling
 
 - **Network failures**: Automatic retry with exponential backoff
 - **Authentication errors**: Immediate failure (no retry on 401/403)
 - **Individual record failures**: Continues processing other records
+- **Configuration errors**: Clear guidance on resolution
 - **Detailed logging**: Clear error messages and debugging info
 
 ## Process Management with PM2
 
-For reliable background execution, use PM2 to manage the collector process:
-
-### Start Background Sync
-```bash
-pm2 start ccusage-collector -- --api-key=your-key --endpoint=https://your-domain.com/api/usage-sync --schedule="0 */4 * * *"
-```
-
-### Check Status
-```bash
-pm2 list                    # Show all processes
-pm2 show ccusage-collector  # Show detailed info
-pm2 logs ccusage-collector  # View logs
-pm2 monit                   # Real-time monitoring
-```
-
-### Control Process
-```bash
-pm2 stop ccusage-collector     # Stop process
-pm2 restart ccusage-collector  # Restart process
-pm2 delete ccusage-collector   # Remove process
-```
-
-### Auto-start on Boot
-```bash
-pm2 startup                    # Generate startup script
-pm2 save                       # Save current process list
-```
-
-### Benefits of PM2
+### Why PM2?
 - **Automatic restart** if process crashes
 - **Background execution** - no need to keep terminal open
 - **Process monitoring** and logging
 - **Prevents duplicate instances** - safe to run multiple times
 - **Cross-platform** - works on Windows, Linux, and macOS
 
+### PM2 Commands
+
+```bash
+# Start background sync
+pm2 start ccusage-collector -- start
+
+# Check status
+pm2 list                    # Show all processes
+pm2 show ccusage-collector  # Show detailed info
+pm2 logs ccusage-collector  # View logs
+pm2 monit                   # Real-time monitoring
+
+# Control process
+pm2 stop ccusage-collector     # Stop process
+pm2 restart ccusage-collector  # Restart process
+pm2 delete ccusage-collector   # Remove process
+
+# Auto-start on boot
+pm2 startup                    # Generate startup script
+pm2 save                       # Save current process list
+```
+
 ## Troubleshooting
 
 ### Common Issues
 
-**"ccusage command not found"**
+**❌ Configuration not found**
+```bash
+# Run interactive configuration
+ccusage-collector config
+```
+
+**❌ "ccusage command not found"**
 - Ensure Claude Code CLI is installed and in PATH
 - Run `npx ccusage --help` to verify installation
 
-**"Authentication failed"**
+**❌ "Authentication failed"**
+- Run `ccusage-collector config` to update credentials
 - Verify API key matches your dashboard configuration
-- Check that API key is correctly set in dashboard environment
 
-**"Connection refused"**
-- Verify endpoint URL is correct and accessible
-- Check that your dashboard is running and deployed
+**❌ "Connection refused"**
+- Check endpoint URL in configuration
+- Verify your dashboard is running and accessible
 
-**"Invalid cron expression"**
-- Use online cron validators to test expressions
-- Ensure cron format is correct (5 fields: minute hour day month weekday)
+### Debug and Test
 
-### Debug Mode
 ```bash
-# Enable verbose logging
-DEBUG=ccusage-collector ccusage-collector --api-key=... --endpoint=...
+# Check configuration
+ccusage-collector status
+
+# Test configuration and connection
+ccusage-collector test
+
+# Test data collection only
+ccusage-collector sync --dry-run
+
+# View detailed logs
+pm2 logs ccusage-collector
 ```
 
 ## Contributing
@@ -218,7 +276,8 @@ pnpm build
 
 # Test CLI locally
 pnpm cli --help
-pnpm cli --dry-run --api-key=test --endpoint=http://localhost:3000
+pnpm cli config
+pnpm cli status
 
 # Run type checking
 pnpm typecheck
@@ -240,3 +299,4 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 - 🐛 [Report bugs](https://github.com/i-richardwang/MyCCusage/issues)
 - 💡 [Request features](https://github.com/i-richardwang/MyCCusage/issues)
+- 📚 [Documentation](https://github.com/i-richardwang/MyCCusage/blob/main/README.md)

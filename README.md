@@ -68,12 +68,17 @@ Visit [http://localhost:3000](http://localhost:3000) to see your dashboard.
 
 ```bash
 npm install -g ccusage-collector
+npm install -g pm2
 ```
 
-### 5. Sync Your Data
+### 5. Configure and Start Data Collection
 
 ```bash
-ccusage-collector --api-key=your-secret-api-key-here --endpoint=https://your-domain.com/api/usage-sync
+# Interactive configuration
+ccusage-collector config
+
+# Start background sync with PM2
+pm2 start ccusage-collector -- start
 ```
 
 ## Data Collection
@@ -145,11 +150,17 @@ API_KEY=your-secret-api-key-here
 ### Collector Configuration
 
 ```bash
-# One-time sync
-ccusage-collector --api-key=your-key --endpoint=https://your-domain.com/api/usage-sync
+# Interactive configuration
+ccusage-collector config
 
-# Scheduled sync (every 4 hours)
-ccusage-collector --api-key=your-key --endpoint=https://your-domain.com/api/usage-sync --schedule="0 */4 * * *"
+# Check configuration status
+ccusage-collector status
+
+# Test configuration and connection
+ccusage-collector test
+
+# Start scheduled sync
+pm2 start ccusage-collector -- start
 ```
 
 ## Contributing

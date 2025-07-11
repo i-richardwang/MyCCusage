@@ -48,7 +48,6 @@ export interface SyncResult {
 export interface CollectorConfig {
   endpoint: string
   apiKey: string
-  schedule?: string
   maxRetries?: number
   retryDelay?: number
 }
