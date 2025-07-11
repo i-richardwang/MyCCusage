@@ -1,6 +1,8 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@workspace/ui/components/card"
+import { DataTablePagination } from "@/components/data-table-pagination"
 import { DailyRecord, TimeRange } from "@/types/chart-types"
 import { filterByTimeRange } from "@/hooks/use-chart-data"
 
@@ -11,8 +13,15 @@ interface RecentActivityProps {
 }
 
 export function RecentActivity({ dailyData, timeRange, customDateRange }: RecentActivityProps) {
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage, setItemsPerPage] = useState(10)
+  
+  // Reset to first page when filters change
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [timeRange, customDateRange, itemsPerPage])
   const formatCurrency = (amount: number) => {
-    return `$${amount.toFixed(4)}`
+    return `$${amount.toFixed(2)}`
   }
 
   const formatTokens = (tokens: number) => {
@@ -22,12 +31,28 @@ export function RecentActivity({ dailyData, timeRange, customDateRange }: Recent
 
   const formatTokensK = (tokens: number) => {
     const tokensInK = tokens / 1000
-    return `${tokensInK.toLocaleString()}K`
+    return `${tokensInK.toFixed(2)}K`
   }
 
-  // Apply time range filter, then show only the most recent 8 records
+  // Apply time range filter
   const filteredData = filterByTimeRange(dailyData, timeRange, customDateRange)
-  const recentData = filteredData.slice(0, 8)
+  
+  // Calculate pagination
+  const totalItems = filteredData.length
+  const totalPages = Math.ceil(totalItems / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const paginatedData = filteredData.slice(startIndex, endIndex)
+  
+  // Handle pagination changes
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
+  }
+  
+  const handleItemsPerPageChange = (newItemsPerPage: number) => {
+    setItemsPerPage(newItemsPerPage)
+    setCurrentPage(1) // Reset to first page when changing items per page
+  }
 
   return (
     <Card className="pt-0">
@@ -53,7 +78,7 @@ export function RecentActivity({ dailyData, timeRange, customDateRange }: Recent
               </tr>
             </thead>
             <tbody>
-              {recentData.map((day) => (
+              {paginatedData.map((day) => (
                 <tr key={day.date} className="border-b">
                   <td className="py-3 px-2 text-sm font-medium">
                     {new Date(day.date).toLocaleDateString('en-US', {
@@ -81,6 +106,15 @@ export function RecentActivity({ dailyData, timeRange, customDateRange }: Recent
             </tbody>
           </table>
         </div>
+        
+        <DataTablePagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalItems={totalItems}
+          itemsPerPage={itemsPerPage}
+          onPageChange={handlePageChange}
+          onItemsPerPageChange={handleItemsPerPageChange}
+        />
       </CardContent>
     </Card>
   )

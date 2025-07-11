@@ -34,7 +34,7 @@ export function calculateCumulativeMetrics(
   cumulativeData: CumulativeDataInput,
   billingStartDate: string
 ): CumulativeMetrics {
-  const { totalCost, totalTokens, activeDays, earliestDate } = cumulativeData
+  const { totalCost, totalTokens, activeDays } = cumulativeData
   
   // Determine subscription start date: use configured billing start date as subscription start
   const subscriptionStartDate = new Date(billingStartDate)
