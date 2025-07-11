@@ -1,8 +1,8 @@
 "use client"
 
 import { useMemo } from "react"
-import { Card, CardContent } from "@workspace/ui/components/card"
-import { DollarSign, Cpu, TrendingUp } from "lucide-react"
+import { Card, CardDescription, CardHeader, CardTitle } from "@workspace/ui/components/card"
+import { DollarSign, Cpu, TrendingUp, Activity } from "lucide-react"
 import { DailyRecord, TimeRange } from "@/types/chart-types"
 import { filterByTimeRange } from "@/hooks/use-chart-data"
 
@@ -21,7 +21,8 @@ export function StatsCards({ dailyData, timeRange, customDateRange }: StatsCards
       return {
         totalCost: 0,
         totalTokens: 0,
-        avgDailyCost: 0
+        avgDailyCost: 0,
+        avgDailyTokens: 0
       }
     }
 
@@ -29,16 +30,18 @@ export function StatsCards({ dailyData, timeRange, customDateRange }: StatsCards
     const totalTokens = filteredData.reduce((sum, record) => sum + record.totalTokens, 0)
     const activeDays = filteredData.length
     const avgDailyCost = activeDays > 0 ? totalCost / activeDays : 0
+    const avgDailyTokens = activeDays > 0 ? totalTokens / activeDays : 0
 
     return {
       totalCost,
       totalTokens,
-      avgDailyCost
+      avgDailyCost,
+      avgDailyTokens
     }
   }, [dailyData, timeRange, customDateRange])
 
   const formatCurrency = (amount: number) => {
-    return `$${amount.toFixed(4)}`
+    return `$${amount.toFixed(2)}`
   }
 
   const formatTokens = (tokens: number) => {
@@ -47,53 +50,69 @@ export function StatsCards({ dailyData, timeRange, customDateRange }: StatsCards
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
       {/* Total Cost */}
       <Card>
-        <CardContent className="p-6">
-          <div className="flex items-center justify-between">
+        <CardHeader className="pb-2 flex items-center h-full">
+          <div className="flex items-center justify-between w-full">
             <div className="space-y-1">
-              <p className="text-sm font-medium text-muted-foreground">Total Cost</p>
-              <p className="text-2xl font-bold">{formatCurrency(stats.totalCost)}</p>
-              <p className="text-xs text-muted-foreground">
+              <CardDescription>Total Cost</CardDescription>
+              <CardTitle className="text-3xl">{formatCurrency(stats.totalCost)}</CardTitle>
+              <CardDescription>
                 Cumulative usage cost
-              </p>
+              </CardDescription>
             </div>
-            <DollarSign className="h-4 w-4 text-muted-foreground" />
+            <DollarSign className="h-6 w-6 text-muted-foreground" />
           </div>
-        </CardContent>
+        </CardHeader>
       </Card>
 
       {/* Total Tokens */}
       <Card>
-        <CardContent className="p-6">
-          <div className="flex items-center justify-between">
+        <CardHeader className="pb-2 flex items-center h-full">
+          <div className="flex items-center justify-between w-full">
             <div className="space-y-1">
-              <p className="text-sm font-medium text-muted-foreground">Total Tokens</p>
-              <p className="text-2xl font-bold">{formatTokens(stats.totalTokens)}</p>
-              <p className="text-xs text-muted-foreground">
+              <CardDescription>Total Tokens</CardDescription>
+              <CardTitle className="text-3xl">{formatTokens(stats.totalTokens)}</CardTitle>
+              <CardDescription>
                 Total usage volume
-              </p>
+              </CardDescription>
             </div>
-            <Cpu className="h-4 w-4 text-muted-foreground" />
+            <Cpu className="h-6 w-6 text-muted-foreground" />
           </div>
-        </CardContent>
+        </CardHeader>
       </Card>
 
       {/* Average Daily Cost */}
       <Card>
-        <CardContent className="p-6">
-          <div className="flex items-center justify-between">
+        <CardHeader className="pb-2 flex items-center h-full">
+          <div className="flex items-center justify-between w-full">
             <div className="space-y-1">
-              <p className="text-sm font-medium text-muted-foreground">Average Daily Cost</p>
-              <p className="text-2xl font-bold">{formatCurrency(stats.avgDailyCost)}</p>
-              <p className="text-xs text-muted-foreground">
+              <CardDescription>Average Daily Cost</CardDescription>
+              <CardTitle className="text-3xl">{formatCurrency(stats.avgDailyCost)}</CardTitle>
+              <CardDescription>
                 Daily average analysis
-              </p>
+              </CardDescription>
             </div>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            <TrendingUp className="h-6 w-6 text-muted-foreground" />
           </div>
-        </CardContent>
+        </CardHeader>
+      </Card>
+
+      {/* Average Daily Tokens */}
+      <Card>
+        <CardHeader className="pb-2 flex items-center h-full">
+          <div className="flex items-center justify-between w-full">
+            <div className="space-y-1">
+              <CardDescription>Average Daily Tokens</CardDescription>
+              <CardTitle className="text-3xl">{formatTokens(stats.avgDailyTokens)}</CardTitle>
+              <CardDescription>
+                Daily token processing rate
+              </CardDescription>
+            </div>
+            <Activity className="h-6 w-6 text-muted-foreground" />
+          </div>
+        </CardHeader>
       </Card>
 
     </div>

@@ -7,10 +7,9 @@ interface PlanComparisonProps {
   previousCycleCost: number
   billingCycleLabel?: string
   daysRemaining?: number
-  activeDays?: number
 }
 
-export function PlanComparison({ currentCycleCost, previousCycleCost, billingCycleLabel, daysRemaining, activeDays }: PlanComparisonProps) {
+export function PlanComparison({ currentCycleCost, previousCycleCost, billingCycleLabel, daysRemaining }: PlanComparisonProps) {
   const formatCurrency = (amount: number) => {
     return `$${amount.toFixed(2)}`
   }
@@ -42,9 +41,9 @@ export function PlanComparison({ currentCycleCost, previousCycleCost, billingCyc
     <Card className="pt-0">
       <CardHeader className="flex items-center gap-2 space-y-0 border-b py-5 sm:flex-row">
         <div className="grid flex-1 gap-1">
-          <CardTitle>💰 Subscription Value Analysis</CardTitle>
+          <CardTitle>Subscription ROI Dashboard</CardTitle>
           <CardDescription>
-            API value consumed this cycle vs your subscription investment
+            Track your subscription returns - how much value you&apos;re harvesting!
           </CardDescription>
         </div>
       </CardHeader>
@@ -83,8 +82,8 @@ export function PlanComparison({ currentCycleCost, previousCycleCost, billingCyc
               </CardTitle>
               <CardDescription>
                 {max100Value > 0 
-                  ? `Extra value gained` 
-                  : `To break even`}
+                  ? `Bonus Value!` 
+                  : `Almost there!`}
               </CardDescription>
             </CardHeader>
           </Card>
@@ -98,8 +97,8 @@ export function PlanComparison({ currentCycleCost, previousCycleCost, billingCyc
               </CardTitle>
               <CardDescription>
                 {max200Value > 0 
-                  ? `Extra value gained` 
-                  : `To break even`}
+                  ? `Bonus Value!` 
+                  : `Almost there!`}
               </CardDescription>
             </CardHeader>
           </Card>

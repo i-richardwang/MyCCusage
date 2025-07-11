@@ -29,6 +29,41 @@ export function filterByTimeRange<T extends { date: string }>(
   })
 }
 
+// Generate all dates in a range for chart continuity
+function generateDateRange(timeRange: TimeRange, customDateRange?: { from: Date; to: Date }): string[] {
+  if (timeRange === "all") {
+    // For "all" range, return empty array - will be handled by existing data
+    return []
+  }
+  
+  let startDate: Date
+  let endDate: Date
+  
+  if (timeRange === "custom" && customDateRange) {
+    startDate = new Date(customDateRange.from)
+    endDate = new Date(customDateRange.to)
+  } else {
+    const today = new Date()
+    const daysToSubtract = TIME_RANGE_DAYS[timeRange]
+    startDate = new Date(today)
+    startDate.setDate(startDate.getDate() - daysToSubtract)
+    endDate = today
+  }
+  
+  const dates: string[] = []
+  const currentDate = new Date(startDate)
+  
+  while (currentDate <= endDate) {
+    const dateString = currentDate.toISOString().split('T')[0]
+    if (dateString) {
+      dates.push(dateString)
+    }
+    currentDate.setDate(currentDate.getDate() + 1)
+  }
+  
+  return dates
+}
+
 // Hook for single-device chart data
 export function useSingleDeviceChartData(
   dailyData: DailyRecord[], 
@@ -75,13 +110,22 @@ export function useMultiDeviceChartData(
       return acc
     }, {} as Record<string, Record<string, number>>)
 
-    // Convert to chart format
-    const chartData = Object.entries(dateGroups)
-      .map(([date, deviceCosts]) => ({
-        date,
-        ...deviceCosts
-      }))
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    // Generate complete date range for continuity
+    const allDates = timeRange === "all" 
+      ? Array.from(new Set(filteredDeviceData.map(record => record.date))).sort()
+      : generateDateRange(timeRange, customDateRange)
+
+    // Create complete chart data with zero-fill for missing dates
+    const chartData = allDates.map(date => {
+      const dataPoint: Record<string, string | number> = { date }
+      
+      // Add data for each active device, defaulting to 0 if no data exists
+      activeDevices.forEach(device => {
+        dataPoint[device.deviceId] = dateGroups[date]?.[device.deviceId] || 0
+      })
+      
+      return dataPoint
+    })
 
     // Generate chart configuration only for active devices
     const chartConfig = activeDevices.reduce((config, device, index) => {
@@ -151,13 +195,22 @@ export function useMultiDeviceTokenData(
       return acc
     }, {} as Record<string, Record<string, number>>)
 
-    // Convert to chart format
-    const chartData = Object.entries(dateGroups)
-      .map(([date, deviceTokens]) => ({
-        date,
-        ...deviceTokens
-      }))
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    // Generate complete date range for continuity
+    const allDates = timeRange === "all" 
+      ? Array.from(new Set(filteredDeviceData.map(record => record.date))).sort()
+      : generateDateRange(timeRange, customDateRange)
+
+    // Create complete chart data with zero-fill for missing dates
+    const chartData = allDates.map(date => {
+      const dataPoint: Record<string, string | number> = { date }
+      
+      // Add data for each active device, defaulting to 0 if no data exists
+      activeDevices.forEach(device => {
+        dataPoint[device.deviceId] = dateGroups[date]?.[device.deviceId] || 0
+      })
+      
+      return dataPoint
+    })
 
     // Generate chart configuration only for active devices
     const chartConfig = activeDevices.reduce((config, device, index) => {

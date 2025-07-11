@@ -1,15 +1,87 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/src/db'
 import { usageRecords, devices } from '@/src/db/schema'
-import { sql, desc, eq } from 'drizzle-orm'
+import { sql, desc, eq, SQL } from 'drizzle-orm'
 import { getCurrentBillingCycle, getDaysRemainingInBillingCycle, getPreviousBillingCycle } from '@/lib/billing-cycle'
+
+// Query factory for usage statistics aggregation
+function createUsageStatsSelectFields() {
+  return {
+    totalCost: sql<number>`SUM(${usageRecords.totalCost})::numeric`,
+    totalTokens: sql<number>`SUM(${usageRecords.totalTokens})::bigint`,
+    totalInputTokens: sql<number>`SUM(${usageRecords.inputTokens})::bigint`,
+    totalOutputTokens: sql<number>`SUM(${usageRecords.outputTokens})::bigint`,
+    totalCacheCreationTokens: sql<number>`SUM(${usageRecords.cacheCreationTokens})::bigint`,
+    totalCacheReadTokens: sql<number>`SUM(${usageRecords.cacheReadTokens})::bigint`,
+    activeDays: sql<number>`COUNT(DISTINCT ${usageRecords.date})::bigint`
+  }
+}
+
+// Unified query function for usage statistics
+async function getUsageStats(whereClause?: SQL) {
+  const query = db
+    .select(createUsageStatsSelectFields())
+    .from(usageRecords)
+    
+  return whereClause ? query.where(whereClause) : query
+}
+
+// Safe type conversion utility
+function safeNumber(value: unknown, defaultValue: number = 0): number {
+  if (value === null || value === undefined) return defaultValue
+  const num = typeof value === 'string' ? parseFloat(value) : Number(value)
+  return isNaN(num) ? defaultValue : num
+}
+
+// Types for query results
+interface RawStatsResult {
+  totalCost: unknown
+  totalTokens: unknown
+  totalInputTokens: unknown
+  totalOutputTokens: unknown
+  totalCacheCreationTokens: unknown
+  totalCacheReadTokens: unknown
+  activeDays: unknown
+}
+
+interface TransformedStats {
+  totalCost: number
+  totalTokens: number
+  totalInputTokens: number
+  totalOutputTokens: number
+  totalCacheCreationTokens: number
+  totalCacheReadTokens: number
+  activeDays: number
+}
+
+// Validate and transform stats data
+function validateAndTransformStats(rawStats: RawStatsResult[]): TransformedStats {
+  if (!Array.isArray(rawStats) || rawStats.length === 0) {
+    throw new Error('No stats data received from database')
+  }
+  
+  const [stats] = rawStats
+  if (!stats) {
+    throw new Error('Empty stats record')
+  }
+
+  return {
+    totalCost: safeNumber(stats.totalCost),
+    totalTokens: safeNumber(stats.totalTokens),
+    totalInputTokens: safeNumber(stats.totalInputTokens),
+    totalOutputTokens: safeNumber(stats.totalOutputTokens),
+    totalCacheCreationTokens: safeNumber(stats.totalCacheCreationTokens),
+    totalCacheReadTokens: safeNumber(stats.totalCacheReadTokens),
+    activeDays: safeNumber(stats.activeDays),
+  }
+}
 
 export async function GET() {
   try {
     // Get billing cycle configuration
-    const billingStartDay = parseInt(process.env.CLAUDE_BILLING_CYCLE_START_DAY || '1')
-    const currentCycle = getCurrentBillingCycle(billingStartDay)
-    const previousCycle = getPreviousBillingCycle(billingStartDay)
+    const billingStartDate = process.env.CLAUDE_BILLING_CYCLE_START_DATE || '2025-01-01'
+    const currentCycle = getCurrentBillingCycle(billingStartDate)
+    const previousCycle = getPreviousBillingCycle(billingStartDate)
     
     // Format dates for SQL (YYYY-MM-DD)
     const formatDateForSQL = (date: Date) => date.toISOString().split('T')[0]
@@ -18,46 +90,12 @@ export async function GET() {
     const prevCycleStartDate = formatDateForSQL(previousCycle.startDate)
     const prevCycleEndDate = formatDateForSQL(previousCycle.endDate)
 
-    // Get aggregate totals (all time)
-    const totalStats = await db
-      .select({
-        totalCost: sql<number>`SUM(${usageRecords.totalCost})::numeric`,
-        totalTokens: sql<number>`SUM(${usageRecords.totalTokens})::bigint`,
-        totalInputTokens: sql<number>`SUM(${usageRecords.inputTokens})::bigint`,
-        totalOutputTokens: sql<number>`SUM(${usageRecords.outputTokens})::bigint`,
-        totalCacheCreationTokens: sql<number>`SUM(${usageRecords.cacheCreationTokens})::bigint`,
-        totalCacheReadTokens: sql<number>`SUM(${usageRecords.cacheReadTokens})::bigint`,
-        activeDays: sql<number>`COUNT(DISTINCT ${usageRecords.date})::bigint`
-      })
-      .from(usageRecords)
-
-    // Get current billing cycle totals
-    const currentCycleStats = await db
-      .select({
-        totalCost: sql<number>`SUM(${usageRecords.totalCost})::numeric`,
-        totalTokens: sql<number>`SUM(${usageRecords.totalTokens})::bigint`,
-        totalInputTokens: sql<number>`SUM(${usageRecords.inputTokens})::bigint`,
-        totalOutputTokens: sql<number>`SUM(${usageRecords.outputTokens})::bigint`,
-        totalCacheCreationTokens: sql<number>`SUM(${usageRecords.cacheCreationTokens})::bigint`,
-        totalCacheReadTokens: sql<number>`SUM(${usageRecords.cacheReadTokens})::bigint`,
-        activeDays: sql<number>`COUNT(DISTINCT ${usageRecords.date})::bigint`
-      })
-      .from(usageRecords)
-      .where(sql`${usageRecords.date} >= ${cycleStartDate} AND ${usageRecords.date} <= ${cycleEndDate}`)
-
-    // Get previous billing cycle totals
-    const previousCycleStats = await db
-      .select({
-        totalCost: sql<number>`SUM(${usageRecords.totalCost})::numeric`,
-        totalTokens: sql<number>`SUM(${usageRecords.totalTokens})::bigint`,
-        totalInputTokens: sql<number>`SUM(${usageRecords.inputTokens})::bigint`,
-        totalOutputTokens: sql<number>`SUM(${usageRecords.outputTokens})::bigint`,
-        totalCacheCreationTokens: sql<number>`SUM(${usageRecords.cacheCreationTokens})::bigint`,
-        totalCacheReadTokens: sql<number>`SUM(${usageRecords.cacheReadTokens})::bigint`,
-        activeDays: sql<number>`COUNT(DISTINCT ${usageRecords.date})::bigint`
-      })
-      .from(usageRecords)
-      .where(sql`${usageRecords.date} >= ${prevCycleStartDate} AND ${usageRecords.date} <= ${prevCycleEndDate}`)
+    // Execute all stats queries in parallel using the unified function
+    const [totalStats, currentCycleStats, previousCycleStats] = await Promise.all([
+      getUsageStats(),
+      getUsageStats(sql`${usageRecords.date} >= ${cycleStartDate} AND ${usageRecords.date} <= ${cycleEndDate}`),
+      getUsageStats(sql`${usageRecords.date} >= ${prevCycleStartDate} AND ${usageRecords.date} <= ${prevCycleEndDate}`)
+    ])
 
     // Get daily records for charts and tables (last 30 days) - sum across all devices per day
     const dailyRecords = await db
@@ -108,19 +146,19 @@ export async function GET() {
       .leftJoin(usageRecords, eq(devices.deviceId, usageRecords.deviceId))
       .groupBy(devices.deviceId, devices.deviceName, devices.createdAt, devices.updatedAt)
 
-    // Process query results 
-    const [totals] = totalStats
-    const [currentCycleTotals] = currentCycleStats
-    const [previousCycleTotals] = previousCycleStats
+    // Process query results with safe type conversion
+    const totals = validateAndTransformStats(totalStats)
+    const currentCycleTotals = validateAndTransformStats(currentCycleStats)
+    const previousCycleTotals = validateAndTransformStats(previousCycleStats)
     
     const dailyData = dailyRecords.map(record => ({
       date: record.date,
-      totalCost: Number(record.totalCost),
-      totalTokens: Number(record.totalTokens),
-      inputTokens: Number(record.inputTokens),
-      outputTokens: Number(record.outputTokens),
-      cacheCreationTokens: Number(record.cacheCreationTokens),
-      cacheReadTokens: Number(record.cacheReadTokens),
+      totalCost: safeNumber(record.totalCost),
+      totalTokens: safeNumber(record.totalTokens),
+      inputTokens: safeNumber(record.inputTokens),
+      outputTokens: safeNumber(record.outputTokens),
+      cacheCreationTokens: safeNumber(record.cacheCreationTokens),
+      cacheReadTokens: safeNumber(record.cacheReadTokens),
       modelsUsed: record.modelsUsed as string[],
       createdAt: record.createdAt
     }))
@@ -129,66 +167,66 @@ export async function GET() {
     const deviceData = deviceDailyRecords.map(record => ({
       date: record.date,
       deviceId: record.deviceId,
-      totalCost: Number(record.totalCost),
-      totalTokens: Number(record.totalTokens),
-      inputTokens: Number(record.inputTokens),
-      outputTokens: Number(record.outputTokens),
-      cacheCreationTokens: Number(record.cacheCreationTokens),
-      cacheReadTokens: Number(record.cacheReadTokens),
+      totalCost: safeNumber(record.totalCost),
+      totalTokens: safeNumber(record.totalTokens),
+      inputTokens: safeNumber(record.inputTokens),
+      outputTokens: safeNumber(record.outputTokens),
+      cacheCreationTokens: safeNumber(record.cacheCreationTokens),
+      cacheReadTokens: safeNumber(record.cacheReadTokens),
     }))
 
     // Create device info map with accurate statistics
     const devicesData = deviceInfo.map((device, index) => ({
       deviceId: device.deviceId,
       deviceName: device.deviceName || `Device ${index + 1}`,
-      recordCount: Number(device.totalRecords || 0),
-      totalCost: Number(device.totalCost || 0),
+      recordCount: safeNumber(device.totalRecords),
+      totalCost: safeNumber(device.totalCost),
       lastActiveDate: device.lastActiveDate,
       createdAt: device.createdAt,
       updatedAt: device.updatedAt
     }))
 
     // Calculate derived metrics
-    const activeDays = Number(totals?.activeDays || 0)
-    const avgDailyCost = activeDays > 0 ? Number(totals?.totalCost || 0) / activeDays : 0
+    const activeDays = totals.activeDays
+    const avgDailyCost = activeDays > 0 ? totals.totalCost / activeDays : 0
 
     return NextResponse.json({
       billingCycle: {
         startDate: currentCycle.startDate.toISOString(),
         endDate: currentCycle.endDate.toISOString(),
         label: currentCycle.cycleLabel,
-        startDay: billingStartDay,
-        daysRemaining: getDaysRemainingInBillingCycle(billingStartDay)
+        startDateConfig: billingStartDate,
+        daysRemaining: getDaysRemainingInBillingCycle(billingStartDate)
       },
       totals: {
-        totalCost: Number(totals?.totalCost || 0),
-        totalTokens: Number(totals?.totalTokens || 0),
-        totalInputTokens: Number(totals?.totalInputTokens || 0),
-        totalOutputTokens: Number(totals?.totalOutputTokens || 0),
-        totalCacheCreationTokens: Number(totals?.totalCacheCreationTokens || 0),
-        totalCacheReadTokens: Number(totals?.totalCacheReadTokens || 0),
-        activeDays: activeDays,
+        totalCost: totals.totalCost,
+        totalTokens: totals.totalTokens,
+        totalInputTokens: totals.totalInputTokens,
+        totalOutputTokens: totals.totalOutputTokens,
+        totalCacheCreationTokens: totals.totalCacheCreationTokens,
+        totalCacheReadTokens: totals.totalCacheReadTokens,
+        activeDays: totals.activeDays,
         avgDailyCost
       },
       currentCycle: {
-        totalCost: Number(currentCycleTotals?.totalCost || 0),
-        totalTokens: Number(currentCycleTotals?.totalTokens || 0),
-        totalInputTokens: Number(currentCycleTotals?.totalInputTokens || 0),
-        totalOutputTokens: Number(currentCycleTotals?.totalOutputTokens || 0),
-        totalCacheCreationTokens: Number(currentCycleTotals?.totalCacheCreationTokens || 0),
-        totalCacheReadTokens: Number(currentCycleTotals?.totalCacheReadTokens || 0),
-        activeDays: Number(currentCycleTotals?.activeDays || 0),
-        avgDailyCost: Number(currentCycleTotals?.activeDays || 0) > 0 ? Number(currentCycleTotals?.totalCost || 0) / Number(currentCycleTotals?.activeDays || 0) : 0
+        totalCost: currentCycleTotals.totalCost,
+        totalTokens: currentCycleTotals.totalTokens,
+        totalInputTokens: currentCycleTotals.totalInputTokens,
+        totalOutputTokens: currentCycleTotals.totalOutputTokens,
+        totalCacheCreationTokens: currentCycleTotals.totalCacheCreationTokens,
+        totalCacheReadTokens: currentCycleTotals.totalCacheReadTokens,
+        activeDays: currentCycleTotals.activeDays,
+        avgDailyCost: currentCycleTotals.activeDays > 0 ? currentCycleTotals.totalCost / currentCycleTotals.activeDays : 0
       },
       previousCycle: {
-        totalCost: Number(previousCycleTotals?.totalCost || 0),
-        totalTokens: Number(previousCycleTotals?.totalTokens || 0),
-        totalInputTokens: Number(previousCycleTotals?.totalInputTokens || 0),
-        totalOutputTokens: Number(previousCycleTotals?.totalOutputTokens || 0),
-        totalCacheCreationTokens: Number(previousCycleTotals?.totalCacheCreationTokens || 0),
-        totalCacheReadTokens: Number(previousCycleTotals?.totalCacheReadTokens || 0),
-        activeDays: Number(previousCycleTotals?.activeDays || 0),
-        avgDailyCost: Number(previousCycleTotals?.activeDays || 0) > 0 ? Number(previousCycleTotals?.totalCost || 0) / Number(previousCycleTotals?.activeDays || 0) : 0
+        totalCost: previousCycleTotals.totalCost,
+        totalTokens: previousCycleTotals.totalTokens,
+        totalInputTokens: previousCycleTotals.totalInputTokens,
+        totalOutputTokens: previousCycleTotals.totalOutputTokens,
+        totalCacheCreationTokens: previousCycleTotals.totalCacheCreationTokens,
+        totalCacheReadTokens: previousCycleTotals.totalCacheReadTokens,
+        activeDays: previousCycleTotals.activeDays,
+        avgDailyCost: previousCycleTotals.activeDays > 0 ? previousCycleTotals.totalCost / previousCycleTotals.activeDays : 0
       },
       daily: dailyData,
       devices: devicesData,
