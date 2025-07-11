@@ -18,7 +18,7 @@ interface UsageStats {
     totalOutputTokens: number
     totalCacheCreationTokens: number
     totalCacheReadTokens: number
-    recordCount: number
+    activeDays: number
     avgDailyCost: number
   }
   currentCycle: {
@@ -28,7 +28,7 @@ interface UsageStats {
     totalOutputTokens: number
     totalCacheCreationTokens: number
     totalCacheReadTokens: number
-    recordCount: number
+    activeDays: number
     avgDailyCost: number
   }
   daily: DailyRecord[]

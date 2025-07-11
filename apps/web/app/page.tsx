@@ -95,6 +95,7 @@ export default function Page() {
           currentCycleCost={stats.currentCycle.totalCost}
           billingCycleLabel={stats.billingCycle.label}
           daysRemaining={stats.billingCycle.daysRemaining}
+          activeDays={stats.totals.activeDays}
         />
 
         {/* Global filter bar */}

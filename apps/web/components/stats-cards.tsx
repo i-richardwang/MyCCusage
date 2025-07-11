@@ -2,7 +2,7 @@
 
 import { useMemo } from "react"
 import { Card, CardContent } from "@workspace/ui/components/card"
-import { DollarSign, Cpu, TrendingUp, Calendar } from "lucide-react"
+import { DollarSign, Cpu, TrendingUp } from "lucide-react"
 import { DailyRecord, TimeRange } from "@/types/chart-types"
 import { filterByTimeRange } from "@/hooks/use-chart-data"
 
@@ -21,8 +21,7 @@ export function StatsCards({ dailyData, timeRange, customDateRange }: StatsCards
       return {
         totalCost: 0,
         totalTokens: 0,
-        avgDailyCost: 0,
-        activeDays: 0
+        avgDailyCost: 0
       }
     }
 
@@ -34,8 +33,7 @@ export function StatsCards({ dailyData, timeRange, customDateRange }: StatsCards
     return {
       totalCost,
       totalTokens,
-      avgDailyCost,
-      activeDays
+      avgDailyCost
     }
   }, [dailyData, timeRange, customDateRange])
 
@@ -49,7 +47,7 @@ export function StatsCards({ dailyData, timeRange, customDateRange }: StatsCards
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
       {/* Total Cost */}
       <Card>
         <CardContent className="p-6">
@@ -98,21 +96,6 @@ export function StatsCards({ dailyData, timeRange, customDateRange }: StatsCards
         </CardContent>
       </Card>
 
-      {/* Active Days */}
-      <Card>
-        <CardContent className="p-6">
-          <div className="flex items-center justify-between">
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-muted-foreground">Active Days</p>
-              <p className="text-2xl font-bold">{stats.activeDays}</p>
-              <p className="text-xs text-muted-foreground">
-                Tracking period
-              </p>
-            </div>
-            <Calendar className="h-4 w-4 text-muted-foreground" />
-          </div>
-        </CardContent>
-      </Card>
     </div>
   )
 }

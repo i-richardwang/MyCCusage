@@ -24,7 +24,7 @@ export async function GET() {
         totalOutputTokens: sql<number>`SUM(${usageRecords.outputTokens})::bigint`,
         totalCacheCreationTokens: sql<number>`SUM(${usageRecords.cacheCreationTokens})::bigint`,
         totalCacheReadTokens: sql<number>`SUM(${usageRecords.cacheReadTokens})::bigint`,
-        recordCount: sql<number>`COUNT(*)::bigint`
+        activeDays: sql<number>`COUNT(DISTINCT ${usageRecords.date})::bigint`
       })
       .from(usageRecords)
 
@@ -37,7 +37,7 @@ export async function GET() {
         totalOutputTokens: sql<number>`SUM(${usageRecords.outputTokens})::bigint`,
         totalCacheCreationTokens: sql<number>`SUM(${usageRecords.cacheCreationTokens})::bigint`,
         totalCacheReadTokens: sql<number>`SUM(${usageRecords.cacheReadTokens})::bigint`,
-        recordCount: sql<number>`COUNT(*)::bigint`
+        activeDays: sql<number>`COUNT(DISTINCT ${usageRecords.date})::bigint`
       })
       .from(usageRecords)
       .where(sql`${usageRecords.date} >= ${cycleStartDate} AND ${usageRecords.date} <= ${cycleEndDate}`)
@@ -130,7 +130,7 @@ export async function GET() {
     }))
 
     // Calculate derived metrics
-    const activeDays = Number(totals?.recordCount || 0)
+    const activeDays = Number(totals?.activeDays || 0)
     const avgDailyCost = activeDays > 0 ? Number(totals?.totalCost || 0) / activeDays : 0
 
     return NextResponse.json({
@@ -148,7 +148,7 @@ export async function GET() {
         totalOutputTokens: Number(totals?.totalOutputTokens || 0),
         totalCacheCreationTokens: Number(totals?.totalCacheCreationTokens || 0),
         totalCacheReadTokens: Number(totals?.totalCacheReadTokens || 0),
-        recordCount: activeDays,
+        activeDays: activeDays,
         avgDailyCost
       },
       currentCycle: {
@@ -158,8 +158,8 @@ export async function GET() {
         totalOutputTokens: Number(currentCycleTotals?.totalOutputTokens || 0),
         totalCacheCreationTokens: Number(currentCycleTotals?.totalCacheCreationTokens || 0),
         totalCacheReadTokens: Number(currentCycleTotals?.totalCacheReadTokens || 0),
-        recordCount: Number(currentCycleTotals?.recordCount || 0),
-        avgDailyCost: Number(currentCycleTotals?.recordCount || 0) > 0 ? Number(currentCycleTotals?.totalCost || 0) / Number(currentCycleTotals?.recordCount || 0) : 0
+        activeDays: Number(currentCycleTotals?.activeDays || 0),
+        avgDailyCost: Number(currentCycleTotals?.activeDays || 0) > 0 ? Number(currentCycleTotals?.totalCost || 0) / Number(currentCycleTotals?.activeDays || 0) : 0
       },
       daily: dailyData,
       devices: devicesData,
