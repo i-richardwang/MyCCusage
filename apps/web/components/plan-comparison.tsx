@@ -72,18 +72,22 @@ export function PlanComparison({
             Track your subscription returns - how much value you&apos;re harvesting!
           </CardDescription>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium">View:</span>
-          <Select value={roiMode} onValueChange={(value: ROIMode) => setROIMode(value)}>
-            <SelectTrigger className="w-[160px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="current">Current Cycle</SelectItem>
-              <SelectItem value="cumulative">Since Start</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+        <Select value={roiMode} onValueChange={(value: ROIMode) => setROIMode(value)}>
+          <SelectTrigger 
+            className="hidden w-[160px] rounded-lg sm:ml-auto sm:flex"
+            aria-label="Select ROI view mode"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="rounded-xl">
+            <SelectItem value="current" className="rounded-lg">
+              Current Cycle
+            </SelectItem>
+            <SelectItem value="cumulative" className="rounded-lg">
+              Since Start
+            </SelectItem>
+          </SelectContent>
+        </Select>
       </CardHeader>
       <CardContent className="px-2 py-4 sm:px-6 sm:py-4">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">

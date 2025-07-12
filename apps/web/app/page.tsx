@@ -7,6 +7,7 @@ import { PlanComparison } from "@/components/plan-comparison"
 import { ChartTabs } from "@/components/chart-tabs"
 import { RecentActivity } from "@/components/recent-activity"
 import { FilterBar } from "@/components/filter-bar"
+import { ModeToggle } from "@/components/mode-toggle"
 import { TimeRange } from "@/types/chart-types"
 import { type DateRange } from "react-day-picker"
 
@@ -83,6 +84,9 @@ export default function Page() {
             <div>
               <h1 className="text-2xl font-bold tracking-tight">Claude Code Usage Monitor</h1>
               <p className="text-sm text-muted-foreground">Monitor your Claude API usage statistics</p>
+            </div>
+            <div className="flex items-center gap-4">
+              <ModeToggle />
             </div>
           </div>
         </div>
