@@ -79,7 +79,10 @@ function validateAndTransformStats(rawStats: RawStatsResult[]): TransformedStats
 export async function GET() {
   try {
     // Get billing cycle configuration
-    const billingStartDate = process.env.CLAUDE_BILLING_CYCLE_START_DATE || '2025-01-01'
+    const billingStartDate = process.env.CLAUDE_BILLING_CYCLE_START_DATE
+    if (!billingStartDate) {
+      return NextResponse.json({ error: 'CLAUDE_BILLING_CYCLE_START_DATE environment variable is required' }, { status: 500 })
+    }
     const currentCycle = getCurrentBillingCycle(billingStartDate)
     const previousCycle = getPreviousBillingCycle(billingStartDate)
     

@@ -11,6 +11,7 @@ import { ModeToggle } from "@/components/mode-toggle"
 import { Footer } from "@/components/footer"
 import { TimeRange } from "@/types/chart-types"
 import { type DateRange } from "react-day-picker"
+import { Loader2 } from "lucide-react"
 
 export default function Page() {
   const { stats, loading, error } = useUsageStats()
@@ -54,7 +55,7 @@ export default function Page() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-svh">
-        <div className="text-lg">Loading...</div>
+        <Loader2 className="h-8 w-8 animate-spin" />
       </div>
     )
   }
@@ -83,7 +84,12 @@ export default function Page() {
         <div className="container mx-auto px-4 sm:px-6 py-6">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-4xl font-bold tracking-tight">Claude Code Usage Monitor</h1>
+              <h1 className="text-4xl font-bold tracking-tight">
+                {process.env.NEXT_PUBLIC_OWNER_NAME 
+                  ? `${process.env.NEXT_PUBLIC_OWNER_NAME}'s Claude Code Usage Dashboard`
+                  : "Claude Code Usage Dashboard"
+                }
+              </h1>
             </div>
             <div className="flex items-center gap-4">
               <ModeToggle />

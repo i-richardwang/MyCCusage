@@ -4,12 +4,12 @@ import { Card, CardContent } from "@workspace/ui/components/card"
 import { Button } from "@workspace/ui/components/button"
 import { Github, Heart, Zap } from "lucide-react"
 
-// 配置常量
+// Configuration constants
 const FOOTER_CONFIG = {
   project: {
-    name: "Claude Code Usage Monitor",
-    description: "Open source dashboard for monitoring Claude Code usage, costs, and statistics with beautiful charts and insights.",
-    version: process.env.npm_package_version || '0.3.3',
+    name: "Claude Code Usage Dashboard",
+    description: "Open source dashboard for tracking Claude Code usage, costs, and statistics with beautiful charts and insights.",
+    version: '0.3.4',
     repository: "https://github.com/i-richardwang/MyCCusage",
     author: {
       name: "Richard Wang",
@@ -22,7 +22,7 @@ const FOOTER_CONFIG = {
   currentYear: new Date().getFullYear()
 } as const
 
-// 可重用的样式类
+// Reusable style classes
 const styles = {
   link: "text-primary hover:underline",
   externalLink: "target='_blank' rel='noopener noreferrer'",
@@ -36,7 +36,7 @@ const styles = {
   }
 } as const
 
-// 外部链接组件
+// External link component
 const ExternalLink = ({ href, children, className = "" }: {
   href: string
   children: React.ReactNode
@@ -122,7 +122,7 @@ export function Footer() {
             <div className="mt-8 pt-6 border-t border-border">
               <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
                 <div className={styles.text.small}>
-                  Built for monitoring Claude Code usage efficiently and beautifully.
+                  Built for tracking Claude Code usage efficiently and beautifully.
                 </div>
                 <div className={styles.text.small}>
                   © {FOOTER_CONFIG.currentYear} {FOOTER_CONFIG.project.name}. Open source project.
