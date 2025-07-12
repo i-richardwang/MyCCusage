@@ -8,6 +8,7 @@ import { ChartTabs } from "@/components/chart-tabs"
 import { RecentActivity } from "@/components/recent-activity"
 import { FilterBar } from "@/components/filter-bar"
 import { ModeToggle } from "@/components/mode-toggle"
+import { Footer } from "@/components/footer"
 import { TimeRange } from "@/types/chart-types"
 import { type DateRange } from "react-day-picker"
 
@@ -79,11 +80,10 @@ export default function Page() {
     <div className="min-h-screen">
       {/* Header navigation */}
       <div className="border-b bg-background/95 backdrop-blur sticky top-0 z-50">
-        <div className="container mx-auto px-4 sm:px-6 py-4">
+        <div className="container mx-auto px-4 sm:px-6 py-6">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold tracking-tight">Claude Code Usage Monitor</h1>
-              <p className="text-sm text-muted-foreground">Monitor your Claude API usage statistics</p>
+              <h1 className="text-4xl font-bold tracking-tight">Claude Code Usage Monitor</h1>
             </div>
             <div className="flex items-center gap-4">
               <ModeToggle />
@@ -136,6 +136,9 @@ export default function Page() {
           customDateRange={customDateRange}
         />
       </div>
+
+      {/* Footer */}
+      <Footer />
     </div>
   )
 }
