@@ -5,6 +5,7 @@ export const devices = pgTable('devices', {
   id: serial('id').primaryKey(),
   deviceId: varchar('device_id', { length: 255 }).notNull().unique(),
   deviceName: varchar('device_name', { length: 255 }).notNull(),
+  displayName: varchar('display_name', { length: 255 }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => {

@@ -129,7 +129,7 @@ export function useMultiDeviceChartData(
 
     // Generate chart configuration only for active devices
     const chartConfig = activeDevices.reduce((config, device, index) => {
-      const deviceName = device.deviceName || `Device ${index + 1}`
+      const deviceName = device.displayName?.trim() || device.deviceName || `Device ${index + 1}`
       config[device.deviceId] = {
         label: deviceName,
         color: CHART_COLORS[index % CHART_COLORS.length] || CHART_COLORS[0]
@@ -233,7 +233,7 @@ export function useMultiDeviceTokenData(
 
     // Generate chart configuration only for active devices
     const chartConfig = activeDevices.reduce((config, device, index) => {
-      const deviceName = device.deviceName || `Device ${index + 1}`
+      const deviceName = device.displayName?.trim() || device.deviceName || `Device ${index + 1}`
       config[device.deviceId] = {
         label: deviceName,
         color: CHART_COLORS[index % CHART_COLORS.length] || CHART_COLORS[0]

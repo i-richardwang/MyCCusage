@@ -25,6 +25,7 @@ export interface DeviceRecord {
 export interface Device {
   deviceId: string
   deviceName: string
+  displayName?: string | null
   recordCount: number
   totalCost?: number
   lastActiveDate?: string
