@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
-import { DailyRecord, DeviceRecord, Device, TimeRange, ChartRecord, MultiDeviceChartRecord } from '@/types/chart-types'
-import { CHART_COLORS, TIME_RANGE_DAYS, TOKEN_BREAKDOWN_CHART_CONFIG } from '@/constants/chart-config'
+import { DailyRecord, DeviceRecord, Device, TimeRange, ChartRecord, MultiDeviceChartRecord, RatioChartData } from '@/types/chart-types'
+import { CHART_COLORS, TIME_RANGE_DAYS, INPUT_OUTPUT_RATIO_CHART_CONFIG } from '@/constants/chart-config'
 
 // Shared utility for time range filtering
 export function filterByTimeRange<T extends { date: string }>(
@@ -145,26 +145,45 @@ export function useMultiDeviceChartData(
   }, [deviceData, devices, timeRange, customDateRange])
 }
 
-// Hook for token breakdown chart data
-export function useTokenBreakdownChartData(
+// Hook for Input/Output ratio chart data
+export function useInputOutputRatioChartData(
   dailyData: DailyRecord[], 
   timeRange: TimeRange,
   customDateRange?: { from: Date; to: Date }
-) {
+): RatioChartData {
   return useMemo(() => {
-    const chartData = dailyData.map(record => ({
-      date: record.date,
-      inputTokens: record.inputTokens / 1000000, // Convert to millions
-      outputTokens: record.outputTokens / 1000000,
-      cacheTokens: (record.cacheCreationTokens + record.cacheReadTokens) / 1000000
-    })).reverse() // Reverse array for chronological order
+    // Calculate daily ratios and running average
+    const ratioData = dailyData.map(record => {
+      const ratio = record.outputTokens > 0 ? record.inputTokens / record.outputTokens : 0
+      return {
+        date: record.date,
+        ratio: Number(ratio.toFixed(2)), // Round to 2 decimal places
+        inputTokens: record.inputTokens,
+        outputTokens: record.outputTokens
+      }
+    }).reverse() // Reverse for chronological order
 
-    // Filter by time range
-    const filteredChartData = filterByTimeRange(chartData, timeRange, customDateRange)
+    // Filter by time range first
+    const filteredData = filterByTimeRange(ratioData, timeRange, customDateRange)
+
+    // Calculate rolling average ratio for the filtered data
+    const chartData = filteredData.map((record, index) => {
+      // Calculate average ratio from the beginning of the filtered period up to current point
+      const relevantRecords = filteredData.slice(0, index + 1)
+      const totalInput = relevantRecords.reduce((sum, r) => sum + r.inputTokens, 0)
+      const totalOutput = relevantRecords.reduce((sum, r) => sum + r.outputTokens, 0)
+      const averageRatio = totalOutput > 0 ? Number((totalInput / totalOutput).toFixed(2)) : 0
+
+      return {
+        date: record.date,
+        ratio: record.ratio,
+        averageRatio
+      }
+    })
 
     return {
-      chartData: filteredChartData,
-      chartConfig: TOKEN_BREAKDOWN_CHART_CONFIG
+      chartData,
+      chartConfig: INPUT_OUTPUT_RATIO_CHART_CONFIG
     }
   }, [dailyData, timeRange, customDateRange])
 }

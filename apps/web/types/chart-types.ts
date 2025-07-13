@@ -46,6 +46,17 @@ export interface ChartRecord {
   cacheTokens: number
 }
 
+export interface RatioChartRecord {
+  date: string
+  ratio: number
+  averageRatio: number
+}
+
+export interface RatioChartData {
+  chartData: RatioChartRecord[]
+  chartConfig: Record<string, { label: string; color: string }>
+}
+
 export type TimeRange = "all" | "7d" | "14d" | "30d" | "custom"
 
 export interface ChartConfig {

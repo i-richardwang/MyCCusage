@@ -1,15 +1,14 @@
 "use client"
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@workspace/ui/components/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@workspace/ui/components/tabs"
 import { Progress } from "@workspace/ui/components/progress"
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@workspace/ui/components/chart"
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, XAxis } from "recharts"
-import { useMultiDeviceChartData, useTokenBreakdownChartData, useMultiDeviceTokenData } from "@/hooks/use-chart-data"
+import { Area, AreaChart, Bar, BarChart, Line, LineChart, CartesianGrid, XAxis } from "recharts"
+import { useMultiDeviceChartData, useInputOutputRatioChartData, useMultiDeviceTokenData } from "@/hooks/use-chart-data"
 import { DailyRecord, DeviceRecord, Device, TimeRange } from "@/types/chart-types"
 import { CHART_COLORS } from "@/constants/chart-config"
 
-interface ChartTabsProps {
+interface ChartsProps {
   dailyData: DailyRecord[]
   devices: Device[]
   deviceData: DeviceRecord[]
@@ -25,7 +24,7 @@ interface ChartTabsProps {
   customDateRange?: { from: Date; to: Date }
 }
 
-export function ChartTabs({ dailyData, devices, deviceData, totals, timeRange, customDateRange }: ChartTabsProps) {
+export function Charts({ dailyData, devices, deviceData, totals, timeRange, customDateRange }: ChartsProps) {
 
   // Use custom hooks for chart data
   const { chartData: multiDeviceChartData, chartConfig: multiDeviceChartConfig, activeDevices: activeCostDevices } = useMultiDeviceChartData(
@@ -35,7 +34,7 @@ export function ChartTabs({ dailyData, devices, deviceData, totals, timeRange, c
     customDateRange
   )
 
-  const { chartData: tokenBreakdownData, chartConfig: tokenBreakdownConfig } = useTokenBreakdownChartData(
+  const { chartData: ratioChartData, chartConfig: ratioChartConfig } = useInputOutputRatioChartData(
     dailyData,
     timeRange,
     customDateRange
@@ -54,19 +53,9 @@ export function ChartTabs({ dailyData, devices, deviceData, totals, timeRange, c
     : 0
 
   return (
-    <Tabs defaultValue="overview" className="space-y-6">
-      <TabsList className="grid w-full max-w-md grid-cols-3">
-        <TabsTrigger value="overview">Overview</TabsTrigger>
-        <TabsTrigger value="tokens">Token Analysis</TabsTrigger>
-        <TabsTrigger value="trends">Trends</TabsTrigger>
-      </TabsList>
-
-      {/* Overview tab */}
-      <TabsContent value="overview">
-        <div className="space-y-6">
-
-          {/* Cost and Token charts - side by side */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div className="space-y-6">
+      {/* Cost and Token charts - side by side */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Cost trend chart */}
             <Card className="pt-0">
               <CardHeader className="flex items-center gap-2 space-y-0 border-b py-5 sm:flex-row">
@@ -202,40 +191,28 @@ export function ChartTabs({ dailyData, devices, deviceData, totals, timeRange, c
                 </ChartContainer>
               </CardContent>
             </Card>
-          </div>
-        </div>
-      </TabsContent>
+      </div>
 
-      {/* Token analysis tab */}
-      <TabsContent value="tokens">
+      {/* Input/Output Ratio Analysis */}
         <Card className="pt-0">
           <CardHeader className="flex items-center gap-2 space-y-0 border-b py-5 sm:flex-row">
             <div className="grid flex-1 gap-1">
-              <CardTitle>Token Breakdown Analysis</CardTitle>
+              <CardTitle>Input/Output Ratio Analysis</CardTitle>
               <CardDescription>
-                Detailed token usage by type over time (millions)
+                Trend analysis of input vs output token efficiency over time
               </CardDescription>
             </div>
           </CardHeader>
           <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
-            <ChartContainer config={tokenBreakdownConfig} className="aspect-auto h-[300px] w-full">
-              <AreaChart data={tokenBreakdownData}>
-                <defs>
-                  {Object.entries(tokenBreakdownConfig).map(([key, config]) => (
-                    <linearGradient key={key} id={`fill${key}`} x1="0" y1="0" x2="0" y2="1">
-                      <stop
-                        offset="5%"
-                        stopColor={config.color}
-                        stopOpacity={0.8}
-                      />
-                      <stop
-                        offset="95%"
-                        stopColor={config.color}
-                        stopOpacity={0.1}
-                      />
-                    </linearGradient>
-                  ))}
-                </defs>
+            <ChartContainer config={ratioChartConfig} className="aspect-auto h-[300px] w-full">
+              <LineChart 
+                accessibilityLayer
+                data={ratioChartData}
+                margin={{
+                  left: 12,
+                  right: 12,
+                }}
+              >
                 <CartesianGrid vertical={false} />
                 <XAxis
                   dataKey="date"
@@ -255,25 +232,35 @@ export function ChartTabs({ dailyData, devices, deviceData, totals, timeRange, c
                   cursor={false}
                   content={<ChartTooltipContent indicator="dot" />}
                 />
-                {(Object.keys(tokenBreakdownConfig) as Array<keyof typeof tokenBreakdownConfig>).reverse().map((tokenType) => (
-                  <Area 
-                    key={tokenType}
-                    dataKey={tokenType} 
-                    type="natural"
-                    fill={`url(#fill${tokenType})`}
-                    stroke={tokenBreakdownConfig[tokenType].color}
-                    stackId="a"
-                  />
-                ))}
+                <Line
+                  dataKey="ratio"
+                  type="monotone"
+                  stroke={ratioChartConfig.ratio?.color}
+                  strokeWidth={2}
+                  dot={{
+                    fill: ratioChartConfig.ratio?.color,
+                    strokeWidth: 2,
+                    r: 4,
+                  }}
+                  activeDot={{
+                    r: 6,
+                  }}
+                />
+                <Line
+                  dataKey="averageRatio"
+                  type="monotone"
+                  stroke={ratioChartConfig.averageRatio?.color}
+                  strokeWidth={2}
+                  strokeDasharray="5 5"
+                  dot={false}
+                />
                 <ChartLegend content={<ChartLegendContent />} />
-              </AreaChart>
+              </LineChart>
             </ChartContainer>
           </CardContent>
         </Card>
-      </TabsContent>
 
-      {/* Trends tab */}
-      <TabsContent value="trends">
+      {/* Usage Trends & Insights */}
         <Card className="pt-0">
           <CardHeader className="flex items-center gap-2 space-y-0 border-b py-5 sm:flex-row">
             <div className="grid flex-1 gap-1">
@@ -323,7 +310,6 @@ export function ChartTabs({ dailyData, devices, deviceData, totals, timeRange, c
             </div>
           </CardContent>
         </Card>
-      </TabsContent>
-    </Tabs>
+    </div>
   )
 }

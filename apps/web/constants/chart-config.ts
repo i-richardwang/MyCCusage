@@ -18,18 +18,14 @@ export const BASE_CHART_CONFIG = {
   }
 } as const
 
-export const TOKEN_BREAKDOWN_CHART_CONFIG = {
-  inputTokens: {
-    label: "Input Tokens",
+export const INPUT_OUTPUT_RATIO_CHART_CONFIG = {
+  ratio: {
+    label: "Input/Output Ratio",
     color: "var(--chart-1)"
   },
-  outputTokens: {
-    label: "Output Tokens", 
+  averageRatio: {
+    label: "Average Ratio",
     color: "var(--chart-2)"
-  },
-  cacheTokens: {
-    label: "Cache Tokens",
-    color: "var(--chart-3)"
   }
 } as const
 
