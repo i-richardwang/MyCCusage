@@ -52,6 +52,7 @@ export default function Page() {
     ? { from: dateRange.from, to: dateRange.to }
     : undefined
 
+
   // Loading/Error content for main area
   const renderMainContent = () => {
     if (loading) {
@@ -131,7 +132,7 @@ export default function Page() {
         <div className="container mx-auto px-4 sm:px-6 py-6">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-4xl font-bold tracking-tight">
+              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight">
                 {process.env.NEXT_PUBLIC_OWNER_NAME 
                   ? `${process.env.NEXT_PUBLIC_OWNER_NAME}'s Claude Code Usage Dashboard`
                   : "Claude Code Usage Dashboard"

@@ -89,13 +89,29 @@ export function calculateCumulativeMetrics(
  */
 export function getCumulativeUserStatus(avgMonthlyCost: number) {
   if (avgMonthlyCost >= 200) {
-    return { title: "Heavy User", subtitle: "Great Value!", color: "text-green-600" }
+    return { 
+      title: "Heavy User", 
+      subtitle: "Exceptional long-term ROI with consistently high usage.", 
+      color: "text-green-600"
+    }
   } else if (avgMonthlyCost >= 100) {
-    return { title: "Power User", subtitle: "Good Value!", color: "text-blue-600" }
+    return { 
+      title: "Power User", 
+      subtitle: "Strong long-term value with reliable usage patterns.", 
+      color: "text-blue-600"
+    }
   } else if (avgMonthlyCost >= 50) {
-    return { title: "Regular User", subtitle: "Getting Value", color: "text-yellow-600" }
+    return { 
+      title: "Regular User", 
+      subtitle: "Building consistent long-term value over time.", 
+      color: "text-yellow-600"
+    }
   } else {
-    return { title: "Light User", subtitle: "Room to Grow", color: "text-gray-600" }
+    return { 
+      title: "Light User", 
+      subtitle: "Opportunity to increase usage for better value.", 
+      color: "text-gray-600"
+    }
   }
 }
 
