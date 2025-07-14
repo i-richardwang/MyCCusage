@@ -130,7 +130,6 @@ export default function Page() {
           dailyData={stats.daily} 
           devices={stats.devices} 
           deviceData={stats.deviceData} 
-          totals={stats.totals}
           timeRange={timeRange}
           customDateRange={customDateRange}
         />

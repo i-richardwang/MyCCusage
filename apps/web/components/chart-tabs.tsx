@@ -1,10 +1,11 @@
 "use client"
 
+import { useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@workspace/ui/components/card"
 import { Progress } from "@workspace/ui/components/progress"
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@workspace/ui/components/chart"
 import { Area, AreaChart, Bar, BarChart, Line, LineChart, CartesianGrid, XAxis } from "recharts"
-import { useMultiDeviceChartData, useInputOutputRatioChartData, useMultiDeviceTokenData } from "@/hooks/use-chart-data"
+import { useMultiDeviceChartData, useInputOutputRatioChartData, useMultiDeviceTokenData, filterByTimeRange } from "@/hooks/use-chart-data"
 import { DailyRecord, DeviceRecord, Device, TimeRange } from "@/types/chart-types"
 import { CHART_COLORS } from "@/constants/chart-config"
 
@@ -12,19 +13,11 @@ interface ChartsProps {
   dailyData: DailyRecord[]
   devices: Device[]
   deviceData: DeviceRecord[]
-  totals: {
-    totalCost: number
-    totalTokens: number
-    totalInputTokens: number
-    totalOutputTokens: number
-    totalCacheCreationTokens: number
-    totalCacheReadTokens: number
-  }
   timeRange: TimeRange
   customDateRange?: { from: Date; to: Date }
 }
 
-export function Charts({ dailyData, devices, deviceData, totals, timeRange, customDateRange }: ChartsProps) {
+export function Charts({ dailyData, devices, deviceData, timeRange, customDateRange }: ChartsProps) {
 
   // Use custom hooks for chart data
   const { chartData: multiDeviceChartData, chartConfig: multiDeviceChartConfig, activeDevices: activeCostDevices } = useMultiDeviceChartData(
@@ -47,10 +40,41 @@ export function Charts({ dailyData, devices, deviceData, totals, timeRange, cust
   )
 
 
-  // Calculate cache hit rate
-  const cacheHitRate = totals.totalCacheReadTokens > 0 
-    ? (totals.totalCacheReadTokens / (totals.totalCacheReadTokens + totals.totalCacheCreationTokens)) * 100 
-    : 0
+  // Calculate metrics based on filtered data (consistent with chart time filtering)
+  const { usageActivityRate, cacheHitRate, tokenUnitPrice } = useMemo(() => {
+    const filteredData = filterByTimeRange(dailyData, timeRange, customDateRange)
+    
+    if (filteredData.length === 0) {
+      return { usageActivityRate: 0, cacheHitRate: 0, tokenUnitPrice: 0 }
+    }
+
+    // Usage activity: days with usage vs total days
+    const usageActivity = (filteredData.filter(day => day.totalTokens > 0).length / filteredData.length) * 100
+
+    // Aggregate totals for cache and cost calculations
+    const totals = filteredData.reduce((acc, day) => ({
+      cacheRead: acc.cacheRead + day.cacheReadTokens,
+      cacheCreation: acc.cacheCreation + day.cacheCreationTokens,
+      tokens: acc.tokens + day.totalTokens,
+      cost: acc.cost + day.totalCost
+    }), { cacheRead: 0, cacheCreation: 0, tokens: 0, cost: 0 })
+
+    // Cache hit rate
+    const cacheHit = totals.cacheRead > 0 
+      ? (totals.cacheRead / (totals.cacheRead + totals.cacheCreation)) * 100 
+      : 0
+
+    // Token unit price (per million tokens)
+    const unitPrice = totals.tokens > 0 
+      ? (totals.cost / totals.tokens) * 1000000 
+      : 0
+
+    return {
+      usageActivityRate: usageActivity,
+      cacheHitRate: cacheHit,
+      tokenUnitPrice: unitPrice
+    }
+  }, [dailyData, timeRange, customDateRange])
 
   return (
     <div className="space-y-6">
@@ -272,27 +296,15 @@ export function Charts({ dailyData, devices, deviceData, totals, timeRange, cust
           </CardHeader>
           <CardContent className="px-2 py-4 sm:px-6 sm:py-4">
             <div className="space-y-6">
-              {/* Cost efficiency */}
+              {/* Usage Activity Rate */}
               <div className="space-y-3">
                 <div className="flex justify-between items-center">
-                  <span className="text-sm font-medium">Cost Efficiency</span>
-                  <span className="text-sm font-bold">92%</span>
+                  <span className="text-sm font-medium">Usage Activity</span>
+                  <span className="text-sm font-bold">{usageActivityRate.toFixed(1)}%</span>
                 </div>
-                <Progress value={92} className="h-2" />
+                <Progress value={usageActivityRate} className="h-2" />
                 <p className="text-xs text-muted-foreground">
-                  Based on token-to-cost ratio analysis
-                </p>
-              </div>
-              
-              {/* Token utilization */}
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm font-medium">Token Utilization</span>
-                  <span className="text-sm font-bold">78%</span>
-                </div>
-                <Progress value={78} className="h-2" />
-                <p className="text-xs text-muted-foreground">
-                  Average daily token usage efficiency
+                  Days with usage vs total days
                 </p>
               </div>
               
@@ -305,6 +317,18 @@ export function Charts({ dailyData, devices, deviceData, totals, timeRange, cust
                 <Progress value={cacheHitRate} className="h-2" />
                 <p className="text-xs text-muted-foreground">
                   Percentage of requests served from cache
+                </p>
+              </div>
+              
+              {/* Token Unit Price */}
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-medium">Token Unit Price</span>
+                  <span className="text-sm font-bold">${tokenUnitPrice.toFixed(2)}</span>
+                </div>
+                <Progress value={tokenUnitPrice > 0 ? Math.min(100, (6 / tokenUnitPrice) * 100) : 0} className="h-2" />
+                <p className="text-xs text-muted-foreground">
+                  Average cost per million tokens
                 </p>
               </div>
             </div>
