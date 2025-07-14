@@ -30,7 +30,14 @@ export class UsageCollector {
       
       // Get device information
       const deviceInfo = getDeviceInfo()
-      console.log(`Device: ${deviceInfo.deviceName} (${deviceInfo.deviceId})`)
+      
+      // Override displayName from collector config if provided
+      if (this.config.displayName) {
+        deviceInfo.displayName = this.config.displayName
+      }
+      
+      const displayName = deviceInfo.displayName || deviceInfo.deviceName
+      console.log(`Device: ${displayName} (${deviceInfo.deviceId})`)
       
       // Combine raw data with device info
       const data: UsageData = {

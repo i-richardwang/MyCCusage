@@ -54,7 +54,8 @@ export function getDeviceInfo(): DeviceInfo {
   if (config?.deviceId && config?.deviceName) {
     return {
       deviceId: config.deviceId,
-      deviceName: config.deviceName
+      deviceName: config.deviceName,
+      displayName: config.displayName
     }
   }
   
@@ -74,6 +75,7 @@ export function getDeviceInfo(): DeviceInfo {
   
   return {
     deviceId,
-    deviceName
+    deviceName,
+    displayName: config?.displayName
   }
 }

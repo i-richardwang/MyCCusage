@@ -6,6 +6,7 @@ interface UsageSyncRequest {
   device: {
     deviceId: string
     deviceName: string
+    displayName?: string
   }
   daily: Array<{
     date: string
@@ -68,21 +69,26 @@ export async function POST(request: NextRequest) {
         .insert(devices)
         .values({
           deviceId: body.device.deviceId,
-          deviceName: body.device.deviceName
+          deviceName: body.device.deviceName,
+          displayName: body.device.displayName
         })
       console.log(`Created new device: ${body.device.deviceName} (${body.device.deviceId})`)
     } else {
-      // Update device name if changed
+      // Update device name and display name if changed
       const currentDevice = existingDevice[0]
-      if (currentDevice && currentDevice.deviceName !== body.device.deviceName) {
+      if (currentDevice && (
+        currentDevice.deviceName !== body.device.deviceName ||
+        currentDevice.displayName !== body.device.displayName
+      )) {
         await db
           .update(devices)
           .set({
             deviceName: body.device.deviceName,
+            displayName: body.device.displayName,
             updatedAt: new Date()
           })
           .where(eq(devices.deviceId, body.device.deviceId))
-        console.log(`Updated device name: ${body.device.deviceName} (${body.device.deviceId})`)
+        console.log(`Updated device info: ${body.device.deviceName} (${body.device.deviceId})`)
       }
     }
 

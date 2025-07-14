@@ -31,6 +31,7 @@ ccusage-collector config
 This will prompt you for:
 - **API Key** (hidden input)
 - **Dashboard URL** (domain only, e.g., https://your-app.com)
+- **Device Display Name** (optional, custom name for this device)
 - **Sync Schedule** (user-friendly options like "Every 4 hours")
 
 ### 2. Start Background Sync
@@ -75,6 +76,7 @@ ccusage-collector config
 
 ? Enter your API Key: ********** (hidden input)
 ? Enter your dashboard URL (domain only): https://myccusage.example.com
+? Enter a custom device name (optional, leave empty to use system name): My MacBook Pro
 ? Select sync frequency: Every 4 hours
 
 🧪 Testing configuration...
@@ -168,13 +170,14 @@ The collector:
 - Syncs complete usage records to your dashboard
 - Supports upsert operations (updates existing records)
 - Generates unique device fingerprints for multi-device tracking
+- Allows custom device names for better dashboard readability
 
 ### Data Format
 The collector syncs:
 - Daily usage metrics (tokens, costs, models)
 - Token breakdowns (input, output, cache creation/read)
 - Model usage statistics
-- Device information for multi-device analytics
+- Device information with optional custom display names for multi-device analytics
 
 ## Error Handling
 

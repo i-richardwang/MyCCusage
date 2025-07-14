@@ -68,6 +68,19 @@ export class InteractiveConfig {
           }
         },
         {
+          type: 'input',
+          name: 'displayName',
+          message: 'Enter a custom device name (optional, leave empty to use system name):',
+          default: existingConfig?.displayName || '',
+          validate: (input: string) => {
+            // Allow empty string, but if provided, should not be just whitespace
+            if (input && input.trim().length === 0) {
+              return 'Device name cannot be just whitespace. Leave empty to use system name.'
+            }
+            return true
+          }
+        },
+        {
           type: 'list',
           name: 'scheduleOption',
           message: 'Select sync frequency:',
@@ -94,7 +107,8 @@ export class InteractiveConfig {
         retryDelay: existingConfig?.retryDelay || 1000,
         // Device info will be auto-generated when first needed
         deviceId: existingConfig?.deviceId,
-        deviceName: existingConfig?.deviceName
+        deviceName: existingConfig?.deviceName,
+        displayName: answers.displayName.trim() || undefined
       }
 
       // Test configuration
@@ -127,6 +141,9 @@ export class InteractiveConfig {
       console.log('\n📋 Configuration Summary:')
       console.log(`   API Endpoint: ${config.endpoint}`)
       console.log(`   Sync Schedule: ${config.scheduleLabel}`)
+      if (config.displayName) {
+        console.log(`   Device Display Name: ${config.displayName}`)
+      }
       console.log(`   Config saved to: ${this.configManager.getConfigPath()}`)
       
       console.log('\n💡 Start with PM2:')
@@ -143,6 +160,7 @@ export class InteractiveConfig {
       const collector = new UsageCollector({
         apiKey: config.apiKey,
         endpoint: config.endpoint,
+        displayName: config.displayName,
         maxRetries: 1,
         retryDelay: 1000
       })

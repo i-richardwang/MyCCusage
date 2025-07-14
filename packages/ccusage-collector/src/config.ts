@@ -11,6 +11,7 @@ export interface Config {
   retryDelay: number
   deviceId?: string
   deviceName?: string
+  displayName?: string
 }
 
 export const SCHEDULE_OPTIONS = [
@@ -55,7 +56,10 @@ export class ConfigManager {
         schedule: config.schedule || '0 */4 * * *',
         scheduleLabel: config.scheduleLabel || 'Every 4 hours',
         maxRetries: config.maxRetries || 3,
-        retryDelay: config.retryDelay || 1000
+        retryDelay: config.retryDelay || 1000,
+        deviceId: config.deviceId,
+        deviceName: config.deviceName,
+        displayName: config.displayName
       }
     } catch (error) {
       console.error('Failed to load config:', error)

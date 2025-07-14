@@ -12,7 +12,7 @@ const configManager = new ConfigManager()
 program
   .name('ccusage-collector')
   .description('Collect and sync Claude Code usage statistics')
-  .version('0.3.1')
+  .version('0.4.0')
 
 // Config command - Interactive configuration
 program
@@ -38,6 +38,7 @@ program
     const collectorConfig: CollectorConfig = {
       apiKey: config.apiKey,
       endpoint: config.endpoint,
+      displayName: config.displayName,
       maxRetries: config.maxRetries,
       retryDelay: config.retryDelay
     }
@@ -104,6 +105,7 @@ program
     const collectorConfig: CollectorConfig = {
       apiKey: config.apiKey,
       endpoint: config.endpoint,
+      displayName: config.displayName,
       maxRetries: config.maxRetries,
       retryDelay: config.retryDelay
     }
@@ -175,6 +177,7 @@ program
     const collectorConfig: CollectorConfig = {
       apiKey: config.apiKey,
       endpoint: config.endpoint,
+      displayName: config.displayName,
       maxRetries: config.maxRetries,
       retryDelay: config.retryDelay
     }

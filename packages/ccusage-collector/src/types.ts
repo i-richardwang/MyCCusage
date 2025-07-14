@@ -1,6 +1,7 @@
 export interface DeviceInfo {
   deviceId: string
   deviceName: string
+  displayName?: string
 }
 
 export interface DailyUsageRecord {
@@ -48,6 +49,7 @@ export interface SyncResult {
 export interface CollectorConfig {
   endpoint: string
   apiKey: string
+  displayName?: string
   maxRetries?: number
   retryDelay?: number
 }
