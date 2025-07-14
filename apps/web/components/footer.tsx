@@ -9,15 +9,12 @@ const FOOTER_CONFIG = {
   project: {
     name: "Claude Code Usage Dashboard",
     description: "Open source dashboard for tracking Claude Code usage, costs, and statistics with beautiful charts and insights.",
-    version: '0.3.5',
+    version: '0.3.7',
     repository: "https://github.com/i-richardwang/MyCCusage",
     author: {
       name: "Richard Wang",
       github: "https://github.com/i-richardwang"
     }
-  },
-  links: {
-    shadcn: "https://ui.shadcn.com"
   },
   currentYear: new Date().getFullYear()
 } as const
@@ -25,7 +22,6 @@ const FOOTER_CONFIG = {
 // Reusable style classes
 const styles = {
   link: "text-primary hover:underline",
-  externalLink: "target='_blank' rel='noopener noreferrer'",
   text: {
     small: "text-sm text-muted-foreground",
     heading: "font-medium flex items-center gap-2"
@@ -56,8 +52,8 @@ export function Footer() {
   return (
     <footer className="border-t bg-background/50 backdrop-blur">
       <div className="container mx-auto px-4 sm:px-6 py-8">
-        <Card className="pt-0">
-          <CardContent className="px-6 py-6">
+        <Card>
+          <CardContent className="px-6">
             <div className="flex flex-col lg:flex-row lg:justify-between items-start gap-8">
               {/* Project Info */}
               <div className={`${styles.spacing.section} max-w-md lg:max-w-lg`}>
@@ -88,7 +84,6 @@ export function Footer() {
                       </ExternalLink>
                     </Button>
                     <div className={`${styles.text.small} ${styles.spacing.content}`}>
-                      <div>MIT License</div>
                       <div>
                         by{' '}
                         <ExternalLink href={FOOTER_CONFIG.project.author.github} className="font-medium">
@@ -108,11 +103,6 @@ export function Footer() {
                   <div className={`${styles.text.small} ${styles.spacing.content}`}>
                     <div>Made with ❤️ for the community</div>
                     <div>Contributions welcome!</div>
-                    <div className="pt-2">
-                      <ExternalLink href={FOOTER_CONFIG.links.shadcn}>
-                        Powered by shadcn/ui
-                      </ExternalLink>
-                    </div>
                   </div>
                 </section>
               </div>
@@ -120,13 +110,8 @@ export function Footer() {
 
             {/* Bottom bar */}
             <div className="mt-8 pt-6 border-t border-border">
-              <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
-                <div className={styles.text.small}>
-                  Built for tracking Claude Code usage efficiently and beautifully.
-                </div>
-                <div className={styles.text.small}>
-                  © {FOOTER_CONFIG.currentYear} {FOOTER_CONFIG.project.name}. Open source project.
-                </div>
+              <div className={styles.text.small}>
+                © {FOOTER_CONFIG.currentYear} {FOOTER_CONFIG.project.name}. Open source project.
               </div>
             </div>
           </CardContent>

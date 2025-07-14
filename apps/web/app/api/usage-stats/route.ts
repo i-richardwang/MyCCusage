@@ -150,6 +150,7 @@ export async function GET() {
       .select({
         deviceId: devices.deviceId,
         deviceName: devices.deviceName,
+        displayName: devices.displayName,
         lastActiveDate: sql<string>`MAX(${usageRecords.date})`,
         totalRecords: sql<number>`COUNT(${usageRecords.id})`,
         totalCost: sql<number>`SUM(${usageRecords.totalCost})::numeric`,
@@ -158,7 +159,7 @@ export async function GET() {
       })
       .from(devices)
       .leftJoin(usageRecords, eq(devices.deviceId, usageRecords.deviceId))
-      .groupBy(devices.deviceId, devices.deviceName, devices.createdAt, devices.updatedAt)
+      .groupBy(devices.deviceId, devices.deviceName, devices.displayName, devices.createdAt, devices.updatedAt)
 
     // Process query results with safe type conversion
     const totals = validateAndTransformStats(totalStats)
@@ -193,6 +194,7 @@ export async function GET() {
     const devicesData = deviceInfo.map((device, index) => ({
       deviceId: device.deviceId,
       deviceName: device.deviceName || `Device ${index + 1}`,
+      displayName: device.displayName,
       recordCount: safeNumber(device.totalRecords),
       totalCost: safeNumber(device.totalCost),
       lastActiveDate: device.lastActiveDate,

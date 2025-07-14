@@ -52,54 +52,34 @@ export default function Page() {
     ? { from: dateRange.from, to: dateRange.to }
     : undefined
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-svh">
-        <Loader2 className="h-8 w-8 animate-spin" />
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center min-h-svh">
-        <div className="text-red-500">Error: {error}</div>
-      </div>
-    )
-  }
-
-  if (!stats) {
-    return (
-      <div className="flex items-center justify-center min-h-svh">
-        <div className="text-lg">No data available</div>
-      </div>
-    )
-  }
-
-
-  return (
-    <div className="min-h-screen">
-      {/* Header navigation */}
-      <div className="border-b bg-background/95 backdrop-blur sticky top-0 z-50">
-        <div className="container mx-auto px-4 sm:px-6 py-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-4xl font-bold tracking-tight">
-                {process.env.NEXT_PUBLIC_OWNER_NAME 
-                  ? `${process.env.NEXT_PUBLIC_OWNER_NAME}'s Claude Code Usage Dashboard`
-                  : "Claude Code Usage Dashboard"
-                }
-              </h1>
-            </div>
-            <div className="flex items-center gap-4">
-              <ModeToggle />
-            </div>
-          </div>
+  // Loading/Error content for main area
+  const renderMainContent = () => {
+    if (loading) {
+      return (
+        <div className="flex items-center justify-center min-h-[400px]">
+          <Loader2 className="h-8 w-8 animate-spin" />
         </div>
-      </div>
+      )
+    }
 
-      {/* Main content area */}
-      <div className="container mx-auto px-4 sm:px-6 py-8 space-y-8">
+    if (error) {
+      return (
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-red-500">Error: {error}</div>
+        </div>
+      )
+    }
+
+    if (!stats) {
+      return (
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-lg">No data available</div>
+        </div>
+      )
+    }
+
+    return (
+      <>
         {/* Plan comparison section */}
         <PlanComparison 
           currentCycleCost={stats.currentCycle.totalCost}
@@ -140,6 +120,34 @@ export default function Page() {
           timeRange={timeRange}
           customDateRange={customDateRange}
         />
+      </>
+    )
+  }
+
+  return (
+    <div className="min-h-screen">
+      {/* Header navigation */}
+      <div className="border-b bg-background/95 backdrop-blur sticky top-0 z-50">
+        <div className="container mx-auto px-4 sm:px-6 py-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-4xl font-bold tracking-tight">
+                {process.env.NEXT_PUBLIC_OWNER_NAME 
+                  ? `${process.env.NEXT_PUBLIC_OWNER_NAME}'s Claude Code Usage Dashboard`
+                  : "Claude Code Usage Dashboard"
+                }
+              </h1>
+            </div>
+            <div className="flex items-center gap-4">
+              <ModeToggle />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Main content area */}
+      <div className="container mx-auto px-4 sm:px-6 py-8 space-y-8">
+        {renderMainContent()}
       </div>
 
       {/* Footer */}
