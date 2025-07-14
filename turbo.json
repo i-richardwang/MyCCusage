@@ -5,7 +5,8 @@
     "build": {
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
-      "outputs": [".next/**", "!.next/cache/**"]
+      "outputs": [".next/**", "!.next/cache/**"],
+      "env": ["DATABASE_URL", "API_KEY", "CLAUDE_BILLING_CYCLE_START_DATE"]
     },
     "lint": {
       "dependsOn": ["^lint"]
