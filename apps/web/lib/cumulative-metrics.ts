@@ -92,25 +92,25 @@ export function getCumulativeUserStatus(avgMonthlyCost: number) {
     return { 
       title: "Heavy User", 
       subtitle: "Exceptional long-term ROI with consistently high usage.", 
-      color: "text-green-600"
+      color: "text-primary"
     }
   } else if (avgMonthlyCost >= 100) {
     return { 
       title: "Power User", 
       subtitle: "Strong long-term value with reliable usage patterns.", 
-      color: "text-blue-600"
+      color: "text-primary"
     }
   } else if (avgMonthlyCost >= 50) {
     return { 
       title: "Regular User", 
       subtitle: "Building consistent long-term value over time.", 
-      color: "text-yellow-600"
+      color: "text-primary"
     }
   } else {
     return { 
       title: "Light User", 
       subtitle: "Opportunity to increase usage for better value.", 
-      color: "text-gray-600"
+      color: "text-muted-foreground"
     }
   }
 }
@@ -135,7 +135,7 @@ export function formatSavings(savings: number): {
     text: isPositive 
       ? `+${formatCurrency(Math.abs(savings))}` 
       : `-${formatCurrency(Math.abs(savings))}`,
-    colorClass: isPositive ? 'text-green-600' : 'text-red-600',
+    colorClass: isPositive ? 'text-primary' : 'text-destructive',
     description: isPositive ? 'Total Earned!' : 'Still Behind'
   }
 }

@@ -46,12 +46,10 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${fontSans.variable} ${fontMono.variable} ${fontInter.variable} font-mono antialiased theme-mono`}
+        className={`${fontSans.variable} ${fontMono.variable} ${fontInter.variable} font-sans antialiased`}
       >
         <Providers>
-          <div className="theme-container">
-            {children}
-          </div>
+          {children}
         </Providers>
       </body>
     </html>

@@ -50,25 +50,25 @@ export function PlanComparison({
       return { 
         title: "Heavy User", 
         subtitle: "Exceptional value with intensive usage - maximizing your investment!", 
-        color: "text-green-600"
+        color: "text-primary"
       }
     } else if (currentCycleCost >= 100) {
       return { 
         title: "Power User", 
         subtitle: "Strong value with consistent usage patterns.", 
-        color: "text-blue-600"
+        color: "text-primary"
       }
     } else if (currentCycleCost >= 50) {
       return { 
         title: "Regular User", 
         subtitle: "Building steady value through regular usage.", 
-        color: "text-yellow-600"
+        color: "text-primary"
       }
     } else {
       return { 
         title: "Light User", 
         subtitle: "Opportunity to explore more features for greater value.", 
-        color: "text-gray-600"
+        color: "text-muted-foreground"
       }
     }
   }
@@ -90,10 +90,10 @@ export function PlanComparison({
   } as const
 
   const statusColors = {
-    "Heavy User": "border-green-600 text-green-600 dark:border-green-400 dark:text-green-400",
-    "Power User": "border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400", 
-    "Regular User": "border-yellow-600 text-yellow-600 dark:border-yellow-400 dark:text-yellow-400",
-    "Light User": "border-gray-600 text-gray-600 dark:border-gray-400 dark:text-gray-400"
+    "Heavy User": "border-primary text-primary",
+    "Power User": "border-primary text-primary", 
+    "Regular User": "border-primary text-primary",
+    "Light User": "border-muted-foreground text-muted-foreground"
   } as const
 
   const IconComponent = statusIcons[userStatus.title as keyof typeof statusIcons] || Users
@@ -185,8 +185,8 @@ export function PlanComparison({
                   <CardDescription>vs Max $100/month</CardDescription>
                   <CardTitle className={`text-3xl ${
                     isCurrentMode 
-                      ? (max100Value > 0 ? 'text-green-600' : 'text-blue-600')
-                      : vs100Savings?.colorClass || 'text-gray-600'
+                      ? (max100Value > 0 ? 'text-primary' : 'text-muted-foreground')
+                      : vs100Savings?.colorClass || 'text-muted-foreground'
                   }`}>
                     {isCurrentMode ? (
                       max100Value > 0 ? `+${formatCurrency(Math.abs(max100Value))}` : `-${formatCurrency(Math.abs(max100Value))}`
@@ -215,8 +215,8 @@ export function PlanComparison({
                   <CardDescription>vs Max $200/month</CardDescription>
                   <CardTitle className={`text-3xl ${
                     isCurrentMode 
-                      ? (max200Value > 0 ? 'text-green-600' : 'text-blue-600')
-                      : vs200Savings?.colorClass || 'text-gray-600'
+                      ? (max200Value > 0 ? 'text-primary' : 'text-muted-foreground')
+                      : vs200Savings?.colorClass || 'text-muted-foreground'
                   }`}>
                     {isCurrentMode ? (
                       max200Value > 0 ? `+${formatCurrency(Math.abs(max200Value))}` : `-${formatCurrency(Math.abs(max200Value))}`
