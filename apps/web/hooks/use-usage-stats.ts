@@ -42,6 +42,12 @@ interface UsageStats {
     activeDays: number
     avgDailyCost: number
   }
+  last30Days: {
+    totalCost: number
+    totalTokens: number
+    activeDays: number
+    avgDailyCost: number
+  }
   cumulative: {
     totalCost: number
     totalTokens: number

@@ -40,6 +40,11 @@ async function getUnifiedUsageStats(
       previousCycleCacheReadTokens: sql<number>`SUM(CASE WHEN ${usageRecords.date} >= ${prevCycleStartDate} AND ${usageRecords.date} <= ${prevCycleEndDate} THEN ${usageRecords.cacheReadTokens} ELSE 0 END)::bigint`.as('previous_cycle_cache_read_tokens'),
       previousCycleActiveDays: sql<number>`COUNT(DISTINCT CASE WHEN ${usageRecords.date} >= ${prevCycleStartDate} AND ${usageRecords.date} <= ${prevCycleEndDate} THEN ${usageRecords.date} END)::bigint`.as('previous_cycle_active_days'),
       
+      // Last 30 days stats (for more accurate user type classification)
+      last30DaysCost: sql<number>`SUM(CASE WHEN ${usageRecords.date} >= CURRENT_DATE - INTERVAL '30 days' THEN ${usageRecords.totalCost} ELSE 0 END)::numeric`.as('last_30_days_cost'),
+      last30DaysTokens: sql<number>`SUM(CASE WHEN ${usageRecords.date} >= CURRENT_DATE - INTERVAL '30 days' THEN ${usageRecords.totalTokens} ELSE 0 END)::bigint`.as('last_30_days_tokens'),
+      last30DaysActiveDays: sql<number>`COUNT(DISTINCT CASE WHEN ${usageRecords.date} >= CURRENT_DATE - INTERVAL '30 days' THEN ${usageRecords.date} END)::bigint`.as('last_30_days_active_days'),
+      
       // Cumulative metadata
       earliestDate: sql<string>`MIN(${usageRecords.date})`.as('earliest_date'),
       latestDate: sql<string>`MAX(${usageRecords.date})`.as('latest_date')
@@ -210,6 +215,13 @@ export async function GET() {
       avgDailyCost: safeNumber(statsResult.previousCycleActiveDays) > 0 ? safeNumber(statsResult.previousCycleCost) / safeNumber(statsResult.previousCycleActiveDays) : 0
     }
 
+    const last30Days = {
+      totalCost: safeNumber(statsResult.last30DaysCost),
+      totalTokens: safeNumber(statsResult.last30DaysTokens),
+      activeDays: safeNumber(statsResult.last30DaysActiveDays),
+      avgDailyCost: safeNumber(statsResult.last30DaysActiveDays) > 0 ? safeNumber(statsResult.last30DaysCost) / safeNumber(statsResult.last30DaysActiveDays) : 0
+    }
+
     // Cumulative data for ROI calculations
     const processedCumulative = {
       totalCost: safeNumber(statsResult.totalCost),
@@ -230,6 +242,7 @@ export async function GET() {
       totals,
       currentCycle,
       previousCycle,
+      last30Days,
       daily: dailyData,
       devices: devicesData,
       deviceData: deviceData,

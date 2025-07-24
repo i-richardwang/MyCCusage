@@ -89,6 +89,7 @@ export default function Page() {
           daysRemaining={stats.billingCycle.daysRemaining}
           cumulativeData={stats.cumulative}
           billingStartDate={stats.billingCycle.startDateConfig}
+          last30DaysData={stats.last30Days}
         />
 
         {/* Global filter bar */}

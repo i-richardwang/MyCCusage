@@ -22,6 +22,12 @@ interface PlanComparisonProps {
   daysRemaining?: number
   cumulativeData?: CumulativeDataInput
   billingStartDate?: string
+  last30DaysData?: {
+    totalCost: number
+    totalTokens: number
+    activeDays: number
+    avgDailyCost: number
+  }
 }
 
 export function PlanComparison({ 
@@ -30,7 +36,8 @@ export function PlanComparison({
   billingCycleLabel, 
   daysRemaining,
   cumulativeData,
-  billingStartDate 
+  billingStartDate,
+  last30DaysData
 }: PlanComparisonProps) {
   const [roiMode, setROIMode] = useState<ROIMode>('current')
   
@@ -46,19 +53,22 @@ export function PlanComparison({
   const monthlyChangePercent = previousCycleCost > 0 ? ((monthlyChange / previousCycleCost) * 100) : 0
   
   const getCurrentUserStatus = () => {
-    if (currentCycleCost >= 200) {
+    // Use last 30 days cost for more accurate user classification
+    const last30DaysCost = last30DaysData?.totalCost || 0
+    
+    if (last30DaysCost >= 200) {
       return { 
         title: "Heavy User", 
         subtitle: "Exceptional value with intensive usage - maximizing your investment!", 
         color: "text-primary"
       }
-    } else if (currentCycleCost >= 100) {
+    } else if (last30DaysCost >= 100) {
       return { 
         title: "Power User", 
         subtitle: "Strong value with consistent usage patterns.", 
         color: "text-primary"
       }
-    } else if (currentCycleCost >= 50) {
+    } else if (last30DaysCost >= 50) {
       return { 
         title: "Regular User", 
         subtitle: "Building steady value through regular usage.", 

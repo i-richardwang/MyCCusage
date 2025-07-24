@@ -15,8 +15,8 @@ export interface CumulativeMetrics {
   
   // Derived metrics
   avgMonthlyCost: number            // Average monthly cost
-  totalSavedVs100: number           // Cumulative savings/loss vs $100 plan
-  totalSavedVs200: number           // Cumulative savings/loss vs $200 plan
+  totalSavedVs100: number           // Extra value gained: API value received - $100 plan cost
+  totalSavedVs200: number           // Extra value gained: API value received - $200 plan cost
 }
 
 export interface CumulativeDataInput {
@@ -67,7 +67,7 @@ export function calculateCumulativeMetrics(
   // Calculate derived metrics
   const avgMonthlyCost = totalCost / totalMonths
   
-  // Calculate ROI: actual API value - cumulative subscription fees
+  // Calculate ROI: actual API value received - what you would pay for subscription (value gained)
   const totalSavedVs100 = totalCost - (100 * totalMonths)
   const totalSavedVs200 = totalCost - (200 * totalMonths)
   
