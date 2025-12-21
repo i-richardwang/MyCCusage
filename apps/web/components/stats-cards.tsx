@@ -5,20 +5,17 @@ import { Card, CardDescription, CardHeader, CardTitle } from "@workspace/ui/comp
 import { DollarSign, Cpu, TrendingUp, Activity } from "lucide-react"
 import { DailyRecord, TimeRange } from "@/types/chart-types"
 import { filterByTimeRange } from "@/hooks/use-chart-data"
+import type { Last30DaysMetrics, AggregatedMetrics } from "@/types/api-types"
 
 interface StatsCardsProps {
   dailyData: DailyRecord[]
   timeRange: TimeRange
   customDateRange?: { from: Date; to: Date }
-  totals?: {
-    totalCost: number
-    totalTokens: number
-    activeDays: number
-    avgDailyCost: number
-  }
+  totals?: AggregatedMetrics
+  last30Days?: Last30DaysMetrics
 }
 
-export function StatsCards({ dailyData, timeRange, customDateRange, totals }: StatsCardsProps) {
+export function StatsCards({ dailyData, timeRange, customDateRange, totals, last30Days }: StatsCardsProps) {
   // Dynamic calculation based on time range
   const stats = useMemo(() => {
     // For "all" timeRange, use pre-aggregated totals from API
@@ -28,6 +25,16 @@ export function StatsCards({ dailyData, timeRange, customDateRange, totals }: St
         totalTokens: totals.totalTokens,
         avgDailyCost: totals.avgDailyCost,
         avgDailyTokens: totals.activeDays > 0 ? totals.totalTokens / totals.activeDays : 0
+      }
+    }
+
+    // For "30d" timeRange, use pre-aggregated last30Days from API for consistency
+    if (timeRange === "30d" && last30Days) {
+      return {
+        totalCost: last30Days.totalCost,
+        totalTokens: last30Days.totalTokens,
+        avgDailyCost: last30Days.avgDailyCost,
+        avgDailyTokens: last30Days.activeDays > 0 ? last30Days.totalTokens / last30Days.activeDays : 0
       }
     }
 
@@ -55,7 +62,7 @@ export function StatsCards({ dailyData, timeRange, customDateRange, totals }: St
       avgDailyCost,
       avgDailyTokens
     }
-  }, [dailyData, timeRange, customDateRange, totals])
+  }, [dailyData, timeRange, customDateRange, totals, last30Days])
 
   const formatCurrency = (amount: number) => {
     return `$${amount.toFixed(2)}`

@@ -1,38 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/src/db'
 import { devices, usageRecords } from '@/src/db/schema'
-import { eq, and } from 'drizzle-orm'
-interface UsageSyncRequest {
-  device: {
-    deviceId: string
-    deviceName: string
-    displayName?: string
-  }
-  daily: Array<{
-    date: string
-    totalTokens: number
-    totalCost: number
-    inputTokens: number
-    outputTokens: number
-    cacheCreationTokens: number
-    cacheReadTokens: number
-    modelsUsed: string[]
-  }>
-}
+import { sql } from 'drizzle-orm'
+import type { UsageSyncRequest, UsageSyncResponse, UsageSyncResult } from '@/types/api-types'
 
 export async function POST(request: NextRequest) {
   try {
     // API Key validation
     const apiKey = request.headers.get('x-api-key')
     const expectedApiKey = process.env.API_KEY
-    
+
     if (!expectedApiKey) {
       return NextResponse.json(
         { error: 'API key not configured on server' },
         { status: 500 }
       )
     }
-    
+
     if (!apiKey || apiKey !== expectedApiKey) {
       return NextResponse.json(
         { error: 'Invalid API key' },
@@ -41,137 +25,119 @@ export async function POST(request: NextRequest) {
     }
 
     const body: UsageSyncRequest = await request.json()
-    
-    if (!body.device || !body.device.deviceId || !body.device.deviceName) {
+
+    // Validate request format
+    if (!body.device?.deviceId || !body.device?.deviceName) {
       return NextResponse.json(
         { error: 'Invalid request format: device information is required' },
         { status: 400 }
       )
     }
-    
-    if (!body.daily || !Array.isArray(body.daily)) {
+
+    if (!Array.isArray(body.daily)) {
       return NextResponse.json(
         { error: 'Invalid request format: daily array is required' },
         { status: 400 }
       )
     }
 
-    // Ensure device exists in database (upsert device)
-    const existingDevice = await db
-      .select()
-      .from(devices)
-      .where(eq(devices.deviceId, body.device.deviceId))
-      .limit(1)
+    // Upsert device using onConflictDoUpdate
+    await db
+      .insert(devices)
+      .values({
+        deviceId: body.device.deviceId,
+        deviceName: body.device.deviceName,
+        displayName: body.device.displayName
+      })
+      .onConflictDoUpdate({
+        target: devices.deviceId,
+        set: {
+          deviceName: sql`excluded.device_name`,
+          displayName: sql`excluded.display_name`,
+          updatedAt: new Date()
+        }
+      })
 
-    if (existingDevice.length === 0) {
-      // Create new device
-      await db
-        .insert(devices)
-        .values({
-          deviceId: body.device.deviceId,
-          deviceName: body.device.deviceName,
-          displayName: body.device.displayName
-        })
-      console.log(`Created new device: ${body.device.deviceName} (${body.device.deviceId})`)
-    } else {
-      // Update device name and display name if changed
-      const currentDevice = existingDevice[0]
-      if (currentDevice && (
-        currentDevice.deviceName !== body.device.deviceName ||
-        currentDevice.displayName !== body.device.displayName
-      )) {
-        await db
-          .update(devices)
-          .set({
-            deviceName: body.device.deviceName,
-            displayName: body.device.displayName,
-            updatedAt: new Date()
-          })
-          .where(eq(devices.deviceId, body.device.deviceId))
-        console.log(`Updated device info: ${body.device.deviceName} (${body.device.deviceId})`)
-      }
-    }
+    // Filter and validate records
+    const validRecords = body.daily.filter(
+      record => record.date && typeof record.totalTokens === 'number' && typeof record.totalCost === 'number'
+    )
 
-    // Process each daily record
-    const results = []
-    
-    for (const record of body.daily) {
+    const invalidRecords = body.daily.filter(
+      record => !record.date || typeof record.totalTokens !== 'number' || typeof record.totalCost !== 'number'
+    )
+
+    const results: UsageSyncResult[] = []
+
+    // Add invalid records to results
+    invalidRecords.forEach(record => {
+      results.push({
+        date: record.date || 'unknown',
+        status: 'error',
+        message: 'Missing required fields'
+      })
+    })
+
+    // Batch upsert valid records
+    if (validRecords.length > 0) {
+      const recordsToInsert = validRecords.map(record => ({
+        deviceId: body.device.deviceId,
+        date: record.date,
+        inputTokens: record.inputTokens,
+        outputTokens: record.outputTokens,
+        cacheCreationTokens: record.cacheCreationTokens,
+        cacheReadTokens: record.cacheReadTokens,
+        totalTokens: record.totalTokens,
+        totalCost: record.totalCost.toString(),
+        modelsUsed: record.modelsUsed,
+        rawData: record
+      }))
+
       try {
-        // Validate required fields
-        if (!record.date || typeof record.totalTokens !== 'number' || typeof record.totalCost !== 'number') {
+        await db
+          .insert(usageRecords)
+          .values(recordsToInsert)
+          .onConflictDoUpdate({
+            target: [usageRecords.deviceId, usageRecords.date],
+            set: {
+              inputTokens: sql`excluded.input_tokens`,
+              outputTokens: sql`excluded.output_tokens`,
+              cacheCreationTokens: sql`excluded.cache_creation_tokens`,
+              cacheReadTokens: sql`excluded.cache_read_tokens`,
+              totalTokens: sql`excluded.total_tokens`,
+              totalCost: sql`excluded.total_cost`,
+              modelsUsed: sql`excluded.models_used`,
+              rawData: sql`excluded.raw_data`,
+              updatedAt: new Date()
+            }
+          })
+
+        // All valid records succeeded
+        validRecords.forEach(record => {
+          results.push({
+            date: record.date,
+            status: 'success'
+          })
+        })
+      } catch (error) {
+        // If batch insert fails, mark all as error
+        validRecords.forEach(record => {
           results.push({
             date: record.date,
             status: 'error',
-            message: 'Missing required fields'
+            message: error instanceof Error ? error.message : 'Batch insert failed'
           })
-          continue
-        }
-
-        // Upsert record (update if exists for this device+date, insert if not)
-        const existingRecord = await db
-          .select()
-          .from(usageRecords)
-          .where(and(
-            eq(usageRecords.deviceId, body.device.deviceId),
-            eq(usageRecords.date, record.date)
-          ))
-          .limit(1)
-
-        if (existingRecord.length > 0) {
-          // Update existing record
-          await db
-            .update(usageRecords)
-            .set({
-              inputTokens: record.inputTokens,
-              outputTokens: record.outputTokens,
-              cacheCreationTokens: record.cacheCreationTokens,
-              cacheReadTokens: record.cacheReadTokens,
-              totalTokens: record.totalTokens,
-              totalCost: record.totalCost.toString(),
-              modelsUsed: record.modelsUsed,
-              rawData: record,
-              updatedAt: new Date()
-            })
-            .where(and(
-              eq(usageRecords.deviceId, body.device.deviceId),
-              eq(usageRecords.date, record.date)
-            ))
-        } else {
-          // Insert new record
-          await db
-            .insert(usageRecords)
-            .values({
-              deviceId: body.device.deviceId,
-              date: record.date,
-              inputTokens: record.inputTokens,
-              outputTokens: record.outputTokens,
-              cacheCreationTokens: record.cacheCreationTokens,
-              cacheReadTokens: record.cacheReadTokens,
-              totalTokens: record.totalTokens,
-              totalCost: record.totalCost.toString(),
-              modelsUsed: record.modelsUsed,
-              rawData: record
-            })
-        }
-
-        results.push({
-          date: record.date,
-          status: 'success'
-        })
-      } catch (error) {
-        results.push({
-          date: record.date,
-          status: 'error',
-          message: error instanceof Error ? error.message : 'Unknown error'
         })
       }
     }
 
-    return NextResponse.json({
+    const response: UsageSyncResponse = {
       success: true,
       processed: results.length,
-      results: results
-    })
+      results
+    }
+
+    return NextResponse.json(response)
 
   } catch (error) {
     console.error('Usage sync error:', error)

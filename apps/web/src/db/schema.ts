@@ -34,7 +34,6 @@ export const usageRecords = pgTable('usage_records', {
     deviceIdIdx: index('usage_records_device_id_idx').on(table.deviceId),
     dateIdx: index('usage_records_date_idx').on(table.date),
     createdAtIdx: index('usage_records_created_at_idx').on(table.createdAt),
-    // Changed unique constraint to include device_id + date combination
     uniqueDeviceDateIdx: uniqueIndex('usage_records_unique_device_date_idx').on(table.deviceId, table.date),
   }
 })

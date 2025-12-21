@@ -8,6 +8,7 @@ import { Area, AreaChart, Bar, BarChart, Line, LineChart, CartesianGrid, XAxis }
 import { useMultiDeviceChartData, useInputOutputRatioChartData, useMultiDeviceTokenData, filterByTimeRange } from "@/hooks/use-chart-data"
 import { DailyRecord, DeviceRecord, Device, TimeRange } from "@/types/chart-types"
 import { CHART_COLORS } from "@/constants/chart-config"
+import type { AggregatedMetrics, Last30DaysMetrics } from "@/types/api-types"
 
 interface ChartsProps {
   dailyData: DailyRecord[]
@@ -15,16 +16,11 @@ interface ChartsProps {
   deviceData: DeviceRecord[]
   timeRange: TimeRange
   customDateRange?: { from: Date; to: Date }
-  totals?: {
-    totalCost: number
-    totalTokens: number
-    totalCacheCreationTokens: number
-    totalCacheReadTokens: number
-    activeDays: number
-  }
+  totals?: AggregatedMetrics
+  last30Days?: Last30DaysMetrics
 }
 
-export function Charts({ dailyData, devices, deviceData, timeRange, customDateRange, totals }: ChartsProps) {
+export function Charts({ dailyData, devices, deviceData, timeRange, customDateRange, totals, last30Days }: ChartsProps) {
 
   // Use custom hooks for chart data
   const { chartData: multiDeviceChartData, chartConfig: multiDeviceChartConfig, activeDevices: activeCostDevices } = useMultiDeviceChartData(
@@ -51,21 +47,38 @@ export function Charts({ dailyData, devices, deviceData, timeRange, customDateRa
   const { usageActivityRate, cacheHitRate, tokenUnitPrice } = useMemo(() => {
     // For "all" timeRange, use pre-aggregated totals from API
     if (timeRange === "all" && totals) {
-      // Cache hit rate
       const cacheHit = totals.totalCacheReadTokens > 0
         ? (totals.totalCacheReadTokens / (totals.totalCacheReadTokens + totals.totalCacheCreationTokens)) * 100
         : 0
 
-      // Token unit price (per million tokens)
       const unitPrice = totals.totalTokens > 0
         ? (totals.totalCost / totals.totalTokens) * 1000000
         : 0
 
-      // For usage activity, we still need to calculate from daily data as totals doesn't have this info
       const filteredData = filterByTimeRange(dailyData, timeRange, customDateRange)
       const usageActivity = filteredData.length > 0
         ? (filteredData.filter(day => day.totalTokens > 0).length / filteredData.length) * 100
         : 0
+
+      return {
+        usageActivityRate: usageActivity,
+        cacheHitRate: cacheHit,
+        tokenUnitPrice: unitPrice
+      }
+    }
+
+    // For "30d" timeRange, use pre-aggregated last30Days from API for consistency
+    if (timeRange === "30d" && last30Days) {
+      const cacheHit = last30Days.totalCacheReadTokens > 0
+        ? (last30Days.totalCacheReadTokens / (last30Days.totalCacheReadTokens + last30Days.totalCacheCreationTokens)) * 100
+        : 0
+
+      const unitPrice = last30Days.totalTokens > 0
+        ? (last30Days.totalCost / last30Days.totalTokens) * 1000000
+        : 0
+
+      // Activity rate: active days / 30 days
+      const usageActivity = (last30Days.activeDays / 30) * 100
 
       return {
         usageActivityRate: usageActivity,
@@ -107,7 +120,7 @@ export function Charts({ dailyData, devices, deviceData, timeRange, customDateRa
       cacheHitRate: cacheHit,
       tokenUnitPrice: unitPrice
     }
-  }, [dailyData, timeRange, customDateRange, totals])
+  }, [dailyData, timeRange, customDateRange, totals, last30Days])
 
   return (
     <div className="space-y-6">

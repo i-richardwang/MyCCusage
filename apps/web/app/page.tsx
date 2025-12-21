@@ -4,7 +4,7 @@ import { useState, useCallback } from "react"
 import { useUsageStats } from "@/hooks/use-usage-stats"
 import { StatsCards } from "@/components/stats-cards"
 import { PlanComparison } from "@/components/plan-comparison"
-import { Charts } from "@/components/chart-tabs"
+import { Charts } from "@/components/charts"
 import { RecentActivity } from "@/components/recent-activity"
 import { FilterBar } from "@/components/filter-bar"
 import { ModeToggle } from "@/components/mode-toggle"
@@ -106,6 +106,7 @@ export default function Page() {
           timeRange={timeRange}
           customDateRange={customDateRange}
           totals={stats.totals}
+          last30Days={stats.last30Days}
         />
 
         {/* Charts section */}
@@ -116,6 +117,7 @@ export default function Page() {
           timeRange={timeRange}
           customDateRange={customDateRange}
           totals={stats.totals}
+          last30Days={stats.last30Days}
         />
 
         {/* Recent activity table section */}

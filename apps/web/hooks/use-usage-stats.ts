@@ -1,67 +1,10 @@
 "use client"
 
 import { useEffect, useState } from 'react'
-import { DailyRecord, DeviceRecord, Device } from '@/types/chart-types'
-
-interface UsageStats {
-  billingCycle: {
-    startDate: string
-    endDate: string
-    label: string
-    startDay: number
-    daysRemaining: number
-    startDateConfig: string
-  }
-  totals: {
-    totalCost: number
-    totalTokens: number
-    totalInputTokens: number
-    totalOutputTokens: number
-    totalCacheCreationTokens: number
-    totalCacheReadTokens: number
-    activeDays: number
-    avgDailyCost: number
-  }
-  currentCycle: {
-    totalCost: number
-    totalTokens: number
-    totalInputTokens: number
-    totalOutputTokens: number
-    totalCacheCreationTokens: number
-    totalCacheReadTokens: number
-    activeDays: number
-    avgDailyCost: number
-  }
-  previousCycle: {
-    totalCost: number
-    totalTokens: number
-    totalInputTokens: number
-    totalOutputTokens: number
-    totalCacheCreationTokens: number
-    totalCacheReadTokens: number
-    activeDays: number
-    avgDailyCost: number
-  }
-  last30Days: {
-    totalCost: number
-    totalTokens: number
-    activeDays: number
-    avgDailyCost: number
-  }
-  cumulative: {
-    totalCost: number
-    totalTokens: number
-    activeDays: number
-    earliestDate: string | null
-    latestDate: string | null
-  }
-  daily: DailyRecord[]
-  devices: Device[]
-  deviceData: DeviceRecord[]
-}
+import type { UsageStatsResponse } from '@/types/api-types'
 
 export function useUsageStats() {
-  const [stats, setStats] = useState<UsageStats | null>(null)
+  const [stats, setStats] = useState<UsageStatsResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -70,12 +13,12 @@ export function useUsageStats() {
       try {
         setLoading(true)
         const response = await fetch('/api/usage-stats')
-        
+
         if (!response.ok) {
           throw new Error('Failed to fetch usage statistics')
         }
-        
-        const data = await response.json()
+
+        const data: UsageStatsResponse = await response.json()
         setStats(data)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'An error occurred')

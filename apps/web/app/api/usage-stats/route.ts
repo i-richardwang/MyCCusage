@@ -3,6 +3,7 @@ import { db } from '@/src/db'
 import { usageRecords, devices } from '@/src/db/schema'
 import { sql, desc, eq } from 'drizzle-orm'
 import { getCurrentBillingCycle, getDaysRemainingInBillingCycle, getPreviousBillingCycle } from '@/lib/billing-cycle'
+import { QUERY_LIMITS } from '@/constants/business-config'
 
 // Optimized unified statistics query using CTE
 async function getUnifiedUsageStats(
@@ -40,9 +41,13 @@ async function getUnifiedUsageStats(
       previousCycleCacheReadTokens: sql<number>`SUM(CASE WHEN ${usageRecords.date} >= ${prevCycleStartDate} AND ${usageRecords.date} <= ${prevCycleEndDate} THEN ${usageRecords.cacheReadTokens} ELSE 0 END)::bigint`.as('previous_cycle_cache_read_tokens'),
       previousCycleActiveDays: sql<number>`COUNT(DISTINCT CASE WHEN ${usageRecords.date} >= ${prevCycleStartDate} AND ${usageRecords.date} <= ${prevCycleEndDate} THEN ${usageRecords.date} END)::bigint`.as('previous_cycle_active_days'),
       
-      // Last 30 days stats (for more accurate user type classification)
+      // Last 30 days stats (for consistent data across all components)
       last30DaysCost: sql<number>`SUM(CASE WHEN ${usageRecords.date} >= CURRENT_DATE - INTERVAL '30 days' THEN ${usageRecords.totalCost} ELSE 0 END)::numeric`.as('last_30_days_cost'),
       last30DaysTokens: sql<number>`SUM(CASE WHEN ${usageRecords.date} >= CURRENT_DATE - INTERVAL '30 days' THEN ${usageRecords.totalTokens} ELSE 0 END)::bigint`.as('last_30_days_tokens'),
+      last30DaysInputTokens: sql<number>`SUM(CASE WHEN ${usageRecords.date} >= CURRENT_DATE - INTERVAL '30 days' THEN ${usageRecords.inputTokens} ELSE 0 END)::bigint`.as('last_30_days_input_tokens'),
+      last30DaysOutputTokens: sql<number>`SUM(CASE WHEN ${usageRecords.date} >= CURRENT_DATE - INTERVAL '30 days' THEN ${usageRecords.outputTokens} ELSE 0 END)::bigint`.as('last_30_days_output_tokens'),
+      last30DaysCacheCreationTokens: sql<number>`SUM(CASE WHEN ${usageRecords.date} >= CURRENT_DATE - INTERVAL '30 days' THEN ${usageRecords.cacheCreationTokens} ELSE 0 END)::bigint`.as('last_30_days_cache_creation_tokens'),
+      last30DaysCacheReadTokens: sql<number>`SUM(CASE WHEN ${usageRecords.date} >= CURRENT_DATE - INTERVAL '30 days' THEN ${usageRecords.cacheReadTokens} ELSE 0 END)::bigint`.as('last_30_days_cache_read_tokens'),
       last30DaysActiveDays: sql<number>`COUNT(DISTINCT CASE WHEN ${usageRecords.date} >= CURRENT_DATE - INTERVAL '30 days' THEN ${usageRecords.date} END)::bigint`.as('last_30_days_active_days'),
       
       // Cumulative metadata
@@ -81,9 +86,9 @@ async function getDailyAndDeviceData() {
     .from(usageRecords)
     .groupBy(usageRecords.date)
     .orderBy(desc(usageRecords.date))
-    .limit(30),
+    .limit(QUERY_LIMITS.DAILY_RECORDS),
 
-    // Device-specific daily records (last 300 records for multi-device charts)
+    // Device-specific daily records for multi-device charts
     db.select({
       date: usageRecords.date,
       deviceId: usageRecords.deviceId,
@@ -96,7 +101,7 @@ async function getDailyAndDeviceData() {
     })
     .from(usageRecords)
     .orderBy(desc(usageRecords.date))
-    .limit(300),
+    .limit(QUERY_LIMITS.DEVICE_RECORDS),
 
     // Device information with aggregated usage statistics
     db.select({
@@ -218,6 +223,10 @@ export async function GET() {
     const last30Days = {
       totalCost: safeNumber(statsResult.last30DaysCost),
       totalTokens: safeNumber(statsResult.last30DaysTokens),
+      totalInputTokens: safeNumber(statsResult.last30DaysInputTokens),
+      totalOutputTokens: safeNumber(statsResult.last30DaysOutputTokens),
+      totalCacheCreationTokens: safeNumber(statsResult.last30DaysCacheCreationTokens),
+      totalCacheReadTokens: safeNumber(statsResult.last30DaysCacheReadTokens),
       activeDays: safeNumber(statsResult.last30DaysActiveDays),
       avgDailyCost: safeNumber(statsResult.last30DaysActiveDays) > 0 ? safeNumber(statsResult.last30DaysCost) / safeNumber(statsResult.last30DaysActiveDays) : 0
     }
