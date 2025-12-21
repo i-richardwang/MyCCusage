@@ -10,11 +10,28 @@ interface StatsCardsProps {
   dailyData: DailyRecord[]
   timeRange: TimeRange
   customDateRange?: { from: Date; to: Date }
+  totals?: {
+    totalCost: number
+    totalTokens: number
+    activeDays: number
+    avgDailyCost: number
+  }
 }
 
-export function StatsCards({ dailyData, timeRange, customDateRange }: StatsCardsProps) {
+export function StatsCards({ dailyData, timeRange, customDateRange, totals }: StatsCardsProps) {
   // Dynamic calculation based on time range
   const stats = useMemo(() => {
+    // For "all" timeRange, use pre-aggregated totals from API
+    if (timeRange === "all" && totals) {
+      return {
+        totalCost: totals.totalCost,
+        totalTokens: totals.totalTokens,
+        avgDailyCost: totals.avgDailyCost,
+        avgDailyTokens: totals.activeDays > 0 ? totals.totalTokens / totals.activeDays : 0
+      }
+    }
+
+    // For other time ranges, calculate from daily data
     const filteredData = filterByTimeRange(dailyData, timeRange, customDateRange)
     
     if (filteredData.length === 0) {
@@ -38,7 +55,7 @@ export function StatsCards({ dailyData, timeRange, customDateRange }: StatsCards
       avgDailyCost,
       avgDailyTokens
     }
-  }, [dailyData, timeRange, customDateRange])
+  }, [dailyData, timeRange, customDateRange, totals])
 
   const formatCurrency = (amount: number) => {
     return `$${amount.toFixed(2)}`

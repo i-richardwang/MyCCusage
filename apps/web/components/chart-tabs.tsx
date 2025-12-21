@@ -15,9 +15,16 @@ interface ChartsProps {
   deviceData: DeviceRecord[]
   timeRange: TimeRange
   customDateRange?: { from: Date; to: Date }
+  totals?: {
+    totalCost: number
+    totalTokens: number
+    totalCacheCreationTokens: number
+    totalCacheReadTokens: number
+    activeDays: number
+  }
 }
 
-export function Charts({ dailyData, devices, deviceData, timeRange, customDateRange }: ChartsProps) {
+export function Charts({ dailyData, devices, deviceData, timeRange, customDateRange, totals }: ChartsProps) {
 
   // Use custom hooks for chart data
   const { chartData: multiDeviceChartData, chartConfig: multiDeviceChartConfig, activeDevices: activeCostDevices } = useMultiDeviceChartData(
@@ -42,8 +49,34 @@ export function Charts({ dailyData, devices, deviceData, timeRange, customDateRa
 
   // Calculate metrics based on filtered data (consistent with chart time filtering)
   const { usageActivityRate, cacheHitRate, tokenUnitPrice } = useMemo(() => {
+    // For "all" timeRange, use pre-aggregated totals from API
+    if (timeRange === "all" && totals) {
+      // Cache hit rate
+      const cacheHit = totals.totalCacheReadTokens > 0
+        ? (totals.totalCacheReadTokens / (totals.totalCacheReadTokens + totals.totalCacheCreationTokens)) * 100
+        : 0
+
+      // Token unit price (per million tokens)
+      const unitPrice = totals.totalTokens > 0
+        ? (totals.totalCost / totals.totalTokens) * 1000000
+        : 0
+
+      // For usage activity, we still need to calculate from daily data as totals doesn't have this info
+      const filteredData = filterByTimeRange(dailyData, timeRange, customDateRange)
+      const usageActivity = filteredData.length > 0
+        ? (filteredData.filter(day => day.totalTokens > 0).length / filteredData.length) * 100
+        : 0
+
+      return {
+        usageActivityRate: usageActivity,
+        cacheHitRate: cacheHit,
+        tokenUnitPrice: unitPrice
+      }
+    }
+
+    // For other time ranges, calculate from daily data
     const filteredData = filterByTimeRange(dailyData, timeRange, customDateRange)
-    
+
     if (filteredData.length === 0) {
       return { usageActivityRate: 0, cacheHitRate: 0, tokenUnitPrice: 0 }
     }
@@ -52,7 +85,7 @@ export function Charts({ dailyData, devices, deviceData, timeRange, customDateRa
     const usageActivity = (filteredData.filter(day => day.totalTokens > 0).length / filteredData.length) * 100
 
     // Aggregate totals for cache and cost calculations
-    const totals = filteredData.reduce((acc, day) => ({
+    const aggregated = filteredData.reduce((acc, day) => ({
       cacheRead: acc.cacheRead + day.cacheReadTokens,
       cacheCreation: acc.cacheCreation + day.cacheCreationTokens,
       tokens: acc.tokens + day.totalTokens,
@@ -60,13 +93,13 @@ export function Charts({ dailyData, devices, deviceData, timeRange, customDateRa
     }), { cacheRead: 0, cacheCreation: 0, tokens: 0, cost: 0 })
 
     // Cache hit rate
-    const cacheHit = totals.cacheRead > 0 
-      ? (totals.cacheRead / (totals.cacheRead + totals.cacheCreation)) * 100 
+    const cacheHit = aggregated.cacheRead > 0
+      ? (aggregated.cacheRead / (aggregated.cacheRead + aggregated.cacheCreation)) * 100
       : 0
 
     // Token unit price (per million tokens)
-    const unitPrice = totals.tokens > 0 
-      ? (totals.cost / totals.tokens) * 1000000 
+    const unitPrice = aggregated.tokens > 0
+      ? (aggregated.cost / aggregated.tokens) * 1000000
       : 0
 
     return {
@@ -74,7 +107,7 @@ export function Charts({ dailyData, devices, deviceData, timeRange, customDateRa
       cacheHitRate: cacheHit,
       tokenUnitPrice: unitPrice
     }
-  }, [dailyData, timeRange, customDateRange])
+  }, [dailyData, timeRange, customDateRange, totals])
 
   return (
     <div className="space-y-6">

@@ -105,15 +105,17 @@ export default function Page() {
           dailyData={stats.daily}
           timeRange={timeRange}
           customDateRange={customDateRange}
+          totals={stats.totals}
         />
 
         {/* Charts section */}
-        <Charts 
-          dailyData={stats.daily} 
-          devices={stats.devices} 
-          deviceData={stats.deviceData} 
+        <Charts
+          dailyData={stats.daily}
+          devices={stats.devices}
+          deviceData={stats.deviceData}
           timeRange={timeRange}
           customDateRange={customDateRange}
+          totals={stats.totals}
         />
 
         {/* Recent activity table section */}
