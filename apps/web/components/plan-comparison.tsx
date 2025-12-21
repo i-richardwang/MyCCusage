@@ -3,14 +3,13 @@
 import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@workspace/ui/components/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
-import { 
-  calculateCumulativeMetrics, 
+import {
+  calculateCumulativeMetrics,
   getCumulativeUserStatus,
-  formatCurrency, 
+  formatCurrency,
   formatSavings,
-  type CumulativeDataInput 
+  type CumulativeDataInput
 } from "@/lib/cumulative-metrics"
-import { Badge } from "@workspace/ui/components/badge"
 import { Crown, Zap, Users, Lightbulb, CreditCard, Calculator, Calendar } from "lucide-react"
 
 type ROIMode = 'current' | 'cumulative'
@@ -99,15 +98,7 @@ export function PlanComparison({
     "Light User": Lightbulb
   } as const
 
-  const statusColors = {
-    "Heavy User": "border-primary text-primary",
-    "Power User": "border-primary text-primary", 
-    "Regular User": "border-primary text-primary",
-    "Light User": "border-muted-foreground text-muted-foreground"
-  } as const
-
   const IconComponent = statusIcons[userStatus.title as keyof typeof statusIcons] || Users
-  const badgeColor = statusColors[userStatus.title as keyof typeof statusColors] || statusColors["Light User"]
 
   return (
     <Card className="pt-0">
@@ -136,23 +127,23 @@ export function PlanComparison({
         </Select>
       </CardHeader>
       <CardContent className="px-2 py-4 sm:px-6 sm:py-4">
-        {/* User Status Badge - Full Width */}
-        <div className="mb-6 w-full">
-          <div className="p-4 bg-muted/30 rounded-lg border-2 border-dashed border-muted-foreground/20">
-            <div className="flex items-center flex-wrap gap-4">
-              <div className="p-3 rounded-full bg-background">
-                <IconComponent className={`w-8 h-8 ${userStatus.color}`} />
-              </div>
-              <Badge 
-                variant="outline" 
-                className={`text-lg sm:text-xl font-bold px-3 sm:px-4 py-1 sm:py-2 ${badgeColor} whitespace-nowrap bg-transparent`}
-              >
+        {/* User Status - Compact inline design */}
+        <div className="mb-6 flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className={`p-2 ${userStatus.title === 'Light User' ? 'bg-muted' : 'bg-primary/10'}`}>
+              <IconComponent className={`w-5 h-5 ${userStatus.color}`} />
+            </div>
+            <div>
+              <div className={`text-lg font-semibold ${userStatus.color}`}>
                 {userStatus.title}
-              </Badge>
-              <div className={`text-lg sm:text-xl font-bold ${userStatus.color}`}>
+              </div>
+              <div className="text-sm text-muted-foreground">
                 {userStatus.subtitle}
               </div>
             </div>
+          </div>
+          <div className="text-sm text-muted-foreground">
+            Based on {isCurrentMode ? 'last 30 days' : 'avg monthly'} usage
           </div>
         </div>
 
