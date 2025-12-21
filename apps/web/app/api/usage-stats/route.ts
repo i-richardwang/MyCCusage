@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/src/db'
 import { usageRecords, devices } from '@/src/db/schema'
-import { sql, desc, eq, SQL } from 'drizzle-orm'
+import { sql, desc, eq } from 'drizzle-orm'
 import { getCurrentBillingCycle, getDaysRemainingInBillingCycle, getPreviousBillingCycle } from '@/lib/billing-cycle'
 
 // Optimized unified statistics query using CTE
