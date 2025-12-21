@@ -31,7 +31,7 @@ export function RecentActivity({ dailyData, timeRange, customDateRange }: Recent
 
   const formatTokensK = (tokens: number) => {
     const tokensInK = tokens / 1000
-    return `${tokensInK.toFixed(2)}K`
+    return `${tokensInK.toFixed(1)}K`
   }
 
   // Apply time range filter

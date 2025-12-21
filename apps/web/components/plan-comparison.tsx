@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@workspace/ui/components/card"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
+import { Tabs, TabsList, TabsTrigger } from "@workspace/ui/components/tabs"
 import {
   calculateCumulativeMetrics,
   getCumulativeUserStatus,
@@ -12,7 +12,7 @@ import {
 } from "@/lib/cumulative-metrics"
 import { Crown, Zap, Users, Lightbulb, CreditCard, Calculator, Calendar } from "lucide-react"
 
-type ROIMode = 'current' | 'cumulative'
+type ROIMode = 'last30days' | 'current' | 'cumulative'
 
 interface PlanComparisonProps {
   currentCycleCost: number
@@ -38,7 +38,7 @@ export function PlanComparison({
   billingStartDate,
   last30DaysData
 }: PlanComparisonProps) {
-  const [roiMode, setROIMode] = useState<ROIMode>('current')
+  const [roiMode, setROIMode] = useState<ROIMode>('last30days')
   
   // Calculate cumulative metrics if data is available
   const cumulativeMetrics = cumulativeData && billingStartDate 
@@ -50,6 +50,12 @@ export function PlanComparison({
   const max200Value = currentCycleCost - 200
   const monthlyChange = currentCycleCost - previousCycleCost
   const monthlyChangePercent = previousCycleCost > 0 ? ((monthlyChange / previousCycleCost) * 100) : 0
+
+  // Last 30 days calculations
+  const last30DaysCost = last30DaysData?.totalCost || 0
+  const last30DaysMax100Value = last30DaysCost - 100
+  const last30DaysMax200Value = last30DaysCost - 200
+  const last30DaysActiveDays = last30DaysData?.activeDays || 0
   
   const getCurrentUserStatus = () => {
     // Use last 30 days cost for more accurate user classification
@@ -83,8 +89,14 @@ export function PlanComparison({
   }
   
   // Determine which data to display based on mode
+  const isLast30DaysMode = roiMode === 'last30days'
   const isCurrentMode = roiMode === 'current'
-  const userStatus = isCurrentMode ? getCurrentUserStatus() : getCumulativeUserStatus(cumulativeMetrics?.avgMonthlyCost || 0)
+  const isCumulativeMode = roiMode === 'cumulative'
+
+  // User status: last30days and current both use last 30 days data, cumulative uses avg monthly
+  const userStatus = isCumulativeMode
+    ? getCumulativeUserStatus(cumulativeMetrics?.avgMonthlyCost || 0)
+    : getCurrentUserStatus()
   
   // Format savings for cumulative mode
   const vs100Savings = cumulativeMetrics ? formatSavings(cumulativeMetrics.totalSavedVs100) : null
@@ -109,22 +121,13 @@ export function PlanComparison({
             Track your subscription returns - how much value you&apos;re harvesting!
           </CardDescription>
         </div>
-        <Select value={roiMode} onValueChange={(value: ROIMode) => setROIMode(value)}>
-          <SelectTrigger 
-            className="hidden w-[160px] rounded-lg sm:ml-auto sm:flex"
-            aria-label="Select ROI view mode"
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent className="rounded-xl">
-            <SelectItem value="current" className="rounded-lg">
-              Current Cycle
-            </SelectItem>
-            <SelectItem value="cumulative" className="rounded-lg">
-              Since Start
-            </SelectItem>
-          </SelectContent>
-        </Select>
+        <Tabs value={roiMode} onValueChange={(value) => setROIMode(value as ROIMode)}>
+          <TabsList>
+            <TabsTrigger value="last30days">Last 30 Days</TabsTrigger>
+            <TabsTrigger value="current">Current Cycle</TabsTrigger>
+            <TabsTrigger value="cumulative">Since Start</TabsTrigger>
+          </TabsList>
+        </Tabs>
       </CardHeader>
       <CardContent className="px-2 py-4 sm:px-6 sm:py-4">
         {/* User Status - Compact inline design */}
@@ -143,7 +146,7 @@ export function PlanComparison({
             </div>
           </div>
           <div className="text-sm text-muted-foreground">
-            Based on {isCurrentMode ? 'last 30 days' : 'avg monthly'} usage
+            Based on {isCumulativeMode ? 'avg monthly' : 'last 30 days'} usage
           </div>
         </div>
 
@@ -155,15 +158,19 @@ export function PlanComparison({
                 <div className="space-y-1">
                   <CardDescription>API Value Consumed</CardDescription>
                   <CardTitle className="text-3xl">
-                    {isCurrentMode 
-                      ? formatCurrency(currentCycleCost)
-                      : formatCurrency(cumulativeMetrics?.totalCostAllTime || 0)
+                    {isLast30DaysMode
+                      ? formatCurrency(last30DaysCost)
+                      : isCurrentMode
+                        ? formatCurrency(currentCycleCost)
+                        : formatCurrency(cumulativeMetrics?.totalCostAllTime || 0)
                     }
                   </CardTitle>
                   <CardDescription>
-                    {isCurrentMode ? (
+                    {isLast30DaysMode ? (
+                      `Avg: ${formatCurrency(last30DaysData?.avgDailyCost || 0)}/day`
+                    ) : isCurrentMode ? (
                       <>
-                        vs last month: 
+                        vs last month:
                         <span className={`ml-1 ${monthlyChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                           {monthlyChangePercent >= 0 ? '+' : ''}{monthlyChangePercent.toFixed(1)}%
                         </span>
@@ -185,18 +192,24 @@ export function PlanComparison({
                 <div className="space-y-1">
                   <CardDescription>vs Max $100/month</CardDescription>
                   <CardTitle className={`text-3xl ${
-                    isCurrentMode 
-                      ? (max100Value > 0 ? 'text-primary' : 'text-muted-foreground')
-                      : vs100Savings?.colorClass || 'text-muted-foreground'
+                    isLast30DaysMode
+                      ? (last30DaysMax100Value > 0 ? 'text-primary' : 'text-muted-foreground')
+                      : isCurrentMode
+                        ? (max100Value > 0 ? 'text-primary' : 'text-muted-foreground')
+                        : vs100Savings?.colorClass || 'text-muted-foreground'
                   }`}>
-                    {isCurrentMode ? (
+                    {isLast30DaysMode ? (
+                      last30DaysMax100Value > 0 ? `+${formatCurrency(Math.abs(last30DaysMax100Value))}` : `-${formatCurrency(Math.abs(last30DaysMax100Value))}`
+                    ) : isCurrentMode ? (
                       max100Value > 0 ? `+${formatCurrency(Math.abs(max100Value))}` : `-${formatCurrency(Math.abs(max100Value))}`
                     ) : (
                       vs100Savings?.text || '$0.00'
                     )}
                   </CardTitle>
                   <CardDescription>
-                    {isCurrentMode ? (
+                    {isLast30DaysMode ? (
+                      last30DaysMax100Value > 0 ? 'Bonus Value!' : 'Almost there!'
+                    ) : isCurrentMode ? (
                       max100Value > 0 ? 'Bonus Value!' : 'Almost there!'
                     ) : (
                       vs100Savings?.description || 'No data'
@@ -207,7 +220,7 @@ export function PlanComparison({
               </div>
             </CardHeader>
           </Card>
-          
+
           {/* vs $200 Plan */}
           <Card>
             <CardHeader className="pb-2 flex items-center h-full">
@@ -215,18 +228,24 @@ export function PlanComparison({
                 <div className="space-y-1">
                   <CardDescription>vs Max $200/month</CardDescription>
                   <CardTitle className={`text-3xl ${
-                    isCurrentMode 
-                      ? (max200Value > 0 ? 'text-primary' : 'text-muted-foreground')
-                      : vs200Savings?.colorClass || 'text-muted-foreground'
+                    isLast30DaysMode
+                      ? (last30DaysMax200Value > 0 ? 'text-primary' : 'text-muted-foreground')
+                      : isCurrentMode
+                        ? (max200Value > 0 ? 'text-primary' : 'text-muted-foreground')
+                        : vs200Savings?.colorClass || 'text-muted-foreground'
                   }`}>
-                    {isCurrentMode ? (
+                    {isLast30DaysMode ? (
+                      last30DaysMax200Value > 0 ? `+${formatCurrency(Math.abs(last30DaysMax200Value))}` : `-${formatCurrency(Math.abs(last30DaysMax200Value))}`
+                    ) : isCurrentMode ? (
                       max200Value > 0 ? `+${formatCurrency(Math.abs(max200Value))}` : `-${formatCurrency(Math.abs(max200Value))}`
                     ) : (
                       vs200Savings?.text || '$0.00'
                     )}
                   </CardTitle>
                   <CardDescription>
-                    {isCurrentMode ? (
+                    {isLast30DaysMode ? (
+                      last30DaysMax200Value > 0 ? 'Bonus Value!' : 'Almost there!'
+                    ) : isCurrentMode ? (
                       max200Value > 0 ? 'Bonus Value!' : 'Almost there!'
                     ) : (
                       vs200Savings?.description || 'No data'
@@ -237,24 +256,28 @@ export function PlanComparison({
               </div>
             </CardHeader>
           </Card>
-          
+
           {/* Days Remaining / Subscription Days */}
           <Card>
             <CardHeader className="pb-2 flex items-center h-full">
               <div className="flex items-center justify-between w-full">
                 <div className="space-y-1">
                   <CardDescription>
-                    {isCurrentMode ? 'Billing Cycle' : 'Subscription Days'}
+                    {isLast30DaysMode ? 'Active Days' : isCurrentMode ? 'Billing Cycle' : 'Subscription Days'}
                   </CardDescription>
                   <CardTitle className="text-3xl">
-                    {isCurrentMode ? (
+                    {isLast30DaysMode ? (
+                      <>{last30DaysActiveDays} <span className="text-sm font-normal">of 30 days</span></>
+                    ) : isCurrentMode ? (
                       <>{daysRemaining !== undefined ? daysRemaining : 0} <span className="text-sm font-normal">days remaining</span></>
                     ) : (
                       <>{cumulativeMetrics?.totalSubscriptionDays || 0} <span className="text-sm font-normal">days</span></>
                     )}
                   </CardTitle>
                   <CardDescription>
-                    {isCurrentMode ? (
+                    {isLast30DaysMode ? (
+                      `${((last30DaysActiveDays / 30) * 100).toFixed(0)}% activity rate`
+                    ) : isCurrentMode ? (
                       billingCycleLabel
                     ) : (
                       cumulativeMetrics?.subscriptionStartDate 
