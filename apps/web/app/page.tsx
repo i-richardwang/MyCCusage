@@ -1,24 +1,27 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useMemo } from "react"
 import { useUsageStats } from "@/hooks/use-usage-stats"
 import { StatsCards } from "@/components/stats-cards"
 import { PlanComparison } from "@/components/plan-comparison"
 import { Charts } from "@/components/charts"
 import { RecentActivity } from "@/components/recent-activity"
-import { FilterBar } from "@/components/filter-bar"
+import { GlobalFilterBar } from "@/components/global-filter-bar"
 import { ModeToggle } from "@/components/mode-toggle"
 import { Footer } from "@/components/footer"
-import { TimeRange } from "@/types/chart-types"
+import { TimeRange, ViewMode, BillingCycleRange } from "@/types/chart-types"
 import { type DateRange } from "react-day-picker"
+import { filterByTimeRange } from "@/hooks/use-chart-data"
 import { Loader2 } from "lucide-react"
 
 export default function Page() {
   const { stats, loading, error } = useUsageStats()
-  const [timeRange, setTimeRange] = useState<TimeRange>("all")
+  
+  const [viewMode, setViewMode] = useState<ViewMode>("rolling")
+  const [timeRange, setTimeRange] = useState<TimeRange>("30d")
+  const [billingCycleRange, setBillingCycleRange] = useState<BillingCycleRange>("current")
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined)
 
-  // Helper function to calculate date range from preset time range
   const getDateRangeFromTimeRange = useCallback((range: TimeRange): DateRange | undefined => {
     if (range === "all" || range === "custom") return undefined
     
@@ -30,30 +33,107 @@ export default function Page() {
     return { from, to: today }
   }, [])
 
-  // Handle time range change from dropdown
+  const handleViewModeChange = useCallback((newViewMode: ViewMode) => {
+    setViewMode(newViewMode)
+    if (newViewMode === "rolling") {
+      setTimeRange("30d")
+      setDateRange(getDateRangeFromTimeRange("30d"))
+    } else {
+      setBillingCycleRange("current")
+    }
+  }, [getDateRangeFromTimeRange])
+
   const handleTimeRangeChange = useCallback((newTimeRange: TimeRange) => {
     setTimeRange(newTimeRange)
-    // Always update dateRange to show corresponding dates for preset ranges
     const correspondingDateRange = getDateRangeFromTimeRange(newTimeRange)
     setDateRange(correspondingDateRange)
   }, [getDateRangeFromTimeRange])
 
-  // Handle custom date range change from picker
   const handleDateRangeChange = useCallback((newDateRange: DateRange | undefined) => {
     setDateRange(newDateRange)
-    // Only switch to custom if user actually selected a valid date range
     if (newDateRange?.from && newDateRange?.to) {
       setTimeRange("custom")
     }
   }, [])
 
-  // Convert DateRange to the format expected by filter functions
-  const customDateRange = dateRange?.from && dateRange?.to 
-    ? { from: dateRange.from, to: dateRange.to }
-    : undefined
+  const handleBillingCycleRangeChange = useCallback((range: BillingCycleRange) => {
+    setBillingCycleRange(range)
+  }, [])
 
+  const customDateRange = useMemo(() => {
+    return dateRange?.from && dateRange?.to 
+      ? { from: dateRange.from, to: dateRange.to }
+      : undefined
+  }, [dateRange?.from, dateRange?.to])
 
-  // Loading/Error content for main area
+  const billingCycleDates = useMemo(() => {
+    if (!stats?.billingCycle) return { current: undefined, previous: undefined }
+    
+    const currentStart = new Date(stats.billingCycle.startDate)
+    const currentEnd = new Date(stats.billingCycle.endDate)
+    
+    const previousEnd = new Date(currentStart)
+    previousEnd.setDate(previousEnd.getDate() - 1)
+    const previousStart = new Date(previousEnd)
+    previousStart.setMonth(previousStart.getMonth() - 1)
+    previousStart.setDate(previousStart.getDate() + 1)
+    
+    return {
+      current: { from: currentStart, to: currentEnd },
+      previous: { from: previousStart, to: previousEnd }
+    }
+  }, [stats?.billingCycle])
+
+  const activeBillingCycleDateRange = billingCycleRange === "current" 
+    ? billingCycleDates.current 
+    : billingCycleDates.previous
+
+  const filteredMetrics = useMemo(() => {
+    if (!stats?.daily) return undefined
+    if (viewMode === "billing") return undefined
+    
+    if (timeRange === "all" && stats.totals) {
+      return stats.totals
+    }
+    if (timeRange === "30d" && stats.last30Days) {
+      return stats.last30Days
+    }
+    
+    const filteredData = filterByTimeRange(stats.daily, timeRange, customDateRange)
+    if (filteredData.length === 0) {
+      return {
+        totalCost: 0,
+        totalTokens: 0,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalCacheCreationTokens: 0,
+        totalCacheReadTokens: 0,
+        activeDays: 0,
+        avgDailyCost: 0
+      }
+    }
+    
+    const totalCost = filteredData.reduce((sum, r) => sum + r.totalCost, 0)
+    const totalTokens = filteredData.reduce((sum, r) => sum + r.totalTokens, 0)
+    const totalInputTokens = filteredData.reduce((sum, r) => sum + r.inputTokens, 0)
+    const totalOutputTokens = filteredData.reduce((sum, r) => sum + r.outputTokens, 0)
+    const totalCacheCreationTokens = filteredData.reduce((sum, r) => sum + r.cacheCreationTokens, 0)
+    const totalCacheReadTokens = filteredData.reduce((sum, r) => sum + r.cacheReadTokens, 0)
+    const activeDays = filteredData.filter(r => r.totalTokens > 0).length
+    const avgDailyCost = activeDays > 0 ? totalCost / activeDays : 0
+    
+    return {
+      totalCost,
+      totalTokens,
+      totalInputTokens,
+      totalOutputTokens,
+      totalCacheCreationTokens,
+      totalCacheReadTokens,
+      activeDays,
+      avgDailyCost
+    }
+  }, [stats, viewMode, timeRange, customDateRange])
+
   const renderMainContent = () => {
     if (loading) {
       return (
@@ -81,50 +161,66 @@ export default function Page() {
 
     return (
       <>
-        {/* Plan comparison section */}
-        <PlanComparison 
-          currentCycleCost={stats.currentCycle.totalCost}
-          previousCycleCost={stats.previousCycle.totalCost}
-          billingCycleLabel={stats.billingCycle.label}
-          daysRemaining={stats.billingCycle.daysRemaining}
-          cumulativeData={stats.cumulative}
-          billingStartDate={stats.billingCycle.startDateConfig}
-          last30DaysData={stats.last30Days}
-        />
-
-        {/* Global filter bar */}
-        <FilterBar 
+        <GlobalFilterBar
+          viewMode={viewMode}
+          onViewModeChange={handleViewModeChange}
           timeRange={timeRange}
           onTimeRangeChange={handleTimeRangeChange}
+          billingCycleRange={billingCycleRange}
+          onBillingCycleRangeChange={handleBillingCycleRangeChange}
           dateRange={dateRange}
           onDateRangeChange={handleDateRangeChange}
         />
 
-        {/* Statistics cards section */}
+        <PlanComparison
+          viewMode={viewMode}
+          billingCycleRange={billingCycleRange}
+          currentCycleCost={stats.currentCycle.totalCost}
+          previousCycleCost={stats.previousCycle.totalCost}
+          currentCycleMetrics={stats.currentCycle}
+          previousCycleMetrics={stats.previousCycle}
+          billingCycleLabel={stats.billingCycle.label}
+          daysRemaining={stats.billingCycle.daysRemaining}
+          cumulativeData={stats.cumulative}
+          billingStartDate={stats.billingCycle.startDateConfig}
+          filteredMetrics={filteredMetrics}
+          isAllTime={timeRange === "all"}
+        />
+
         <StatsCards
           dailyData={stats.daily}
+          viewMode={viewMode}
           timeRange={timeRange}
+          billingCycleRange={billingCycleRange}
           customDateRange={customDateRange}
           totals={stats.totals}
           last30Days={stats.last30Days}
+          currentCycleMetrics={stats.currentCycle}
+          previousCycleMetrics={stats.previousCycle}
         />
 
-        {/* Charts section */}
         <Charts
           dailyData={stats.daily}
           devices={stats.devices}
           deviceData={stats.deviceData}
+          viewMode={viewMode}
           timeRange={timeRange}
+          billingCycleRange={billingCycleRange}
           customDateRange={customDateRange}
+          billingCycleDateRange={activeBillingCycleDateRange}
           totals={stats.totals}
           last30Days={stats.last30Days}
+          currentCycleMetrics={stats.currentCycle}
+          previousCycleMetrics={stats.previousCycle}
         />
 
-        {/* Recent activity table section */}
-        <RecentActivity 
-          dailyData={stats.daily} 
+        <RecentActivity
+          dailyData={stats.daily}
+          viewMode={viewMode}
           timeRange={timeRange}
+          billingCycleRange={billingCycleRange}
           customDateRange={customDateRange}
+          billingCycleDateRange={activeBillingCycleDateRange}
         />
       </>
     )
@@ -132,7 +228,6 @@ export default function Page() {
 
   return (
     <div className="min-h-screen">
-      {/* Header navigation */}
       <div className="border-b bg-background/95 backdrop-blur sticky top-0 z-50">
         <div className="container mx-auto px-4 sm:px-6 py-6">
           <div className="flex items-center justify-between">
@@ -151,12 +246,10 @@ export default function Page() {
         </div>
       </div>
 
-      {/* Main content area */}
       <div className="container mx-auto px-4 sm:px-6 py-8 space-y-8">
         {renderMainContent()}
       </div>
 
-      {/* Footer */}
       <Footer />
     </div>
   )

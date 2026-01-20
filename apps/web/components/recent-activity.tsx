@@ -3,55 +3,53 @@
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@workspace/ui/components/card"
 import { DataTablePagination } from "@/components/data-table-pagination"
-import { DailyRecord, TimeRange } from "@/types/chart-types"
+import { DailyRecord, TimeRange, ViewMode, BillingCycleRange } from "@/types/chart-types"
 import { filterByTimeRange } from "@/hooks/use-chart-data"
 
 interface RecentActivityProps {
   dailyData: DailyRecord[]
+  viewMode: ViewMode
   timeRange: TimeRange
+  billingCycleRange: BillingCycleRange
   customDateRange?: { from: Date; to: Date }
+  billingCycleDateRange?: { from: Date; to: Date }
 }
 
-export function RecentActivity({ dailyData, timeRange, customDateRange }: RecentActivityProps) {
+export function RecentActivity({
+  dailyData,
+  viewMode,
+  timeRange,
+  billingCycleRange,
+  customDateRange,
+  billingCycleDateRange
+}: RecentActivityProps) {
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage, setItemsPerPage] = useState(10)
   
-  // Reset to first page when filters change
+  const isBillingMode = viewMode === "billing"
+  const effectiveTimeRange: TimeRange = isBillingMode ? "custom" : timeRange
+  const effectiveDateRange = isBillingMode ? billingCycleDateRange : customDateRange
+
   useEffect(() => {
     setCurrentPage(1)
-  }, [timeRange, customDateRange, itemsPerPage])
-  const formatCurrency = (amount: number) => {
-    return `$${amount.toFixed(2)}`
-  }
+  }, [viewMode, timeRange, billingCycleRange, customDateRange, billingCycleDateRange, itemsPerPage])
 
-  const formatTokens = (tokens: number) => {
-    const tokensInMillions = tokens / 1000000
-    return `${tokensInMillions.toFixed(1)}M`
-  }
+  const formatCurrency = (amount: number) => `$${amount.toFixed(2)}`
+  const formatTokens = (tokens: number) => `${(tokens / 1000000).toFixed(1)}M`
+  const formatTokensK = (tokens: number) => `${(tokens / 1000).toFixed(1)}K`
 
-  const formatTokensK = (tokens: number) => {
-    const tokensInK = tokens / 1000
-    return `${tokensInK.toFixed(1)}K`
-  }
-
-  // Apply time range filter
-  const filteredData = filterByTimeRange(dailyData, timeRange, customDateRange)
+  const filteredData = filterByTimeRange(dailyData, effectiveTimeRange, effectiveDateRange)
   
-  // Calculate pagination
   const totalItems = filteredData.length
   const totalPages = Math.ceil(totalItems / itemsPerPage)
   const startIndex = (currentPage - 1) * itemsPerPage
   const endIndex = startIndex + itemsPerPage
   const paginatedData = filteredData.slice(startIndex, endIndex)
   
-  // Handle pagination changes
-  const handlePageChange = (page: number) => {
-    setCurrentPage(page)
-  }
-  
+  const handlePageChange = (page: number) => setCurrentPage(page)
   const handleItemsPerPageChange = (newItemsPerPage: number) => {
     setItemsPerPage(newItemsPerPage)
-    setCurrentPage(1) // Reset to first page when changing items per page
+    setCurrentPage(1)
   }
 
   return (
@@ -59,9 +57,7 @@ export function RecentActivity({ dailyData, timeRange, customDateRange }: Recent
       <CardHeader className="flex items-center gap-2 space-y-0 border-b py-5 sm:flex-row">
         <div className="grid flex-1 gap-1">
           <CardTitle>Recent Activity</CardTitle>
-          <CardDescription>
-            Latest usage data and metrics
-          </CardDescription>
+          <CardDescription>Latest usage data and metrics</CardDescription>
         </div>
       </CardHeader>
       <CardContent className="px-2 py-4 sm:px-6 sm:py-4">
@@ -81,26 +77,13 @@ export function RecentActivity({ dailyData, timeRange, customDateRange }: Recent
               {paginatedData.map((day) => (
                 <tr key={day.date} className="border-b">
                   <td className="py-3 px-2 text-sm font-medium">
-                    {new Date(day.date).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric'
-                    })}
+                    {new Date(day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                   </td>
-                  <td className="py-3 px-2 text-sm font-bold">
-                    {formatCurrency(day.totalCost)}
-                  </td>
-                  <td className="py-3 px-2 text-sm font-medium">
-                    {formatTokens(day.totalTokens)}
-                  </td>
-                  <td className="py-3 px-2 text-sm text-muted-foreground">
-                    {formatTokensK(day.inputTokens)}
-                  </td>
-                  <td className="py-3 px-2 text-sm text-muted-foreground">
-                    {formatTokensK(day.outputTokens)}
-                  </td>
-                  <td className="py-3 px-2 text-sm text-muted-foreground">
-                    {formatTokensK(day.cacheCreationTokens + day.cacheReadTokens)}
-                  </td>
+                  <td className="py-3 px-2 text-sm font-bold">{formatCurrency(day.totalCost)}</td>
+                  <td className="py-3 px-2 text-sm font-medium">{formatTokens(day.totalTokens)}</td>
+                  <td className="py-3 px-2 text-sm text-muted-foreground">{formatTokensK(day.inputTokens)}</td>
+                  <td className="py-3 px-2 text-sm text-muted-foreground">{formatTokensK(day.outputTokens)}</td>
+                  <td className="py-3 px-2 text-sm text-muted-foreground">{formatTokensK(day.cacheCreationTokens + day.cacheReadTokens)}</td>
                 </tr>
               ))}
             </tbody>

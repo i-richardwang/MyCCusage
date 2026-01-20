@@ -9,7 +9,7 @@ const FOOTER_CONFIG = {
   project: {
     name: "Claude Code Usage Dashboard",
     description: "Open source dashboard for tracking Claude Code usage, costs, and statistics with beautiful charts and insights.",
-    version: '0.4.4',
+    version: '0.4.5',
     repository: "https://github.com/i-richardwang/MyCCusage",
     author: {
       name: "Richard Wang",
