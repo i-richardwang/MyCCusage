@@ -2,7 +2,7 @@
 
 import { useMemo } from "react"
 import { Card, CardDescription, CardHeader, CardTitle } from "@workspace/ui/components/card"
-import { DollarSign, Cpu, TrendingUp, Activity } from "lucide-react"
+import { Cpu, TrendingUp, Activity, Database } from "lucide-react"
 import { DailyRecord, TimeRange, ViewMode, BillingCycleRange } from "@/types/chart-types"
 import { filterByTimeRange } from "@/hooks/use-chart-data"
 import type { AggregatedMetrics } from "@/types/api-types"
@@ -35,19 +35,19 @@ export function StatsCards({
       const metrics = billingCycleRange === "current" ? currentCycleMetrics : previousCycleMetrics
       if (metrics) {
         return {
-          totalCost: metrics.totalCost,
           totalTokens: metrics.totalTokens,
+          cachedTokens: metrics.totalCacheReadTokens,
           avgDailyCost: metrics.avgDailyCost,
           avgDailyTokens: metrics.activeDays > 0 ? metrics.totalTokens / metrics.activeDays : 0
         }
       }
-      return { totalCost: 0, totalTokens: 0, avgDailyCost: 0, avgDailyTokens: 0 }
+      return { totalTokens: 0, cachedTokens: 0, avgDailyCost: 0, avgDailyTokens: 0 }
     }
 
     if (timeRange === "all" && totals) {
       return {
-        totalCost: totals.totalCost,
         totalTokens: totals.totalTokens,
+        cachedTokens: totals.totalCacheReadTokens,
         avgDailyCost: totals.avgDailyCost,
         avgDailyTokens: totals.activeDays > 0 ? totals.totalTokens / totals.activeDays : 0
       }
@@ -55,8 +55,8 @@ export function StatsCards({
 
     if (timeRange === "30d" && last30Days) {
       return {
-        totalCost: last30Days.totalCost,
         totalTokens: last30Days.totalTokens,
+        cachedTokens: last30Days.totalCacheReadTokens,
         avgDailyCost: last30Days.avgDailyCost,
         avgDailyTokens: last30Days.activeDays > 0 ? last30Days.totalTokens / last30Days.activeDays : 0
       }
@@ -65,16 +65,17 @@ export function StatsCards({
     const filteredData = filterByTimeRange(dailyData, timeRange, customDateRange)
     
     if (filteredData.length === 0) {
-      return { totalCost: 0, totalTokens: 0, avgDailyCost: 0, avgDailyTokens: 0 }
+      return { totalTokens: 0, cachedTokens: 0, avgDailyCost: 0, avgDailyTokens: 0 }
     }
 
-    const totalCost = filteredData.reduce((sum, record) => sum + record.totalCost, 0)
     const totalTokens = filteredData.reduce((sum, record) => sum + record.totalTokens, 0)
+    const cachedTokens = filteredData.reduce((sum, record) => sum + record.cacheReadTokens, 0)
+    const totalCost = filteredData.reduce((sum, record) => sum + record.totalCost, 0)
     const activeDays = filteredData.length
     const avgDailyCost = activeDays > 0 ? totalCost / activeDays : 0
     const avgDailyTokens = activeDays > 0 ? totalTokens / activeDays : 0
 
-    return { totalCost, totalTokens, avgDailyCost, avgDailyTokens }
+    return { totalTokens, cachedTokens, avgDailyCost, avgDailyTokens }
   }, [dailyData, viewMode, timeRange, billingCycleRange, customDateRange, totals, last30Days, currentCycleMetrics, previousCycleMetrics])
 
   const formatCurrency = (amount: number) => `$${amount.toFixed(2)}`
@@ -86,11 +87,11 @@ export function StatsCards({
         <CardHeader className="pb-2 flex items-center h-full">
           <div className="flex items-center justify-between w-full">
             <div className="space-y-1">
-              <CardDescription>Total Cost</CardDescription>
-              <CardTitle className="text-3xl">{formatCurrency(stats.totalCost)}</CardTitle>
-              <CardDescription>Cumulative usage cost</CardDescription>
+              <CardDescription>Total Tokens</CardDescription>
+              <CardTitle className="text-3xl">{formatTokens(stats.totalTokens)}</CardTitle>
+              <CardDescription>Total usage volume</CardDescription>
             </div>
-            <DollarSign className="h-6 w-6 text-muted-foreground" />
+            <Cpu className="h-6 w-6 text-muted-foreground" />
           </div>
         </CardHeader>
       </Card>
@@ -99,11 +100,11 @@ export function StatsCards({
         <CardHeader className="pb-2 flex items-center h-full">
           <div className="flex items-center justify-between w-full">
             <div className="space-y-1">
-              <CardDescription>Total Tokens</CardDescription>
-              <CardTitle className="text-3xl">{formatTokens(stats.totalTokens)}</CardTitle>
-              <CardDescription>Total usage volume</CardDescription>
+              <CardDescription>Cached Tokens</CardDescription>
+              <CardTitle className="text-3xl">{formatTokens(stats.cachedTokens)}</CardTitle>
+              <CardDescription>Tokens served from cache</CardDescription>
             </div>
-            <Cpu className="h-6 w-6 text-muted-foreground" />
+            <Database className="h-6 w-6 text-muted-foreground" />
           </div>
         </CardHeader>
       </Card>
