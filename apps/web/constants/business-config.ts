@@ -21,6 +21,28 @@ export const PLAN_PRICING = {
 } as const
 
 /**
+ * Subscription plan type
+ */
+export type SubscriptionPlan = 100 | 200
+
+/**
+ * Get user's subscription plan from environment variable
+ * Defaults to 200 if not set or invalid
+ */
+export function getSubscriptionPlan(): SubscriptionPlan {
+  const planStr = process.env.NEXT_PUBLIC_SUBSCRIPTION_PLAN
+  const plan = planStr ? parseInt(planStr, 10) : 200
+  return plan === 100 ? 100 : 200
+}
+
+/**
+ * Get plan pricing based on subscription plan
+ */
+export function getPlanPricing(plan: SubscriptionPlan): number {
+  return plan === 100 ? PLAN_PRICING.MAX_100 : PLAN_PRICING.MAX_200
+}
+
+/**
  * Query limits for database operations
  */
 export const QUERY_LIMITS = {

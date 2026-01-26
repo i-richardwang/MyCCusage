@@ -6,7 +6,10 @@ import {
   USER_TIER_THRESHOLDS,
   PLAN_PRICING,
   getUserStatusByAmount,
-  type UserStatus
+  getSubscriptionPlan,
+  getPlanPricing,
+  type UserStatus,
+  type SubscriptionPlan
 } from '@/constants/business-config'
 import type { CumulativeData } from '@/types/api-types'
 
@@ -18,8 +21,8 @@ export interface CumulativeMetrics {
   subscriptionStartDate: Date
   totalMonths: number
   avgMonthlyCost: number
-  totalSavedVs100: number
-  totalSavedVs200: number
+  totalSavedVsPlan: number
+  subscriptionPlan: SubscriptionPlan
 }
 
 /**
@@ -55,9 +58,10 @@ export function calculateCumulativeMetrics(
   const totalSubscriptionDays = Math.floor(timeDiff / (1000 * 60 * 60 * 24)) + 1
 
   // Calculate derived metrics
+  const subscriptionPlan = getSubscriptionPlan()
+  const planPrice = getPlanPricing(subscriptionPlan)
   const avgMonthlyCost = totalCost / totalMonths
-  const totalSavedVs100 = totalCost - (PLAN_PRICING.MAX_100 * totalMonths)
-  const totalSavedVs200 = totalCost - (PLAN_PRICING.MAX_200 * totalMonths)
+  const totalSavedVsPlan = totalCost - (planPrice * totalMonths)
 
   return {
     totalCostAllTime: totalCost,
@@ -67,8 +71,8 @@ export function calculateCumulativeMetrics(
     subscriptionStartDate,
     totalMonths,
     avgMonthlyCost,
-    totalSavedVs100,
-    totalSavedVs200
+    totalSavedVsPlan,
+    subscriptionPlan
   }
 }
 
@@ -105,5 +109,5 @@ export function formatSavings(savings: number): {
 }
 
 // Re-export for convenience
-export { USER_TIER_THRESHOLDS, PLAN_PRICING, getUserStatusByAmount }
-export type { CumulativeData }
+export { USER_TIER_THRESHOLDS, PLAN_PRICING, getUserStatusByAmount, getSubscriptionPlan, getPlanPricing }
+export type { CumulativeData, SubscriptionPlan }

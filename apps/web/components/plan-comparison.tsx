@@ -6,13 +6,14 @@ import {
   getCumulativeUserStatus,
   formatCurrency,
   formatSavings,
-  PLAN_PRICING,
-  getUserStatusByAmount
+  getUserStatusByAmount,
+  getSubscriptionPlan,
+  getPlanPricing
 } from "@/lib/cumulative-metrics"
 import type { CumulativeData, AggregatedMetrics } from "@/types/api-types"
 import type { UserStatus, UserTier } from "@/constants/business-config"
 import type { ViewMode, BillingCycleRange } from "@/types/chart-types"
-import { Crown, Zap, Users, Lightbulb, CreditCard, Calculator, Calendar, LucideIcon } from "lucide-react"
+import { Crown, Zap, Users, Lightbulb, CreditCard, Calculator, Calendar, TrendingUp, LucideIcon } from "lucide-react"
 
 const STATUS_ICONS: Record<UserTier, LucideIcon> = {
   'Heavy User': Crown,
@@ -54,6 +55,9 @@ export function PlanComparison({
   const isBillingMode = viewMode === "billing"
   const isCurrentCycle = billingCycleRange === "current"
 
+  const subscriptionPlan = getSubscriptionPlan()
+  const planPrice = getPlanPricing(subscriptionPlan)
+
   const cumulativeMetrics = cumulativeData && billingStartDate
     ? calculateCumulativeMetrics(cumulativeData, billingStartDate)
     : null
@@ -73,8 +77,7 @@ export function PlanComparison({
   const activeActiveDays = activeMetrics?.activeDays || 0
   const activeAvgDailyCost = activeMetrics?.avgDailyCost || 0
 
-  const vs100 = activeCost - PLAN_PRICING.MAX_100
-  const vs200 = activeCost - PLAN_PRICING.MAX_200
+  const vsPlan = activeCost - planPrice
 
   const monthlyChange = currentCycleCost - previousCycleCost
   const monthlyChangePercent = previousCycleCost > 0 ? ((monthlyChange / previousCycleCost) * 100) : 0
@@ -83,8 +86,7 @@ export function PlanComparison({
     ? getCumulativeUserStatus(cumulativeMetrics.avgMonthlyCost)
     : getUserStatusByAmount(activeCost)
 
-  const vs100Savings = cumulativeMetrics ? formatSavings(cumulativeMetrics.totalSavedVs100) : null
-  const vs200Savings = cumulativeMetrics ? formatSavings(cumulativeMetrics.totalSavedVs200) : null
+  const vsPlanSavings = cumulativeMetrics ? formatSavings(cumulativeMetrics.totalSavedVsPlan) : null
 
   const IconComponent = STATUS_ICONS[userStatus.tier]
 
@@ -101,32 +103,18 @@ export function PlanComparison({
     return formatCurrency(activeCost)
   }
 
-  const getVs100Value = () => {
-    if (isRollingMode && isAllTime && vs100Savings) {
-      return vs100Savings.text
+  const getVsPlanValue = () => {
+    if (isRollingMode && isAllTime && vsPlanSavings) {
+      return vsPlanSavings.text
     }
-    return formatValueComparison(vs100)
+    return formatValueComparison(vsPlan)
   }
 
-  const getVs200Value = () => {
-    if (isRollingMode && isAllTime && vs200Savings) {
-      return vs200Savings.text
+  const getVsPlanColor = () => {
+    if (isRollingMode && isAllTime && vsPlanSavings) {
+      return vsPlanSavings.colorClass
     }
-    return formatValueComparison(vs200)
-  }
-
-  const getVs100Color = () => {
-    if (isRollingMode && isAllTime && vs100Savings) {
-      return vs100Savings.colorClass
-    }
-    return vs100 > 0 ? 'text-primary' : 'text-muted-foreground'
-  }
-
-  const getVs200Color = () => {
-    if (isRollingMode && isAllTime && vs200Savings) {
-      return vs200Savings.colorClass
-    }
-    return vs200 > 0 ? 'text-primary' : 'text-muted-foreground'
+    return vsPlan > 0 ? 'text-primary' : 'text-muted-foreground'
   }
 
   const getSubtitle = () => {
@@ -239,12 +227,12 @@ export function PlanComparison({
             <CardHeader className="pb-2 flex items-center h-full">
               <div className="flex items-center justify-between w-full">
                 <div className="space-y-1">
-                  <CardDescription>vs Max ${PLAN_PRICING.MAX_100}/month</CardDescription>
-                  <CardTitle className={`text-3xl ${getVs100Color()}`}>
-                    {getVs100Value()}
+                  <CardDescription>vs Max ${subscriptionPlan}/month</CardDescription>
+                  <CardTitle className={`text-3xl ${getVsPlanColor()}`}>
+                    {getVsPlanValue()}
                   </CardTitle>
                   <CardDescription>
-                    {vs100 > 0 ? 'Bonus Value!' : 'Almost there!'}
+                    {vsPlan > 0 ? 'Bonus Value!' : 'Almost there!'}
                   </CardDescription>
                 </div>
                 <Calculator className="h-6 w-6 text-muted-foreground" />
@@ -256,15 +244,11 @@ export function PlanComparison({
             <CardHeader className="pb-2 flex items-center h-full">
               <div className="flex items-center justify-between w-full">
                 <div className="space-y-1">
-                  <CardDescription>vs Max ${PLAN_PRICING.MAX_200}/month</CardDescription>
-                  <CardTitle className={`text-3xl ${getVs200Color()}`}>
-                    {getVs200Value()}
-                  </CardTitle>
-                  <CardDescription>
-                    {vs200 > 0 ? 'Bonus Value!' : 'Almost there!'}
-                  </CardDescription>
+                  <CardDescription>Average Daily Cost</CardDescription>
+                  <CardTitle className="text-3xl">{formatCurrency(activeAvgDailyCost)}</CardTitle>
+                  <CardDescription>Daily average analysis</CardDescription>
                 </div>
-                <Calculator className="h-6 w-6 text-muted-foreground" />
+                <TrendingUp className="h-6 w-6 text-muted-foreground" />
               </div>
             </CardHeader>
           </Card>
