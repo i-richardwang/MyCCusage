@@ -2,17 +2,11 @@ import { NextResponse } from 'next/server'
 import { db } from '@/src/db'
 import { usageRecords, devices } from '@/src/db/schema'
 import { sql, desc, eq } from 'drizzle-orm'
-import { getCurrentBillingCycle, getDaysRemainingInBillingCycle, getPreviousBillingCycle } from '@/lib/billing-cycle'
 import { QUERY_LIMITS } from '@/constants/business-config'
 import type { AgentType } from '@/types/chart-types'
 
 // Optimized unified statistics query using CTE
-async function getUnifiedUsageStats(
-  cycleStartDate: string,
-  cycleEndDate: string,
-  prevCycleStartDate: string,
-  prevCycleEndDate: string
-) {
+async function getUnifiedUsageStats() {
   // Define CTE for aggregated usage statistics across different time periods
   const statsQuery = db.$with('usage_stats').as(
     db.select({
@@ -24,26 +18,6 @@ async function getUnifiedUsageStats(
       totalCacheReadTokens: sql<number>`SUM(${usageRecords.cacheReadTokens})::bigint`.as('total_cache_read_tokens'),
       totalCredits: sql<number>`SUM(${usageRecords.credits})::numeric`.as('total_credits'),
       activeDays: sql<number>`COUNT(DISTINCT ${usageRecords.date})::bigint`.as('active_days'),
-
-      // Current cycle stats
-      currentCycleCost: sql<number>`SUM(CASE WHEN ${usageRecords.date} >= ${cycleStartDate} AND ${usageRecords.date} <= ${cycleEndDate} THEN ${usageRecords.totalCost} ELSE 0 END)::numeric`.as('current_cycle_cost'),
-      currentCycleTokens: sql<number>`SUM(CASE WHEN ${usageRecords.date} >= ${cycleStartDate} AND ${usageRecords.date} <= ${cycleEndDate} THEN ${usageRecords.totalTokens} ELSE 0 END)::bigint`.as('current_cycle_tokens'),
-      currentCycleInputTokens: sql<number>`SUM(CASE WHEN ${usageRecords.date} >= ${cycleStartDate} AND ${usageRecords.date} <= ${cycleEndDate} THEN ${usageRecords.inputTokens} ELSE 0 END)::bigint`.as('current_cycle_input_tokens'),
-      currentCycleOutputTokens: sql<number>`SUM(CASE WHEN ${usageRecords.date} >= ${cycleStartDate} AND ${usageRecords.date} <= ${cycleEndDate} THEN ${usageRecords.outputTokens} ELSE 0 END)::bigint`.as('current_cycle_output_tokens'),
-      currentCycleCacheCreationTokens: sql<number>`SUM(CASE WHEN ${usageRecords.date} >= ${cycleStartDate} AND ${usageRecords.date} <= ${cycleEndDate} THEN ${usageRecords.cacheCreationTokens} ELSE 0 END)::bigint`.as('current_cycle_cache_creation_tokens'),
-      currentCycleCacheReadTokens: sql<number>`SUM(CASE WHEN ${usageRecords.date} >= ${cycleStartDate} AND ${usageRecords.date} <= ${cycleEndDate} THEN ${usageRecords.cacheReadTokens} ELSE 0 END)::bigint`.as('current_cycle_cache_read_tokens'),
-      currentCycleCredits: sql<number>`SUM(CASE WHEN ${usageRecords.date} >= ${cycleStartDate} AND ${usageRecords.date} <= ${cycleEndDate} THEN ${usageRecords.credits} ELSE 0 END)::numeric`.as('current_cycle_credits'),
-      currentCycleActiveDays: sql<number>`COUNT(DISTINCT CASE WHEN ${usageRecords.date} >= ${cycleStartDate} AND ${usageRecords.date} <= ${cycleEndDate} THEN ${usageRecords.date} END)::bigint`.as('current_cycle_active_days'),
-
-      // Previous cycle stats
-      previousCycleCost: sql<number>`SUM(CASE WHEN ${usageRecords.date} >= ${prevCycleStartDate} AND ${usageRecords.date} <= ${prevCycleEndDate} THEN ${usageRecords.totalCost} ELSE 0 END)::numeric`.as('previous_cycle_cost'),
-      previousCycleTokens: sql<number>`SUM(CASE WHEN ${usageRecords.date} >= ${prevCycleStartDate} AND ${usageRecords.date} <= ${prevCycleEndDate} THEN ${usageRecords.totalTokens} ELSE 0 END)::bigint`.as('previous_cycle_tokens'),
-      previousCycleInputTokens: sql<number>`SUM(CASE WHEN ${usageRecords.date} >= ${prevCycleStartDate} AND ${usageRecords.date} <= ${prevCycleEndDate} THEN ${usageRecords.inputTokens} ELSE 0 END)::bigint`.as('previous_cycle_input_tokens'),
-      previousCycleOutputTokens: sql<number>`SUM(CASE WHEN ${usageRecords.date} >= ${prevCycleStartDate} AND ${usageRecords.date} <= ${prevCycleEndDate} THEN ${usageRecords.outputTokens} ELSE 0 END)::bigint`.as('previous_cycle_output_tokens'),
-      previousCycleCacheCreationTokens: sql<number>`SUM(CASE WHEN ${usageRecords.date} >= ${prevCycleStartDate} AND ${usageRecords.date} <= ${prevCycleEndDate} THEN ${usageRecords.cacheCreationTokens} ELSE 0 END)::bigint`.as('previous_cycle_cache_creation_tokens'),
-      previousCycleCacheReadTokens: sql<number>`SUM(CASE WHEN ${usageRecords.date} >= ${prevCycleStartDate} AND ${usageRecords.date} <= ${prevCycleEndDate} THEN ${usageRecords.cacheReadTokens} ELSE 0 END)::bigint`.as('previous_cycle_cache_read_tokens'),
-      previousCycleCredits: sql<number>`SUM(CASE WHEN ${usageRecords.date} >= ${prevCycleStartDate} AND ${usageRecords.date} <= ${prevCycleEndDate} THEN ${usageRecords.credits} ELSE 0 END)::numeric`.as('previous_cycle_credits'),
-      previousCycleActiveDays: sql<number>`COUNT(DISTINCT CASE WHEN ${usageRecords.date} >= ${prevCycleStartDate} AND ${usageRecords.date} <= ${prevCycleEndDate} THEN ${usageRecords.date} END)::bigint`.as('previous_cycle_active_days'),
 
       // Last 30 days stats (for consistent data across all components)
       last30DaysCost: sql<number>`SUM(CASE WHEN ${usageRecords.date} >= CURRENT_DATE - INTERVAL '30 days' THEN ${usageRecords.totalCost} ELSE 0 END)::numeric`.as('last_30_days_cost'),
@@ -153,24 +127,15 @@ async function getDailyAndDeviceData() {
 
 export async function GET() {
   try {
-    // Get billing cycle configuration
+    // Get billing start date for cumulative/ROI calculations
     const billingStartDate = process.env.CLAUDE_BILLING_CYCLE_START_DATE
     if (!billingStartDate) {
       return NextResponse.json({ error: 'CLAUDE_BILLING_CYCLE_START_DATE environment variable is required' }, { status: 500 })
     }
-    const currentCycleInfo = getCurrentBillingCycle(billingStartDate)
-    const previousCycleInfo = getPreviousBillingCycle(billingStartDate)
-    
-    // Format dates for SQL (YYYY-MM-DD)
-    const formatDateForSQL = (date: Date) => date.toISOString().substring(0, 10)
-    const cycleStartDate = formatDateForSQL(currentCycleInfo.startDate)
-    const cycleEndDate = formatDateForSQL(currentCycleInfo.endDate)
-    const prevCycleStartDate = formatDateForSQL(previousCycleInfo.startDate)
-    const prevCycleEndDate = formatDateForSQL(previousCycleInfo.endDate)
 
     // Execute optimized parallel queries
     const [unifiedStats, [dailyRecords, deviceDailyRecords, deviceInfo, agentDailyRecords, availableAgentsResult]] = await Promise.all([
-      getUnifiedUsageStats(cycleStartDate, cycleEndDate, prevCycleStartDate, prevCycleEndDate),
+      getUnifiedUsageStats(),
       getDailyAndDeviceData()
     ])
 
@@ -252,30 +217,6 @@ export async function GET() {
       avgDailyCost: safeNumber(statsResult.activeDays) > 0 ? safeNumber(statsResult.totalCost) / safeNumber(statsResult.activeDays) : 0
     }
 
-    const currentCycle = {
-      totalCost: safeNumber(statsResult.currentCycleCost),
-      totalTokens: safeNumber(statsResult.currentCycleTokens),
-      totalInputTokens: safeNumber(statsResult.currentCycleInputTokens),
-      totalOutputTokens: safeNumber(statsResult.currentCycleOutputTokens),
-      totalCacheCreationTokens: safeNumber(statsResult.currentCycleCacheCreationTokens),
-      totalCacheReadTokens: safeNumber(statsResult.currentCycleCacheReadTokens),
-      totalCredits: safeNumber(statsResult.currentCycleCredits),
-      activeDays: safeNumber(statsResult.currentCycleActiveDays),
-      avgDailyCost: safeNumber(statsResult.currentCycleActiveDays) > 0 ? safeNumber(statsResult.currentCycleCost) / safeNumber(statsResult.currentCycleActiveDays) : 0
-    }
-
-    const previousCycle = {
-      totalCost: safeNumber(statsResult.previousCycleCost),
-      totalTokens: safeNumber(statsResult.previousCycleTokens),
-      totalInputTokens: safeNumber(statsResult.previousCycleInputTokens),
-      totalOutputTokens: safeNumber(statsResult.previousCycleOutputTokens),
-      totalCacheCreationTokens: safeNumber(statsResult.previousCycleCacheCreationTokens),
-      totalCacheReadTokens: safeNumber(statsResult.previousCycleCacheReadTokens),
-      totalCredits: safeNumber(statsResult.previousCycleCredits),
-      activeDays: safeNumber(statsResult.previousCycleActiveDays),
-      avgDailyCost: safeNumber(statsResult.previousCycleActiveDays) > 0 ? safeNumber(statsResult.previousCycleCost) / safeNumber(statsResult.previousCycleActiveDays) : 0
-    }
-
     const last30Days = {
       totalCost: safeNumber(statsResult.last30DaysCost),
       totalTokens: safeNumber(statsResult.last30DaysTokens),
@@ -298,23 +239,15 @@ export async function GET() {
     }
 
     return NextResponse.json({
-      billingCycle: {
-        startDate: currentCycleInfo.startDate.toISOString(),
-        endDate: currentCycleInfo.endDate.toISOString(),
-        label: currentCycleInfo.cycleLabel,
-        startDateConfig: billingStartDate,
-        daysRemaining: getDaysRemainingInBillingCycle(billingStartDate)
-      },
       totals,
-      currentCycle,
-      previousCycle,
       last30Days,
       daily: dailyData,
       devices: devicesData,
       deviceData: deviceData,
       agentData: agentData,
       availableAgents: availableAgents,
-      cumulative: processedCumulative
+      cumulative: processedCumulative,
+      billingStartDate
     })
   } catch (error) {
     console.error('Error fetching usage stats:', error)

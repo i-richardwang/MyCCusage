@@ -5,16 +5,7 @@
 
 import { DailyRecord, DeviceRecord, Device, AgentType, AgentRecord } from './chart-types'
 
-// Billing cycle information
-export interface BillingCycleInfo {
-  startDate: string
-  endDate: string
-  label: string
-  startDateConfig: string
-  daysRemaining: number
-}
-
-// Aggregated metrics (used for totals, currentCycle, previousCycle, last30Days)
+// Aggregated metrics (used for totals, last30Days)
 export interface AggregatedMetrics {
   totalCost: number
   totalTokens: number
@@ -41,12 +32,10 @@ export interface CumulativeData {
 
 // Complete API response type
 export interface UsageStatsResponse {
-  billingCycle: BillingCycleInfo
   totals: AggregatedMetrics
-  currentCycle: AggregatedMetrics
-  previousCycle: AggregatedMetrics
   last30Days: Last30DaysMetrics
   cumulative: CumulativeData
+  billingStartDate: string
   daily: DailyRecord[]
   devices: Device[]
   deviceData: DeviceRecord[]

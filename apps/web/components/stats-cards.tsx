@@ -3,47 +3,26 @@
 import { useMemo } from "react"
 import { Card, CardDescription, CardHeader, CardTitle } from "@workspace/ui/components/card"
 import { Cpu, Send, Activity, Database } from "lucide-react"
-import { DailyRecord, TimeRange, ViewMode, BillingCycleRange } from "@/types/chart-types"
+import { DailyRecord, TimeRange } from "@/types/chart-types"
 import { filterByTimeRange } from "@/hooks/use-chart-data"
 import type { AggregatedMetrics } from "@/types/api-types"
 
 interface StatsCardsProps {
   dailyData: DailyRecord[]
-  viewMode: ViewMode
   timeRange: TimeRange
-  billingCycleRange: BillingCycleRange
   customDateRange?: { from: Date; to: Date }
   totals?: AggregatedMetrics
   last30Days?: AggregatedMetrics
-  currentCycleMetrics?: AggregatedMetrics
-  previousCycleMetrics?: AggregatedMetrics
 }
 
 export function StatsCards({
   dailyData,
-  viewMode,
   timeRange,
-  billingCycleRange,
   customDateRange,
   totals,
-  last30Days,
-  currentCycleMetrics,
-  previousCycleMetrics
+  last30Days
 }: StatsCardsProps) {
   const stats = useMemo(() => {
-    if (viewMode === "billing") {
-      const metrics = billingCycleRange === "current" ? currentCycleMetrics : previousCycleMetrics
-      if (metrics) {
-        return {
-          totalTokens: metrics.totalTokens,
-          cachedTokens: metrics.totalCacheReadTokens,
-          outputTokens: metrics.totalOutputTokens,
-          avgDailyTokens: metrics.activeDays > 0 ? metrics.totalTokens / metrics.activeDays : 0
-        }
-      }
-      return { totalTokens: 0, cachedTokens: 0, outputTokens: 0, avgDailyTokens: 0 }
-    }
-
     if (timeRange === "all" && totals) {
       return {
         totalTokens: totals.totalTokens,
@@ -63,7 +42,7 @@ export function StatsCards({
     }
 
     const filteredData = filterByTimeRange(dailyData, timeRange, customDateRange)
-    
+
     if (filteredData.length === 0) {
       return { totalTokens: 0, cachedTokens: 0, outputTokens: 0, avgDailyTokens: 0 }
     }
@@ -75,7 +54,7 @@ export function StatsCards({
     const avgDailyTokens = activeDays > 0 ? totalTokens / activeDays : 0
 
     return { totalTokens, cachedTokens, outputTokens, avgDailyTokens }
-  }, [dailyData, viewMode, timeRange, billingCycleRange, customDateRange, totals, last30Days, currentCycleMetrics, previousCycleMetrics])
+  }, [dailyData, timeRange, customDateRange, totals, last30Days])
 
   const formatTokens = (tokens: number) => `${(tokens / 1000000).toFixed(1)}M`
 

@@ -87,10 +87,6 @@ export interface RatioChartData {
 
 export type TimeRange = "all" | "7d" | "14d" | "30d" | "custom"
 
-export type ViewMode = "rolling" | "billing"
-
-export type BillingCycleRange = "current" | "previous"
-
 export interface ChartConfig {
   [key: string]: {
     label: string

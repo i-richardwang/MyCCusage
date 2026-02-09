@@ -9,7 +9,7 @@ import { RecentActivity } from "@/components/recent-activity"
 import { GlobalFilterBar } from "@/components/global-filter-bar"
 import { ModeToggle } from "@/components/mode-toggle"
 import { Footer } from "@/components/footer"
-import { DailyRecord, TimeRange, ViewMode, BillingCycleRange, AgentType } from "@/types/chart-types"
+import { DailyRecord, TimeRange, AgentType } from "@/types/chart-types"
 import { type DateRange } from "react-day-picker"
 import { filterByTimeRange, filterByAgent } from "@/hooks/use-chart-data"
 import type { AggregatedMetrics } from "@/types/api-types"
@@ -37,32 +37,20 @@ function aggregateFromDaily(data: DailyRecord[]): AggregatedMetrics {
 export default function Page() {
   const { stats, loading, error } = useUsageStats()
 
-  const [viewMode, setViewMode] = useState<ViewMode>("rolling")
   const [timeRange, setTimeRange] = useState<TimeRange>("30d")
-  const [billingCycleRange, setBillingCycleRange] = useState<BillingCycleRange>("current")
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined)
   const [agentFilter, setAgentFilter] = useState<AgentType | 'all'>('all')
 
   const getDateRangeFromTimeRange = useCallback((range: TimeRange): DateRange | undefined => {
     if (range === "all" || range === "custom") return undefined
-    
+
     const today = new Date()
     const days = range === "7d" ? 7 : range === "14d" ? 14 : 30
     const from = new Date(today)
     from.setDate(from.getDate() - days)
-    
+
     return { from, to: today }
   }, [])
-
-  const handleViewModeChange = useCallback((newViewMode: ViewMode) => {
-    setViewMode(newViewMode)
-    if (newViewMode === "rolling") {
-      setTimeRange("30d")
-      setDateRange(getDateRangeFromTimeRange("30d"))
-    } else {
-      setBillingCycleRange("current")
-    }
-  }, [getDateRangeFromTimeRange])
 
   const handleTimeRangeChange = useCallback((newTimeRange: TimeRange) => {
     setTimeRange(newTimeRange)
@@ -77,41 +65,15 @@ export default function Page() {
     }
   }, [])
 
-  const handleBillingCycleRangeChange = useCallback((range: BillingCycleRange) => {
-    setBillingCycleRange(range)
-  }, [])
-
   const handleAgentFilterChange = useCallback((agent: AgentType | 'all') => {
     setAgentFilter(agent)
   }, [])
 
   const customDateRange = useMemo(() => {
-    return dateRange?.from && dateRange?.to 
+    return dateRange?.from && dateRange?.to
       ? { from: dateRange.from, to: dateRange.to }
       : undefined
   }, [dateRange?.from, dateRange?.to])
-
-  const billingCycleDates = useMemo(() => {
-    if (!stats?.billingCycle) return { current: undefined, previous: undefined }
-    
-    const currentStart = new Date(stats.billingCycle.startDate)
-    const currentEnd = new Date(stats.billingCycle.endDate)
-    
-    const previousEnd = new Date(currentStart)
-    previousEnd.setDate(previousEnd.getDate() - 1)
-    const previousStart = new Date(previousEnd)
-    previousStart.setMonth(previousStart.getMonth() - 1)
-    previousStart.setDate(previousStart.getDate() + 1)
-    
-    return {
-      current: { from: currentStart, to: currentEnd },
-      previous: { from: previousStart, to: previousEnd }
-    }
-  }, [stats?.billingCycle])
-
-  const activeBillingCycleDateRange = billingCycleRange === "current"
-    ? billingCycleDates.current
-    : billingCycleDates.previous
 
   // Filter data by agent type
   // Note: stats.daily has NO agentType field (aggregated by date only),
@@ -138,43 +100,14 @@ export default function Page() {
 
     // For 'all' agent filter, use API pre-computed metrics when available
     if (agentFilter === 'all') {
-      if (viewMode === "billing") {
-        return billingCycleRange === "current" ? stats?.currentCycle : stats?.previousCycle
-      }
       if (timeRange === "all" && stats?.totals) return stats.totals
       if (timeRange === "30d" && stats?.last30Days) return stats.last30Days
     }
 
     // Calculate from filtered data for all other cases
-    let dataToAggregate: DailyRecord[]
-    if (viewMode === "billing") {
-      const billingRange = billingCycleRange === "current"
-        ? billingCycleDates.current
-        : billingCycleDates.previous
-      dataToAggregate = billingRange
-        ? filterByTimeRange(filteredDailyByAgent, "custom", billingRange)
-        : filteredDailyByAgent
-    } else {
-      dataToAggregate = filterByTimeRange(filteredDailyByAgent, timeRange, customDateRange)
-    }
-
+    const dataToAggregate = filterByTimeRange(filteredDailyByAgent, timeRange, customDateRange)
     return aggregateFromDaily(dataToAggregate)
-  }, [stats, filteredDailyByAgent, viewMode, timeRange, customDateRange, agentFilter, billingCycleRange, billingCycleDates])
-
-  // Compute effective current/previous cycle metrics (filtered by agent when needed)
-  const currentCycleEffective = useMemo((): AggregatedMetrics | undefined => {
-    if (agentFilter === 'all') return stats?.currentCycle
-    if (!filteredDailyByAgent?.length || !billingCycleDates.current) return undefined
-    const data = filterByTimeRange(filteredDailyByAgent, "custom", billingCycleDates.current)
-    return aggregateFromDaily(data)
-  }, [agentFilter, filteredDailyByAgent, billingCycleDates.current, stats?.currentCycle])
-
-  const previousCycleEffective = useMemo((): AggregatedMetrics | undefined => {
-    if (agentFilter === 'all') return stats?.previousCycle
-    if (!filteredDailyByAgent?.length || !billingCycleDates.previous) return undefined
-    const data = filterByTimeRange(filteredDailyByAgent, "custom", billingCycleDates.previous)
-    return aggregateFromDaily(data)
-  }, [agentFilter, filteredDailyByAgent, billingCycleDates.previous, stats?.previousCycle])
+  }, [stats, filteredDailyByAgent, timeRange, customDateRange, agentFilter])
 
   const renderMainContent = () => {
     if (loading) {
@@ -204,12 +137,8 @@ export default function Page() {
     return (
       <>
         <GlobalFilterBar
-          viewMode={viewMode}
-          onViewModeChange={handleViewModeChange}
           timeRange={timeRange}
           onTimeRangeChange={handleTimeRangeChange}
-          billingCycleRange={billingCycleRange}
-          onBillingCycleRangeChange={handleBillingCycleRangeChange}
           dateRange={dateRange}
           onDateRangeChange={handleDateRangeChange}
           agentFilter={agentFilter}
@@ -218,30 +147,18 @@ export default function Page() {
         />
 
         <PlanComparison
-          viewMode={viewMode}
-          billingCycleRange={billingCycleRange}
-          currentCycleCost={currentCycleEffective?.totalCost ?? 0}
-          previousCycleCost={previousCycleEffective?.totalCost ?? 0}
-          currentCycleMetrics={currentCycleEffective}
-          previousCycleMetrics={previousCycleEffective}
-          billingCycleLabel={stats.billingCycle.label}
-          daysRemaining={stats.billingCycle.daysRemaining}
           cumulativeData={stats.cumulative}
-          billingStartDate={stats.billingCycle.startDateConfig}
+          billingStartDate={stats.billingStartDate}
           filteredMetrics={filteredMetrics}
           isAllTime={timeRange === "all"}
         />
 
         <StatsCards
           dailyData={filteredDailyByAgent}
-          viewMode={viewMode}
           timeRange={timeRange}
-          billingCycleRange={billingCycleRange}
           customDateRange={customDateRange}
           totals={agentFilter === 'all' ? stats.totals : undefined}
           last30Days={agentFilter === 'all' ? stats.last30Days : undefined}
-          currentCycleMetrics={currentCycleEffective}
-          previousCycleMetrics={previousCycleEffective}
         />
 
         <Charts
@@ -249,25 +166,17 @@ export default function Page() {
           devices={stats.devices}
           deviceData={filteredDeviceDataByAgent}
           agentData={stats.agentData}
-          viewMode={viewMode}
           timeRange={timeRange}
-          billingCycleRange={billingCycleRange}
           customDateRange={customDateRange}
-          billingCycleDateRange={activeBillingCycleDateRange}
           totals={agentFilter === 'all' ? stats.totals : undefined}
           last30Days={agentFilter === 'all' ? stats.last30Days : undefined}
-          currentCycleMetrics={currentCycleEffective}
-          previousCycleMetrics={previousCycleEffective}
           agentFilter={agentFilter}
         />
 
         <RecentActivity
           dailyData={filteredDailyByAgent}
-          viewMode={viewMode}
           timeRange={timeRange}
-          billingCycleRange={billingCycleRange}
           customDateRange={customDateRange}
-          billingCycleDateRange={activeBillingCycleDateRange}
         />
       </>
     )
@@ -280,7 +189,7 @@ export default function Page() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight">
-                {process.env.NEXT_PUBLIC_OWNER_NAME 
+                {process.env.NEXT_PUBLIC_OWNER_NAME
                   ? `${process.env.NEXT_PUBLIC_OWNER_NAME}'s Claude Code Usage Dashboard`
                   : "Claude Code Usage Dashboard"
                 }

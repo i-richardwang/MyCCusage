@@ -12,7 +12,6 @@ import {
 } from "@/lib/cumulative-metrics"
 import type { CumulativeData, AggregatedMetrics } from "@/types/api-types"
 import type { UserStatus, UserTier } from "@/constants/business-config"
-import type { ViewMode, BillingCycleRange } from "@/types/chart-types"
 import { Crown, Zap, Users, Lightbulb, CreditCard, Calculator, Calendar, TrendingUp, LucideIcon } from "lucide-react"
 
 const STATUS_ICONS: Record<UserTier, LucideIcon> = {
@@ -23,14 +22,6 @@ const STATUS_ICONS: Record<UserTier, LucideIcon> = {
 }
 
 interface PlanComparisonProps {
-  viewMode: ViewMode
-  billingCycleRange: BillingCycleRange
-  currentCycleCost: number
-  previousCycleCost: number
-  currentCycleMetrics?: AggregatedMetrics
-  previousCycleMetrics?: AggregatedMetrics
-  billingCycleLabel?: string
-  daysRemaining?: number
   cumulativeData?: CumulativeData
   billingStartDate?: string
   filteredMetrics?: AggregatedMetrics
@@ -38,23 +29,11 @@ interface PlanComparisonProps {
 }
 
 export function PlanComparison({
-  viewMode,
-  billingCycleRange,
-  currentCycleCost,
-  previousCycleCost,
-  currentCycleMetrics,
-  previousCycleMetrics,
-  billingCycleLabel,
-  daysRemaining,
   cumulativeData,
   billingStartDate,
   filteredMetrics,
   isAllTime = false
 }: PlanComparisonProps) {
-  const isRollingMode = viewMode === "rolling"
-  const isBillingMode = viewMode === "billing"
-  const isCurrentCycle = billingCycleRange === "current"
-
   const subscriptionPlan = getSubscriptionPlan()
   const planPrice = getPlanPricing(subscriptionPlan)
 
@@ -62,27 +41,14 @@ export function PlanComparison({
     ? calculateCumulativeMetrics(cumulativeData, billingStartDate)
     : null
 
-  const getActiveMetrics = (): AggregatedMetrics | null => {
-    // filteredMetrics is now computed for ALL modes (rolling + billing),
-    // including per-agent filtering
-    if (filteredMetrics) return filteredMetrics
-    if (isBillingMode) {
-      return isCurrentCycle ? (currentCycleMetrics || null) : (previousCycleMetrics || null)
-    }
-    return null
-  }
-
-  const activeMetrics = getActiveMetrics()
+  const activeMetrics = filteredMetrics || null
   const activeCost = activeMetrics?.totalCost || 0
   const activeActiveDays = activeMetrics?.activeDays || 0
   const activeAvgDailyCost = activeMetrics?.avgDailyCost || 0
 
   const vsPlan = activeCost - planPrice
 
-  const monthlyChange = currentCycleCost - previousCycleCost
-  const monthlyChangePercent = previousCycleCost > 0 ? ((monthlyChange / previousCycleCost) * 100) : 0
-
-  const userStatus: UserStatus = isRollingMode && isAllTime && cumulativeMetrics
+  const userStatus: UserStatus = isAllTime && cumulativeMetrics
     ? getCumulativeUserStatus(cumulativeMetrics.avgMonthlyCost)
     : getUserStatusByAmount(activeCost)
 
@@ -97,84 +63,51 @@ export function PlanComparison({
   }
 
   const getApiValueConsumed = () => {
-    if (isRollingMode && isAllTime && cumulativeMetrics) {
+    if (isAllTime && cumulativeMetrics) {
       return formatCurrency(cumulativeMetrics.totalCostAllTime)
     }
     return formatCurrency(activeCost)
   }
 
   const getVsPlanValue = () => {
-    if (isRollingMode && isAllTime && vsPlanSavings) {
+    if (isAllTime && vsPlanSavings) {
       return vsPlanSavings.text
     }
     return formatValueComparison(vsPlan)
   }
 
   const getVsPlanColor = () => {
-    if (isRollingMode && isAllTime && vsPlanSavings) {
+    if (isAllTime && vsPlanSavings) {
       return vsPlanSavings.colorClass
     }
     return vsPlan > 0 ? 'text-primary' : 'text-muted-foreground'
   }
 
   const getSubtitle = () => {
-    if (isRollingMode) {
-      if (isAllTime && cumulativeMetrics) {
-        return `Avg: ${formatCurrency(cumulativeMetrics.avgMonthlyCost)}/month`
-      }
-      return `Avg: ${formatCurrency(activeAvgDailyCost)}/day`
-    }
-    if (isBillingMode && isCurrentCycle) {
-      return (
-        <>
-          vs last cycle:
-          <span className={`ml-1 ${monthlyChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-            {monthlyChangePercent >= 0 ? '+' : ''}{monthlyChangePercent.toFixed(1)}%
-          </span>
-        </>
-      )
+    if (isAllTime && cumulativeMetrics) {
+      return `Avg: ${formatCurrency(cumulativeMetrics.avgMonthlyCost)}/month`
     }
     return `Avg: ${formatCurrency(activeAvgDailyCost)}/day`
   }
 
   const getDaysDisplay = () => {
-    if (isRollingMode) {
-      if (isAllTime && cumulativeMetrics) {
-        return (
-          <>
-            {cumulativeMetrics.totalSubscriptionDays} <span className="text-sm font-normal">days</span>
-          </>
-        )
-      }
+    if (isAllTime && cumulativeMetrics) {
       return (
         <>
-          {activeActiveDays} <span className="text-sm font-normal">active days</span>
+          {cumulativeMetrics.totalSubscriptionDays} <span className="text-sm font-normal">days</span>
         </>
       )
     }
-    if (isBillingMode) {
-      if (isCurrentCycle) {
-        return (
-          <>
-            {daysRemaining ?? 0} <span className="text-sm font-normal">days remaining</span>
-          </>
-        )
-      }
-      return (
-        <>
-          {activeActiveDays} <span className="text-sm font-normal">active days</span>
-        </>
-      )
-    }
-    return null
+    return (
+      <>
+        {activeActiveDays} <span className="text-sm font-normal">active days</span>
+      </>
+    )
   }
 
   const getDaysSubtitle = () => {
-    if (isRollingMode && isAllTime && cumulativeMetrics) {
+    if (isAllTime && cumulativeMetrics) {
       return `Since ${cumulativeMetrics.subscriptionStartDate.toLocaleDateString()}`
-    }
-    if (isBillingMode && isCurrentCycle) {
-      return billingCycleLabel
     }
     return "In selected period"
   }
@@ -205,7 +138,7 @@ export function PlanComparison({
             </div>
           </div>
           <div className="text-sm text-muted-foreground">
-            Based on {isRollingMode && isAllTime ? 'avg monthly' : 'period'} usage
+            Based on {isAllTime ? 'avg monthly' : 'period'} usage
           </div>
         </div>
 
@@ -258,7 +191,7 @@ export function PlanComparison({
               <div className="flex items-center justify-between w-full">
                 <div className="space-y-1">
                   <CardDescription>
-                    {isRollingMode && isAllTime ? 'Subscription Days' : isBillingMode && isCurrentCycle ? 'Billing Cycle' : 'Active Days'}
+                    {isAllTime ? 'Subscription Days' : 'Active Days'}
                   </CardDescription>
                   <CardTitle className="text-3xl">
                     {getDaysDisplay()}

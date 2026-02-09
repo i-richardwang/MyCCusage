@@ -3,49 +3,39 @@
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@workspace/ui/components/card"
 import { DataTablePagination } from "@/components/data-table-pagination"
-import { DailyRecord, TimeRange, ViewMode, BillingCycleRange } from "@/types/chart-types"
+import { DailyRecord, TimeRange } from "@/types/chart-types"
 import { filterByTimeRange } from "@/hooks/use-chart-data"
 
 interface RecentActivityProps {
   dailyData: DailyRecord[]
-  viewMode: ViewMode
   timeRange: TimeRange
-  billingCycleRange: BillingCycleRange
   customDateRange?: { from: Date; to: Date }
-  billingCycleDateRange?: { from: Date; to: Date }
 }
 
 export function RecentActivity({
   dailyData,
-  viewMode,
   timeRange,
-  billingCycleRange,
-  customDateRange,
-  billingCycleDateRange
+  customDateRange
 }: RecentActivityProps) {
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage, setItemsPerPage] = useState(10)
-  
-  const isBillingMode = viewMode === "billing"
-  const effectiveTimeRange: TimeRange = isBillingMode ? "custom" : timeRange
-  const effectiveDateRange = isBillingMode ? billingCycleDateRange : customDateRange
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [viewMode, timeRange, billingCycleRange, customDateRange, billingCycleDateRange, itemsPerPage])
+  }, [timeRange, customDateRange, itemsPerPage])
 
   const formatCurrency = (amount: number) => `$${amount.toFixed(2)}`
   const formatTokens = (tokens: number) => `${(tokens / 1000000).toFixed(1)}M`
   const formatTokensK = (tokens: number) => `${(tokens / 1000).toFixed(1)}K`
 
-  const filteredData = filterByTimeRange(dailyData, effectiveTimeRange, effectiveDateRange)
-  
+  const filteredData = filterByTimeRange(dailyData, timeRange, customDateRange)
+
   const totalItems = filteredData.length
   const totalPages = Math.ceil(totalItems / itemsPerPage)
   const startIndex = (currentPage - 1) * itemsPerPage
   const endIndex = startIndex + itemsPerPage
   const paginatedData = filteredData.slice(startIndex, endIndex)
-  
+
   const handlePageChange = (page: number) => setCurrentPage(page)
   const handleItemsPerPageChange = (newItemsPerPage: number) => {
     setItemsPerPage(newItemsPerPage)
@@ -89,7 +79,7 @@ export function RecentActivity({
             </tbody>
           </table>
         </div>
-        
+
         <DataTablePagination
           currentPage={currentPage}
           totalPages={totalPages}

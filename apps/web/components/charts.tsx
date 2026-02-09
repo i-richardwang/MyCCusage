@@ -6,7 +6,7 @@ import { Progress } from "@workspace/ui/components/progress"
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@workspace/ui/components/chart"
 import { Area, AreaChart, Bar, BarChart, Line, LineChart, CartesianGrid, XAxis } from "recharts"
 import { useMultiDeviceChartData, useInputOutputRatioChartData, useMultiDeviceTokenData, useMultiAgentChartData, filterByTimeRange } from "@/hooks/use-chart-data"
-import { DailyRecord, DeviceRecord, Device, TimeRange, ViewMode, BillingCycleRange, AgentType, AgentRecord } from "@/types/chart-types"
+import { DailyRecord, DeviceRecord, Device, TimeRange, AgentType, AgentRecord } from "@/types/chart-types"
 import { CHART_COLORS } from "@/constants/chart-config"
 import type { AggregatedMetrics } from "@/types/api-types"
 
@@ -15,15 +15,10 @@ interface ChartsProps {
   devices: Device[]
   deviceData: DeviceRecord[]
   agentData?: AgentRecord[]
-  viewMode: ViewMode
   timeRange: TimeRange
-  billingCycleRange: BillingCycleRange
   customDateRange?: { from: Date; to: Date }
-  billingCycleDateRange?: { from: Date; to: Date }
   totals?: AggregatedMetrics
   last30Days?: AggregatedMetrics
-  currentCycleMetrics?: AggregatedMetrics
-  previousCycleMetrics?: AggregatedMetrics
   agentFilter?: AgentType | 'all'
 }
 
@@ -32,70 +27,42 @@ export function Charts({
   devices,
   deviceData,
   agentData,
-  viewMode,
   timeRange,
-  billingCycleRange,
   customDateRange,
-  billingCycleDateRange,
   totals,
   last30Days,
-  currentCycleMetrics,
-  previousCycleMetrics,
   agentFilter = 'all'
 }: ChartsProps) {
-  const isBillingMode = viewMode === "billing"
-
-  const effectiveTimeRange: TimeRange = isBillingMode ? "custom" : timeRange
-  const effectiveDateRange = isBillingMode ? billingCycleDateRange : customDateRange
-
   const { chartData: multiDeviceChartData, chartConfig: multiDeviceChartConfig, activeDevices: activeCostDevices } = useMultiDeviceChartData(
     deviceData,
     devices,
-    effectiveTimeRange,
-    effectiveDateRange
+    timeRange,
+    customDateRange
   )
 
   const { chartData: ratioChartData, chartConfig: ratioChartConfig } = useInputOutputRatioChartData(
     dailyData,
-    effectiveTimeRange,
-    effectiveDateRange
+    timeRange,
+    customDateRange
   )
 
   const { chartData: multiDeviceTokenData, chartConfig: multiDeviceTokenConfig, activeDevices: activeTokenDevices } = useMultiDeviceTokenData(
     deviceData,
     devices,
-    effectiveTimeRange,
-    effectiveDateRange
+    timeRange,
+    customDateRange
   )
 
   // Multi-agent chart data (only when viewing all agents)
   const { chartData: multiAgentChartData, chartConfig: multiAgentChartConfig, activeAgents } = useMultiAgentChartData(
     agentData || [],
-    effectiveTimeRange,
-    effectiveDateRange
+    timeRange,
+    customDateRange
   )
 
   const showAgentChart = agentFilter === 'all' && activeAgents.length > 1
 
   const { usageActivityRate, cacheHitRate, tokenUnitPrice } = useMemo(() => {
-    if (isBillingMode) {
-      const metrics = billingCycleRange === "current" ? currentCycleMetrics : previousCycleMetrics
-      if (metrics) {
-        const cacheHit = metrics.totalCacheReadTokens > 0
-          ? (metrics.totalCacheReadTokens / (metrics.totalCacheReadTokens + metrics.totalCacheCreationTokens)) * 100
-          : 0
-        const unitPrice = metrics.totalTokens > 0
-          ? (metrics.totalCost / metrics.totalTokens) * 1000000
-          : 0
-        const filteredData = filterByTimeRange(dailyData, effectiveTimeRange, effectiveDateRange)
-        const totalDays = filteredData.length || 30
-        const usageActivity = (metrics.activeDays / totalDays) * 100
-
-        return { usageActivityRate: usageActivity, cacheHitRate: cacheHit, tokenUnitPrice: unitPrice }
-      }
-      return { usageActivityRate: 0, cacheHitRate: 0, tokenUnitPrice: 0 }
-    }
-
     if (timeRange === "all" && totals) {
       const cacheHit = totals.totalCacheReadTokens > 0
         ? (totals.totalCacheReadTokens / (totals.totalCacheReadTokens + totals.totalCacheCreationTokens)) * 100
@@ -147,7 +114,7 @@ export function Charts({
       : 0
 
     return { usageActivityRate: usageActivity, cacheHitRate: cacheHit, tokenUnitPrice: unitPrice }
-  }, [dailyData, timeRange, billingCycleRange, customDateRange, effectiveDateRange, effectiveTimeRange, totals, last30Days, currentCycleMetrics, previousCycleMetrics, isBillingMode])
+  }, [dailyData, timeRange, customDateRange, totals, last30Days])
 
   return (
     <div className="space-y-6">
@@ -209,7 +176,7 @@ export function Charts({
             </ChartContainer>
           </CardContent>
         </Card>
-        
+
         <Card className="pt-0">
           <CardHeader className="flex items-center gap-2 space-y-0 border-b py-5 sm:flex-row">
             <div className="grid flex-1 gap-1">
@@ -241,8 +208,8 @@ export function Charts({
                     stackId="a"
                     fill={multiDeviceTokenConfig[device.deviceId]?.color}
                     radius={
-                      index === 0 
-                        ? [0, 0, 4, 4] 
+                      index === 0
+                        ? [0, 0, 4, 4]
                         : index === activeTokenDevices.length - 1
                         ? [4, 4, 0, 0]
                         : [0, 0, 0, 0]
@@ -378,7 +345,7 @@ export function Charts({
               <Progress value={usageActivityRate} className="h-2" />
               <p className="text-xs text-muted-foreground">Days with usage vs total days</p>
             </div>
-            
+
             <div className="space-y-3">
               <div className="flex justify-between items-center">
                 <span className="text-sm font-medium">Cache Hit Rate</span>
@@ -387,7 +354,7 @@ export function Charts({
               <Progress value={cacheHitRate} className="h-2" />
               <p className="text-xs text-muted-foreground">Percentage of requests served from cache</p>
             </div>
-            
+
             <div className="space-y-3">
               <div className="flex justify-between items-center">
                 <span className="text-sm font-medium">Token Unit Price</span>
