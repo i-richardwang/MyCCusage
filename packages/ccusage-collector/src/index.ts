@@ -1,9 +1,10 @@
 export { UsageCollector } from './collector.js'
-export type { 
+export type {
+  AgentType,
   DeviceInfo,
-  DailyUsageRecord, 
-  UsageData, 
-  SyncResult, 
-  CollectorConfig 
+  DailyUsageRecord,
+  UsageData,
+  SyncResult,
+  CollectorConfig
 } from './types.js'
 export { getDeviceInfo, generateDeviceId, getDeviceName } from './utils/device-info.js'

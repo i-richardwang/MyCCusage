@@ -4,7 +4,7 @@ import * as React from "react"
 import { format } from "date-fns"
 import { CalendarIcon } from "lucide-react"
 import { type DateRange } from "react-day-picker"
-import { TimeRange, ViewMode, BillingCycleRange } from "@/types/chart-types"
+import { TimeRange, ViewMode, BillingCycleRange, AgentType, AGENT_TYPE_LABELS } from "@/types/chart-types"
 import { cn } from "@workspace/ui/lib/utils"
 import { Tabs, TabsList, TabsTrigger } from "@workspace/ui/components/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
@@ -21,6 +21,9 @@ interface GlobalFilterBarProps {
   onBillingCycleRangeChange: (range: BillingCycleRange) => void
   dateRange: DateRange | undefined
   onDateRangeChange: (dateRange: DateRange | undefined) => void
+  agentFilter: AgentType | 'all'
+  onAgentFilterChange: (agent: AgentType | 'all') => void
+  availableAgents: AgentType[]
 }
 
 export function GlobalFilterBar({
@@ -31,7 +34,10 @@ export function GlobalFilterBar({
   billingCycleRange,
   onBillingCycleRangeChange,
   dateRange,
-  onDateRangeChange
+  onDateRangeChange,
+  agentFilter,
+  onAgentFilterChange,
+  availableAgents
 }: GlobalFilterBarProps) {
   const isRollingMode = viewMode === "rolling"
   const isBillingMode = viewMode === "billing"
@@ -48,13 +54,29 @@ export function GlobalFilterBar({
   }
 
   return (
-    <div className="flex flex-col gap-4 py-4 border-b sm:flex-row sm:items-center sm:justify-between">
-      <Tabs value={viewMode} onValueChange={(value) => onViewModeChange(value as ViewMode)}>
-        <TabsList>
-          <TabsTrigger value="rolling">Rolling View</TabsTrigger>
-          <TabsTrigger value="billing">Billing Cycle</TabsTrigger>
-        </TabsList>
-      </Tabs>
+    <div className="flex flex-col gap-4 py-4 border-b">
+      {/* Agent Filter Tabs */}
+      <div className="flex items-center gap-4">
+        <Tabs value={agentFilter} onValueChange={(value) => onAgentFilterChange(value as AgentType | 'all')}>
+          <TabsList>
+            <TabsTrigger value="all">All Agents</TabsTrigger>
+            {availableAgents.map(agent => (
+              <TabsTrigger key={agent} value={agent}>
+                {AGENT_TYPE_LABELS[agent]}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      </div>
+
+      {/* View Mode and Time Range Filters */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <Tabs value={viewMode} onValueChange={(value) => onViewModeChange(value as ViewMode)}>
+          <TabsList>
+            <TabsTrigger value="rolling">Rolling View</TabsTrigger>
+            <TabsTrigger value="billing">Billing Cycle</TabsTrigger>
+          </TabsList>
+        </Tabs>
 
       <div className="flex items-center gap-4 flex-wrap">
         {isRollingMode && (
@@ -110,8 +132,8 @@ export function GlobalFilterBar({
         )}
 
         {isBillingMode && (
-          <Select 
-            value={billingCycleRange} 
+          <Select
+            value={billingCycleRange}
             onValueChange={(value) => onBillingCycleRangeChange(value as BillingCycleRange)}
           >
             <SelectTrigger className="w-[160px] rounded-lg">
@@ -127,6 +149,7 @@ export function GlobalFilterBar({
             </SelectContent>
           </Select>
         )}
+      </div>
       </div>
     </div>
   )

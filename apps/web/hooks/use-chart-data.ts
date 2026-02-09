@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
-import { DailyRecord, DeviceRecord, Device, TimeRange, ChartRecord, MultiDeviceChartRecord, RatioChartData } from '@/types/chart-types'
-import { CHART_COLORS, TIME_RANGE_DAYS, INPUT_OUTPUT_RATIO_CHART_CONFIG } from '@/constants/chart-config'
+import { DailyRecord, DeviceRecord, Device, TimeRange, ChartRecord, MultiDeviceChartRecord, RatioChartData, AgentType, AgentRecord } from '@/types/chart-types'
+import { CHART_COLORS, TIME_RANGE_DAYS, INPUT_OUTPUT_RATIO_CHART_CONFIG, AGENT_CHART_CONFIG } from '@/constants/chart-config'
 
 // Shared utility for time range filtering
 export function filterByTimeRange<T extends { date: string }>(
@@ -198,13 +198,13 @@ export function useMultiDeviceTokenData(
   return useMemo(() => {
     // First filter device data by time range
     const filteredDeviceData = filterByTimeRange(deviceData, timeRange, customDateRange)
-    
+
     // Get active device IDs from filtered data
     const activeDeviceIds = new Set(filteredDeviceData.map(record => record.deviceId))
-    
+
     // Filter devices to only include those with data in the selected time range
     const activeDevices = devices.filter(device => activeDeviceIds.has(device.deviceId))
-    
+
     // Group device data by date for token usage
     const dateGroups = filteredDeviceData.reduce((acc, record) => {
       if (!acc[record.date]) {
@@ -215,19 +215,19 @@ export function useMultiDeviceTokenData(
     }, {} as Record<string, Record<string, number>>)
 
     // Generate complete date range for continuity
-    const allDates = timeRange === "all" 
+    const allDates = timeRange === "all"
       ? Array.from(new Set(filteredDeviceData.map(record => record.date))).sort()
       : generateDateRange(timeRange, customDateRange)
 
     // Create complete chart data with zero-fill for missing dates
     const chartData = allDates.map(date => {
       const dataPoint: Record<string, string | number> = { date }
-      
+
       // Add data for each active device, defaulting to 0 if no data exists
       activeDevices.forEach(device => {
         dataPoint[device.deviceId] = dateGroups[date]?.[device.deviceId] || 0
       })
-      
+
       return dataPoint
     })
 
@@ -247,4 +247,57 @@ export function useMultiDeviceTokenData(
       activeDevices // Return filtered devices for chart rendering
     }
   }, [deviceData, devices, timeRange, customDateRange])
+}
+
+// Utility for filtering data by agent type
+export function filterByAgent<T extends { agentType?: AgentType }>(
+  data: T[],
+  agentFilter: AgentType | 'all'
+): T[] {
+  if (agentFilter === 'all') return data
+  return data.filter(item => item.agentType === agentFilter)
+}
+
+// Hook for multi-agent chart data
+export function useMultiAgentChartData(
+  agentData: AgentRecord[],
+  timeRange: TimeRange,
+  customDateRange?: { from: Date; to: Date }
+) {
+  return useMemo(() => {
+    // Filter by time range first
+    const filteredData = filterByTimeRange(agentData, timeRange, customDateRange)
+
+    // Get unique agents in filtered data
+    const activeAgents = [...new Set(filteredData.map(r => r.agentType))]
+
+    // Group by date
+    const dateGroups = filteredData.reduce((acc, record) => {
+      if (!acc[record.date]) acc[record.date] = {}
+      acc[record.date]![record.agentType] = (acc[record.date]![record.agentType] || 0) + record.totalCost
+      return acc
+    }, {} as Record<string, Partial<Record<AgentType, number>>>)
+
+    // Generate complete date range for continuity
+    const allDates = timeRange === "all"
+      ? Array.from(new Set(filteredData.map(record => record.date))).sort()
+      : generateDateRange(timeRange, customDateRange)
+
+    // Create complete chart data with zero-fill for missing dates
+    const chartData = allDates.map(date => {
+      const dataPoint: Record<string, string | number> = { date }
+      activeAgents.forEach(agent => {
+        dataPoint[agent] = dateGroups[date]?.[agent] || 0
+      })
+      return dataPoint
+    })
+
+    // Generate chart config for active agents
+    const chartConfig = activeAgents.reduce((config, agent) => {
+      config[agent] = AGENT_CHART_CONFIG[agent]
+      return config
+    }, {} as Record<string, { label: string; color: string }>)
+
+    return { chartData, chartConfig, activeAgents }
+  }, [agentData, timeRange, customDateRange])
 }

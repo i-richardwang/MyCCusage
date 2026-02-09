@@ -5,8 +5,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@work
 import { Progress } from "@workspace/ui/components/progress"
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@workspace/ui/components/chart"
 import { Area, AreaChart, Bar, BarChart, Line, LineChart, CartesianGrid, XAxis } from "recharts"
-import { useMultiDeviceChartData, useInputOutputRatioChartData, useMultiDeviceTokenData, filterByTimeRange } from "@/hooks/use-chart-data"
-import { DailyRecord, DeviceRecord, Device, TimeRange, ViewMode, BillingCycleRange } from "@/types/chart-types"
+import { useMultiDeviceChartData, useInputOutputRatioChartData, useMultiDeviceTokenData, useMultiAgentChartData, filterByTimeRange } from "@/hooks/use-chart-data"
+import { DailyRecord, DeviceRecord, Device, TimeRange, ViewMode, BillingCycleRange, AgentType, AgentRecord } from "@/types/chart-types"
 import { CHART_COLORS } from "@/constants/chart-config"
 import type { AggregatedMetrics } from "@/types/api-types"
 
@@ -14,6 +14,7 @@ interface ChartsProps {
   dailyData: DailyRecord[]
   devices: Device[]
   deviceData: DeviceRecord[]
+  agentData?: AgentRecord[]
   viewMode: ViewMode
   timeRange: TimeRange
   billingCycleRange: BillingCycleRange
@@ -23,12 +24,14 @@ interface ChartsProps {
   last30Days?: AggregatedMetrics
   currentCycleMetrics?: AggregatedMetrics
   previousCycleMetrics?: AggregatedMetrics
+  agentFilter?: AgentType | 'all'
 }
 
 export function Charts({
   dailyData,
   devices,
   deviceData,
+  agentData,
   viewMode,
   timeRange,
   billingCycleRange,
@@ -37,7 +40,8 @@ export function Charts({
   totals,
   last30Days,
   currentCycleMetrics,
-  previousCycleMetrics
+  previousCycleMetrics,
+  agentFilter = 'all'
 }: ChartsProps) {
   const isBillingMode = viewMode === "billing"
 
@@ -63,6 +67,15 @@ export function Charts({
     effectiveTimeRange,
     effectiveDateRange
   )
+
+  // Multi-agent chart data (only when viewing all agents)
+  const { chartData: multiAgentChartData, chartConfig: multiAgentChartConfig, activeAgents } = useMultiAgentChartData(
+    agentData || [],
+    effectiveTimeRange,
+    effectiveDateRange
+  )
+
+  const showAgentChart = agentFilter === 'all' && activeAgents.length > 1
 
   const { usageActivityRate, cacheHitRate, tokenUnitPrice } = useMemo(() => {
     if (isBillingMode) {
@@ -241,6 +254,67 @@ export function Charts({
           </CardContent>
         </Card>
       </div>
+
+      {/* Agent Comparison Chart - only shown when viewing all agents and multiple agents exist */}
+      {showAgentChart && (
+        <Card className="pt-0">
+          <CardHeader className="flex items-center gap-2 space-y-0 border-b py-5 sm:flex-row">
+            <div className="grid flex-1 gap-1">
+              <CardTitle>Cost by Agent</CardTitle>
+              <CardDescription>Compare usage costs across different coding agents</CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
+            <ChartContainer config={multiAgentChartConfig} className="aspect-auto h-[250px] w-full">
+              <AreaChart data={multiAgentChartData}>
+                <defs>
+                  {activeAgents.map((agent, agentIndex) => {
+                    const color = multiAgentChartConfig[agent]?.color || CHART_COLORS[agentIndex % CHART_COLORS.length]
+                    return (
+                      <linearGradient key={agent} id={`fillAgent${agent}`} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={color} stopOpacity={0.8} />
+                        <stop offset="95%" stopColor={color} stopOpacity={0.1} />
+                      </linearGradient>
+                    )
+                  })}
+                </defs>
+                <CartesianGrid vertical={false} />
+                <XAxis
+                  dataKey="date"
+                  tickLine={false}
+                  axisLine={false}
+                  tickMargin={8}
+                  minTickGap={32}
+                  tickFormatter={(value) => {
+                    const date = new Date(value)
+                    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                  }}
+                />
+                <ChartTooltip
+                  cursor={false}
+                  content={
+                    <ChartTooltipContent
+                      labelFormatter={(value) => new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                      indicator="dot"
+                    />
+                  }
+                />
+                {activeAgents.map((agent) => (
+                  <Area
+                    key={agent}
+                    dataKey={agent}
+                    type="natural"
+                    fill={`url(#fillAgent${agent})`}
+                    stroke={multiAgentChartConfig[agent]?.color}
+                    stackId="a"
+                  />
+                ))}
+                <ChartLegend content={<ChartLegendContent />} />
+              </AreaChart>
+            </ChartContainer>
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="pt-0">
         <CardHeader className="flex items-center gap-2 space-y-0 border-b py-5 sm:flex-row">

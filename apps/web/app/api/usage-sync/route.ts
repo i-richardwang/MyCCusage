@@ -58,6 +58,9 @@ export async function POST(request: NextRequest) {
         }
       })
 
+    // Get agent type from request, default to 'claude-code' for backward compatibility
+    const agentType = body.device.agentType || 'claude-code'
+
     // Filter and validate records
     const validRecords = body.daily.filter(
       record => record.date && typeof record.totalTokens === 'number' && typeof record.totalCost === 'number'
@@ -82,6 +85,7 @@ export async function POST(request: NextRequest) {
     if (validRecords.length > 0) {
       const recordsToInsert = validRecords.map(record => ({
         deviceId: body.device.deviceId,
+        agentType: agentType,
         date: record.date,
         inputTokens: record.inputTokens,
         outputTokens: record.outputTokens,
@@ -89,6 +93,7 @@ export async function POST(request: NextRequest) {
         cacheReadTokens: record.cacheReadTokens,
         totalTokens: record.totalTokens,
         totalCost: record.totalCost.toString(),
+        credits: record.credits?.toString() || '0',
         modelsUsed: record.modelsUsed,
         rawData: record
       }))
@@ -98,7 +103,7 @@ export async function POST(request: NextRequest) {
           .insert(usageRecords)
           .values(recordsToInsert)
           .onConflictDoUpdate({
-            target: [usageRecords.deviceId, usageRecords.date],
+            target: [usageRecords.deviceId, usageRecords.date, usageRecords.agentType],
             set: {
               inputTokens: sql`excluded.input_tokens`,
               outputTokens: sql`excluded.output_tokens`,
@@ -106,6 +111,7 @@ export async function POST(request: NextRequest) {
               cacheReadTokens: sql`excluded.cache_read_tokens`,
               totalTokens: sql`excluded.total_tokens`,
               totalCost: sql`excluded.total_cost`,
+              credits: sql`excluded.credits`,
               modelsUsed: sql`excluded.models_used`,
               rawData: sql`excluded.raw_data`,
               updatedAt: new Date()

@@ -15,6 +15,13 @@
       "when": 1752419431632,
       "tag": "0001_cool_punisher",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1769440920813,
+      "tag": "0002_puzzling_tarot",
+      "breakpoints": true
     }
   ]
 }

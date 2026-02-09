@@ -39,6 +39,7 @@ program
       apiKey: config.apiKey,
       endpoint: config.endpoint,
       displayName: config.displayName,
+      agentType: config.agentType,
       maxRetries: config.maxRetries,
       retryDelay: config.retryDelay
     }
@@ -47,6 +48,7 @@ program
 
     console.log(`🚀 Starting scheduled sync: ${config.scheduleLabel}`)
     console.log(`📋 Schedule: ${config.schedule}`)
+    console.log(`🤖 Agent: ${config.agentType || 'claude-code'}`)
     
     // Validate cron expression
     if (!cron.validate(config.schedule)) {
@@ -106,6 +108,7 @@ program
       apiKey: config.apiKey,
       endpoint: config.endpoint,
       displayName: config.displayName,
+      agentType: config.agentType,
       maxRetries: config.maxRetries,
       retryDelay: config.retryDelay
     }
@@ -113,7 +116,7 @@ program
     const collector = new UsageCollector(collectorConfig)
 
     if (options.dryRun) {
-      console.log('🧪 Dry run mode: collecting data only')
+      console.log(`🧪 Dry run mode: collecting ${config.agentType || 'claude-code'} data only`)
       try {
         const data = await collector.collectUsageData()
         console.log('📊 Collected data:')
@@ -152,6 +155,7 @@ program
 
     console.log('✅ Configuration found')
     console.log(`📁 Config file: ${configManager.getConfigPath()}`)
+    console.log(`🤖 Agent: ${config.agentType || 'claude-code'}`)
     console.log(`🌐 Endpoint: ${config.endpoint}`)
     console.log(`⏰ Schedule: ${config.scheduleLabel} (${config.schedule})`)
     console.log(`🔄 Max retries: ${config.maxRetries}`)
@@ -178,20 +182,21 @@ program
       apiKey: config.apiKey,
       endpoint: config.endpoint,
       displayName: config.displayName,
+      agentType: config.agentType,
       maxRetries: config.maxRetries,
       retryDelay: config.retryDelay
     }
 
     const collector = new UsageCollector(collectorConfig)
 
-    console.log('🧪 Testing configuration...')
+    console.log(`🧪 Testing configuration for ${config.agentType || 'claude-code'}...`)
     
     try {
-      console.log('📊 Testing data collection...')
+      console.log(`📊 Testing ${config.agentType || 'claude-code'} data collection...`)
       const data = await collector.collectUsageData()
-      
+
       if (!data || !data.daily || data.daily.length === 0) {
-        console.log('⚠️  No usage data found. Make sure you have Claude Code usage to sync.')
+        console.log(`⚠️  No usage data found. Make sure you have ${config.agentType || 'claude-code'} usage to sync.`)
       } else {
         console.log(`✅ Found ${data.daily.length} days of usage data`)
       }

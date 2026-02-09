@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
+import type { AgentType } from './types.js'
 
 export interface Config {
   apiKey: string
@@ -12,7 +13,13 @@ export interface Config {
   deviceId?: string
   deviceName?: string
   displayName?: string
+  agentType?: AgentType
 }
+
+export const AGENT_OPTIONS = [
+  { value: 'claude-code' as const, label: 'Claude Code', package: 'ccusage' },
+  { value: 'amp' as const, label: 'AMP', package: '@ccusage/amp' }
+]
 
 export const SCHEDULE_OPTIONS = [
   { value: '*/30 * * * *', label: 'Every 30 minutes' },
@@ -59,7 +66,8 @@ export class ConfigManager {
         retryDelay: config.retryDelay || 1000,
         deviceId: config.deviceId,
         deviceName: config.deviceName,
-        displayName: config.displayName
+        displayName: config.displayName,
+        agentType: config.agentType || 'claude-code'
       }
     } catch (error) {
       console.error('Failed to load config:', error)

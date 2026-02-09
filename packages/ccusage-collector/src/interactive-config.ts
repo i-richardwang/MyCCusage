@@ -1,5 +1,5 @@
 import inquirer from 'inquirer'
-import { ConfigManager, Config, SCHEDULE_OPTIONS } from './config.js'
+import { ConfigManager, Config, SCHEDULE_OPTIONS, AGENT_OPTIONS } from './config.js'
 import { UsageCollector } from './collector.js'
 
 export class InteractiveConfig {
@@ -37,6 +37,18 @@ export class InteractiveConfig {
 
       // Get configuration from user
       const answers = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'agentOption',
+          message: 'Select the coding agent to track:',
+          choices: AGENT_OPTIONS.map(option => ({
+            name: option.label,
+            value: option
+          })),
+          default: existingConfig
+            ? AGENT_OPTIONS.find(opt => opt.value === existingConfig.agentType)
+            : AGENT_OPTIONS[0] // Default to Claude Code
+        },
         {
           type: 'password',
           name: 'apiKey',
@@ -108,7 +120,8 @@ export class InteractiveConfig {
         // Device info will be auto-generated when first needed
         deviceId: existingConfig?.deviceId,
         deviceName: existingConfig?.deviceName,
-        displayName: answers.displayName.trim() || undefined
+        displayName: answers.displayName.trim() || undefined,
+        agentType: answers.agentOption.value
       }
 
       // Test configuration
@@ -139,6 +152,7 @@ export class InteractiveConfig {
       this.configManager.saveConfig(config)
       
       console.log('\n📋 Configuration Summary:')
+      console.log(`   Agent Type: ${answers.agentOption.label}`)
       console.log(`   API Endpoint: ${config.endpoint}`)
       console.log(`   Sync Schedule: ${config.scheduleLabel}`)
       if (config.displayName) {
@@ -161,15 +175,17 @@ export class InteractiveConfig {
         apiKey: config.apiKey,
         endpoint: config.endpoint,
         displayName: config.displayName,
+        agentType: config.agentType,
         maxRetries: 1,
         retryDelay: 1000
       })
 
       // Test data collection
       const data = await collector.collectUsageData()
-      
+
       if (!data || !data.daily || data.daily.length === 0) {
-        return { success: false, error: 'No usage data found. Make sure you have Claude Code usage to sync.' }
+        const agentLabel = AGENT_OPTIONS.find(opt => opt.value === config.agentType)?.label || config.agentType
+        return { success: false, error: `No usage data found. Make sure you have ${agentLabel} usage to sync.` }
       }
 
       // Test a minimal sync (we could add a test endpoint later)

@@ -1,4 +1,14 @@
 // Shared types for chart components
+
+// Agent type definitions
+export type AgentType = 'claude-code' | 'amp' | 'codex'
+
+export const AGENT_TYPE_LABELS: Record<AgentType, string> = {
+  'claude-code': 'Claude Code',
+  'amp': 'AMP',
+  'codex': 'Codex'
+}
+
 export interface DailyRecord {
   date: string
   totalCost: number
@@ -7,6 +17,8 @@ export interface DailyRecord {
   outputTokens: number
   cacheCreationTokens: number
   cacheReadTokens: number
+  credits?: number
+  agentType?: AgentType
   modelsUsed?: string[]
   createdAt?: Date
 }
@@ -20,6 +32,20 @@ export interface DeviceRecord {
   outputTokens: number
   cacheCreationTokens: number
   cacheReadTokens: number
+  credits?: number
+  agentType?: AgentType
+}
+
+export interface AgentRecord {
+  date: string
+  agentType: AgentType
+  totalCost: number
+  totalTokens: number
+  inputTokens: number
+  outputTokens: number
+  cacheCreationTokens: number
+  cacheReadTokens: number
+  credits?: number
 }
 
 export interface Device {
@@ -29,6 +55,7 @@ export interface Device {
   recordCount: number
   totalCost?: number
   lastActiveDate?: string
+  agentTypes?: AgentType[]
   createdAt?: Date
   updatedAt?: Date
 }

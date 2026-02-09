@@ -1,7 +1,7 @@
 // Chart configuration constants
 export const CHART_COLORS = [
   "var(--chart-1)",
-  "var(--chart-2)", 
+  "var(--chart-2)",
   "var(--chart-3)",
   "var(--chart-4)",
   "var(--chart-5)"
@@ -26,6 +26,28 @@ export const INPUT_OUTPUT_RATIO_CHART_CONFIG = {
   averageRatio: {
     label: "Average Ratio",
     color: "var(--chart-2)"
+  }
+} as const
+
+// Agent type colors and configuration
+export const AGENT_COLORS = {
+  'claude-code': 'var(--chart-1)',
+  'amp': 'var(--chart-2)',
+  'codex': 'var(--chart-3)',
+} as const
+
+export const AGENT_CHART_CONFIG = {
+  'claude-code': {
+    label: 'Claude Code',
+    color: 'var(--chart-1)'
+  },
+  'amp': {
+    label: 'AMP',
+    color: 'var(--chart-2)'
+  },
+  'codex': {
+    label: 'Codex',
+    color: 'var(--chart-3)'
   }
 } as const
 

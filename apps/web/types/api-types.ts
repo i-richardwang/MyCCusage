@@ -3,7 +3,7 @@
  * Used by both API routes and frontend hooks
  */
 
-import { DailyRecord, DeviceRecord, Device } from './chart-types'
+import { DailyRecord, DeviceRecord, Device, AgentType, AgentRecord } from './chart-types'
 
 // Billing cycle information
 export interface BillingCycleInfo {
@@ -22,6 +22,7 @@ export interface AggregatedMetrics {
   totalOutputTokens: number
   totalCacheCreationTokens: number
   totalCacheReadTokens: number
+  totalCredits?: number
   activeDays: number
   avgDailyCost: number
 }
@@ -49,6 +50,8 @@ export interface UsageStatsResponse {
   daily: DailyRecord[]
   devices: Device[]
   deviceData: DeviceRecord[]
+  agentData?: AgentRecord[]
+  availableAgents?: AgentType[]
 }
 
 // Usage sync request types
@@ -56,6 +59,7 @@ export interface UsageSyncDevice {
   deviceId: string
   deviceName: string
   displayName?: string
+  agentType?: AgentType
 }
 
 export interface UsageSyncRecord {
@@ -66,6 +70,7 @@ export interface UsageSyncRecord {
   outputTokens: number
   cacheCreationTokens: number
   cacheReadTokens: number
+  credits?: number
   modelsUsed: string[]
 }
 

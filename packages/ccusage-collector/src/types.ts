@@ -1,7 +1,11 @@
+// Agent types supported by the collector
+export type AgentType = 'claude-code' | 'amp'
+
 export interface DeviceInfo {
   deviceId: string
   deviceName: string
   displayName?: string
+  agentType?: AgentType
 }
 
 export interface DailyUsageRecord {
@@ -12,6 +16,7 @@ export interface DailyUsageRecord {
   cacheReadTokens: number
   totalTokens: number
   totalCost: number
+  credits?: number  // AMP specific
   modelsUsed: string[]
   modelBreakdowns: Array<{
     modelName: string
@@ -50,6 +55,7 @@ export interface CollectorConfig {
   endpoint: string
   apiKey: string
   displayName?: string
+  agentType?: AgentType
   maxRetries?: number
   retryDelay?: number
 }

@@ -9,18 +9,19 @@ import { RecentActivity } from "@/components/recent-activity"
 import { GlobalFilterBar } from "@/components/global-filter-bar"
 import { ModeToggle } from "@/components/mode-toggle"
 import { Footer } from "@/components/footer"
-import { TimeRange, ViewMode, BillingCycleRange } from "@/types/chart-types"
+import { TimeRange, ViewMode, BillingCycleRange, AgentType } from "@/types/chart-types"
 import { type DateRange } from "react-day-picker"
-import { filterByTimeRange } from "@/hooks/use-chart-data"
+import { filterByTimeRange, filterByAgent } from "@/hooks/use-chart-data"
 import { Loader2 } from "lucide-react"
 
 export default function Page() {
   const { stats, loading, error } = useUsageStats()
-  
+
   const [viewMode, setViewMode] = useState<ViewMode>("rolling")
   const [timeRange, setTimeRange] = useState<TimeRange>("30d")
   const [billingCycleRange, setBillingCycleRange] = useState<BillingCycleRange>("current")
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined)
+  const [agentFilter, setAgentFilter] = useState<AgentType | 'all'>('all')
 
   const getDateRangeFromTimeRange = useCallback((range: TimeRange): DateRange | undefined => {
     if (range === "all" || range === "custom") return undefined
@@ -60,6 +61,10 @@ export default function Page() {
     setBillingCycleRange(range)
   }, [])
 
+  const handleAgentFilterChange = useCallback((agent: AgentType | 'all') => {
+    setAgentFilter(agent)
+  }, [])
+
   const customDateRange = useMemo(() => {
     return dateRange?.from && dateRange?.to 
       ? { from: dateRange.from, to: dateRange.to }
@@ -84,22 +89,75 @@ export default function Page() {
     }
   }, [stats?.billingCycle])
 
-  const activeBillingCycleDateRange = billingCycleRange === "current" 
-    ? billingCycleDates.current 
+  const activeBillingCycleDateRange = billingCycleRange === "current"
+    ? billingCycleDates.current
     : billingCycleDates.previous
 
+  // Filter data by agent type
+  const filteredDailyByAgent = useMemo(() => {
+    if (!stats?.daily) return []
+    return filterByAgent(stats.daily, agentFilter)
+  }, [stats?.daily, agentFilter])
+
+  const filteredDeviceDataByAgent = useMemo(() => {
+    if (!stats?.deviceData) return []
+    return filterByAgent(stats.deviceData, agentFilter)
+  }, [stats?.deviceData, agentFilter])
+
+  const availableAgents = useMemo(() => {
+    return stats?.availableAgents || ['claude-code'] as AgentType[]
+  }, [stats?.availableAgents])
+
   const filteredMetrics = useMemo(() => {
-    if (!stats?.daily) return undefined
+    if (!filteredDailyByAgent || filteredDailyByAgent.length === 0) return undefined
     if (viewMode === "billing") return undefined
-    
-    if (timeRange === "all" && stats.totals) {
+
+    // For agent-filtered data, always calculate from filtered data
+    if (agentFilter !== 'all') {
+      const filteredData = filterByTimeRange(filteredDailyByAgent, timeRange, customDateRange)
+      if (filteredData.length === 0) {
+        return {
+          totalCost: 0,
+          totalTokens: 0,
+          totalInputTokens: 0,
+          totalOutputTokens: 0,
+          totalCacheCreationTokens: 0,
+          totalCacheReadTokens: 0,
+          activeDays: 0,
+          avgDailyCost: 0
+        }
+      }
+
+      const totalCost = filteredData.reduce((sum, r) => sum + r.totalCost, 0)
+      const totalTokens = filteredData.reduce((sum, r) => sum + r.totalTokens, 0)
+      const totalInputTokens = filteredData.reduce((sum, r) => sum + r.inputTokens, 0)
+      const totalOutputTokens = filteredData.reduce((sum, r) => sum + r.outputTokens, 0)
+      const totalCacheCreationTokens = filteredData.reduce((sum, r) => sum + r.cacheCreationTokens, 0)
+      const totalCacheReadTokens = filteredData.reduce((sum, r) => sum + r.cacheReadTokens, 0)
+      const activeDays = filteredData.filter(r => r.totalTokens > 0).length
+      const avgDailyCost = activeDays > 0 ? totalCost / activeDays : 0
+
+      return {
+        totalCost,
+        totalTokens,
+        totalInputTokens,
+        totalOutputTokens,
+        totalCacheCreationTokens,
+        totalCacheReadTokens,
+        activeDays,
+        avgDailyCost
+      }
+    }
+
+    // Original logic for "all" agent filter
+    if (timeRange === "all" && stats?.totals) {
       return stats.totals
     }
-    if (timeRange === "30d" && stats.last30Days) {
+    if (timeRange === "30d" && stats?.last30Days) {
       return stats.last30Days
     }
-    
-    const filteredData = filterByTimeRange(stats.daily, timeRange, customDateRange)
+
+    const filteredData = filterByTimeRange(filteredDailyByAgent, timeRange, customDateRange)
     if (filteredData.length === 0) {
       return {
         totalCost: 0,
@@ -112,7 +170,7 @@ export default function Page() {
         avgDailyCost: 0
       }
     }
-    
+
     const totalCost = filteredData.reduce((sum, r) => sum + r.totalCost, 0)
     const totalTokens = filteredData.reduce((sum, r) => sum + r.totalTokens, 0)
     const totalInputTokens = filteredData.reduce((sum, r) => sum + r.inputTokens, 0)
@@ -121,7 +179,7 @@ export default function Page() {
     const totalCacheReadTokens = filteredData.reduce((sum, r) => sum + r.cacheReadTokens, 0)
     const activeDays = filteredData.filter(r => r.totalTokens > 0).length
     const avgDailyCost = activeDays > 0 ? totalCost / activeDays : 0
-    
+
     return {
       totalCost,
       totalTokens,
@@ -132,7 +190,7 @@ export default function Page() {
       activeDays,
       avgDailyCost
     }
-  }, [stats, viewMode, timeRange, customDateRange])
+  }, [stats, filteredDailyByAgent, viewMode, timeRange, customDateRange, agentFilter])
 
   const renderMainContent = () => {
     if (loading) {
@@ -170,6 +228,9 @@ export default function Page() {
           onBillingCycleRangeChange={handleBillingCycleRangeChange}
           dateRange={dateRange}
           onDateRangeChange={handleDateRangeChange}
+          agentFilter={agentFilter}
+          onAgentFilterChange={handleAgentFilterChange}
+          availableAgents={availableAgents}
         />
 
         <PlanComparison
@@ -188,7 +249,7 @@ export default function Page() {
         />
 
         <StatsCards
-          dailyData={stats.daily}
+          dailyData={filteredDailyByAgent}
           viewMode={viewMode}
           timeRange={timeRange}
           billingCycleRange={billingCycleRange}
@@ -200,9 +261,10 @@ export default function Page() {
         />
 
         <Charts
-          dailyData={stats.daily}
+          dailyData={filteredDailyByAgent}
           devices={stats.devices}
-          deviceData={stats.deviceData}
+          deviceData={filteredDeviceDataByAgent}
+          agentData={stats.agentData}
           viewMode={viewMode}
           timeRange={timeRange}
           billingCycleRange={billingCycleRange}
@@ -212,10 +274,11 @@ export default function Page() {
           last30Days={stats.last30Days}
           currentCycleMetrics={stats.currentCycle}
           previousCycleMetrics={stats.previousCycle}
+          agentFilter={agentFilter}
         />
 
         <RecentActivity
-          dailyData={stats.daily}
+          dailyData={filteredDailyByAgent}
           viewMode={viewMode}
           timeRange={timeRange}
           billingCycleRange={billingCycleRange}
