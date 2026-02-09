@@ -9,10 +9,30 @@ import { RecentActivity } from "@/components/recent-activity"
 import { GlobalFilterBar } from "@/components/global-filter-bar"
 import { ModeToggle } from "@/components/mode-toggle"
 import { Footer } from "@/components/footer"
-import { TimeRange, ViewMode, BillingCycleRange, AgentType } from "@/types/chart-types"
+import { DailyRecord, TimeRange, ViewMode, BillingCycleRange, AgentType } from "@/types/chart-types"
 import { type DateRange } from "react-day-picker"
 import { filterByTimeRange, filterByAgent } from "@/hooks/use-chart-data"
+import type { AggregatedMetrics } from "@/types/api-types"
 import { Loader2 } from "lucide-react"
+
+// Aggregate DailyRecord[] into AggregatedMetrics
+function aggregateFromDaily(data: DailyRecord[]): AggregatedMetrics {
+  if (data.length === 0) {
+    return {
+      totalCost: 0, totalTokens: 0, totalInputTokens: 0, totalOutputTokens: 0,
+      totalCacheCreationTokens: 0, totalCacheReadTokens: 0, activeDays: 0, avgDailyCost: 0
+    }
+  }
+  const totalCost = data.reduce((sum, r) => sum + r.totalCost, 0)
+  const totalTokens = data.reduce((sum, r) => sum + r.totalTokens, 0)
+  const totalInputTokens = data.reduce((sum, r) => sum + r.inputTokens, 0)
+  const totalOutputTokens = data.reduce((sum, r) => sum + r.outputTokens, 0)
+  const totalCacheCreationTokens = data.reduce((sum, r) => sum + r.cacheCreationTokens, 0)
+  const totalCacheReadTokens = data.reduce((sum, r) => sum + r.cacheReadTokens, 0)
+  const activeDays = data.filter(r => r.totalTokens > 0).length
+  const avgDailyCost = activeDays > 0 ? totalCost / activeDays : 0
+  return { totalCost, totalTokens, totalInputTokens, totalOutputTokens, totalCacheCreationTokens, totalCacheReadTokens, activeDays, avgDailyCost }
+}
 
 export default function Page() {
   const { stats, loading, error } = useUsageStats()
@@ -94,10 +114,15 @@ export default function Page() {
     : billingCycleDates.previous
 
   // Filter data by agent type
-  const filteredDailyByAgent = useMemo(() => {
-    if (!stats?.daily) return []
-    return filterByAgent(stats.daily, agentFilter)
-  }, [stats?.daily, agentFilter])
+  // Note: stats.daily has NO agentType field (aggregated by date only),
+  // so we use stats.agentData (grouped by date+agentType) for per-agent filtering
+  const filteredDailyByAgent = useMemo((): DailyRecord[] => {
+    if (!stats) return []
+    if (agentFilter === 'all') {
+      return stats.daily || []
+    }
+    return (stats.agentData || []).filter(r => r.agentType === agentFilter)
+  }, [stats, agentFilter])
 
   const filteredDeviceDataByAgent = useMemo(() => {
     if (!stats?.deviceData) return []
@@ -108,89 +133,48 @@ export default function Page() {
     return stats?.availableAgents || ['claude-code'] as AgentType[]
   }, [stats?.availableAgents])
 
-  const filteredMetrics = useMemo(() => {
+  const filteredMetrics = useMemo((): AggregatedMetrics | undefined => {
     if (!filteredDailyByAgent || filteredDailyByAgent.length === 0) return undefined
-    if (viewMode === "billing") return undefined
 
-    // For agent-filtered data, always calculate from filtered data
-    if (agentFilter !== 'all') {
-      const filteredData = filterByTimeRange(filteredDailyByAgent, timeRange, customDateRange)
-      if (filteredData.length === 0) {
-        return {
-          totalCost: 0,
-          totalTokens: 0,
-          totalInputTokens: 0,
-          totalOutputTokens: 0,
-          totalCacheCreationTokens: 0,
-          totalCacheReadTokens: 0,
-          activeDays: 0,
-          avgDailyCost: 0
-        }
+    // For 'all' agent filter, use API pre-computed metrics when available
+    if (agentFilter === 'all') {
+      if (viewMode === "billing") {
+        return billingCycleRange === "current" ? stats?.currentCycle : stats?.previousCycle
       }
-
-      const totalCost = filteredData.reduce((sum, r) => sum + r.totalCost, 0)
-      const totalTokens = filteredData.reduce((sum, r) => sum + r.totalTokens, 0)
-      const totalInputTokens = filteredData.reduce((sum, r) => sum + r.inputTokens, 0)
-      const totalOutputTokens = filteredData.reduce((sum, r) => sum + r.outputTokens, 0)
-      const totalCacheCreationTokens = filteredData.reduce((sum, r) => sum + r.cacheCreationTokens, 0)
-      const totalCacheReadTokens = filteredData.reduce((sum, r) => sum + r.cacheReadTokens, 0)
-      const activeDays = filteredData.filter(r => r.totalTokens > 0).length
-      const avgDailyCost = activeDays > 0 ? totalCost / activeDays : 0
-
-      return {
-        totalCost,
-        totalTokens,
-        totalInputTokens,
-        totalOutputTokens,
-        totalCacheCreationTokens,
-        totalCacheReadTokens,
-        activeDays,
-        avgDailyCost
-      }
+      if (timeRange === "all" && stats?.totals) return stats.totals
+      if (timeRange === "30d" && stats?.last30Days) return stats.last30Days
     }
 
-    // Original logic for "all" agent filter
-    if (timeRange === "all" && stats?.totals) {
-      return stats.totals
-    }
-    if (timeRange === "30d" && stats?.last30Days) {
-      return stats.last30Days
-    }
-
-    const filteredData = filterByTimeRange(filteredDailyByAgent, timeRange, customDateRange)
-    if (filteredData.length === 0) {
-      return {
-        totalCost: 0,
-        totalTokens: 0,
-        totalInputTokens: 0,
-        totalOutputTokens: 0,
-        totalCacheCreationTokens: 0,
-        totalCacheReadTokens: 0,
-        activeDays: 0,
-        avgDailyCost: 0
-      }
+    // Calculate from filtered data for all other cases
+    let dataToAggregate: DailyRecord[]
+    if (viewMode === "billing") {
+      const billingRange = billingCycleRange === "current"
+        ? billingCycleDates.current
+        : billingCycleDates.previous
+      dataToAggregate = billingRange
+        ? filterByTimeRange(filteredDailyByAgent, "custom", billingRange)
+        : filteredDailyByAgent
+    } else {
+      dataToAggregate = filterByTimeRange(filteredDailyByAgent, timeRange, customDateRange)
     }
 
-    const totalCost = filteredData.reduce((sum, r) => sum + r.totalCost, 0)
-    const totalTokens = filteredData.reduce((sum, r) => sum + r.totalTokens, 0)
-    const totalInputTokens = filteredData.reduce((sum, r) => sum + r.inputTokens, 0)
-    const totalOutputTokens = filteredData.reduce((sum, r) => sum + r.outputTokens, 0)
-    const totalCacheCreationTokens = filteredData.reduce((sum, r) => sum + r.cacheCreationTokens, 0)
-    const totalCacheReadTokens = filteredData.reduce((sum, r) => sum + r.cacheReadTokens, 0)
-    const activeDays = filteredData.filter(r => r.totalTokens > 0).length
-    const avgDailyCost = activeDays > 0 ? totalCost / activeDays : 0
+    return aggregateFromDaily(dataToAggregate)
+  }, [stats, filteredDailyByAgent, viewMode, timeRange, customDateRange, agentFilter, billingCycleRange, billingCycleDates])
 
-    return {
-      totalCost,
-      totalTokens,
-      totalInputTokens,
-      totalOutputTokens,
-      totalCacheCreationTokens,
-      totalCacheReadTokens,
-      activeDays,
-      avgDailyCost
-    }
-  }, [stats, filteredDailyByAgent, viewMode, timeRange, customDateRange, agentFilter])
+  // Compute effective current/previous cycle metrics (filtered by agent when needed)
+  const currentCycleEffective = useMemo((): AggregatedMetrics | undefined => {
+    if (agentFilter === 'all') return stats?.currentCycle
+    if (!filteredDailyByAgent?.length || !billingCycleDates.current) return undefined
+    const data = filterByTimeRange(filteredDailyByAgent, "custom", billingCycleDates.current)
+    return aggregateFromDaily(data)
+  }, [agentFilter, filteredDailyByAgent, billingCycleDates.current, stats?.currentCycle])
+
+  const previousCycleEffective = useMemo((): AggregatedMetrics | undefined => {
+    if (agentFilter === 'all') return stats?.previousCycle
+    if (!filteredDailyByAgent?.length || !billingCycleDates.previous) return undefined
+    const data = filterByTimeRange(filteredDailyByAgent, "custom", billingCycleDates.previous)
+    return aggregateFromDaily(data)
+  }, [agentFilter, filteredDailyByAgent, billingCycleDates.previous, stats?.previousCycle])
 
   const renderMainContent = () => {
     if (loading) {
@@ -236,10 +220,10 @@ export default function Page() {
         <PlanComparison
           viewMode={viewMode}
           billingCycleRange={billingCycleRange}
-          currentCycleCost={stats.currentCycle.totalCost}
-          previousCycleCost={stats.previousCycle.totalCost}
-          currentCycleMetrics={stats.currentCycle}
-          previousCycleMetrics={stats.previousCycle}
+          currentCycleCost={currentCycleEffective?.totalCost ?? 0}
+          previousCycleCost={previousCycleEffective?.totalCost ?? 0}
+          currentCycleMetrics={currentCycleEffective}
+          previousCycleMetrics={previousCycleEffective}
           billingCycleLabel={stats.billingCycle.label}
           daysRemaining={stats.billingCycle.daysRemaining}
           cumulativeData={stats.cumulative}
@@ -254,10 +238,10 @@ export default function Page() {
           timeRange={timeRange}
           billingCycleRange={billingCycleRange}
           customDateRange={customDateRange}
-          totals={stats.totals}
-          last30Days={stats.last30Days}
-          currentCycleMetrics={stats.currentCycle}
-          previousCycleMetrics={stats.previousCycle}
+          totals={agentFilter === 'all' ? stats.totals : undefined}
+          last30Days={agentFilter === 'all' ? stats.last30Days : undefined}
+          currentCycleMetrics={currentCycleEffective}
+          previousCycleMetrics={previousCycleEffective}
         />
 
         <Charts
@@ -270,10 +254,10 @@ export default function Page() {
           billingCycleRange={billingCycleRange}
           customDateRange={customDateRange}
           billingCycleDateRange={activeBillingCycleDateRange}
-          totals={stats.totals}
-          last30Days={stats.last30Days}
-          currentCycleMetrics={stats.currentCycle}
-          previousCycleMetrics={stats.previousCycle}
+          totals={agentFilter === 'all' ? stats.totals : undefined}
+          last30Days={agentFilter === 'all' ? stats.last30Days : undefined}
+          currentCycleMetrics={currentCycleEffective}
+          previousCycleMetrics={previousCycleEffective}
           agentFilter={agentFilter}
         />
 

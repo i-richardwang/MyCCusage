@@ -63,9 +63,9 @@ export function PlanComparison({
     : null
 
   const getActiveMetrics = (): AggregatedMetrics | null => {
-    if (isRollingMode) {
-      return filteredMetrics || null
-    }
+    // filteredMetrics is now computed for ALL modes (rolling + billing),
+    // including per-agent filtering
+    if (filteredMetrics) return filteredMetrics
     if (isBillingMode) {
       return isCurrentCycle ? (currentCycleMetrics || null) : (previousCycleMetrics || null)
     }
