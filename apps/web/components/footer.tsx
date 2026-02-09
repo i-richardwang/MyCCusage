@@ -7,9 +7,9 @@ import { Github, Heart, Zap } from "lucide-react"
 // Configuration constants
 const FOOTER_CONFIG = {
   project: {
-    name: "Claude Code Usage Dashboard",
-    description: "Open source dashboard for tracking Claude Code usage, costs, and statistics with beautiful charts and insights.",
-    version: '0.5.0',
+    name: "Coding Usage Dashboard",
+    description: "Open source dashboard for tracking coding agent usage, costs, and statistics with beautiful charts and insights.",
+    version: '0.5.2',
     repository: "https://github.com/i-richardwang/MyCCusage",
     author: {
       name: "Richard Wang",

@@ -16,9 +16,9 @@ const fontMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: process.env.NEXT_PUBLIC_OWNER_NAME 
-    ? `${process.env.NEXT_PUBLIC_OWNER_NAME}'s Claude Code Usage Dashboard`
-    : 'Claude Code Usage Dashboard',
-  description: 'Self-hosted dashboard for tracking Claude Code usage, costs, and statistics with beautiful charts and insights.',
+    ? `${process.env.NEXT_PUBLIC_OWNER_NAME}'s Coding Usage Dashboard`
+    : 'Coding Usage Dashboard',
+  description: 'Self-hosted dashboard for tracking coding agent usage, costs, and statistics with beautiful charts and insights.',
   ...(process.env.NEXT_PUBLIC_APP_URL && {
     metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL),
     alternates: {

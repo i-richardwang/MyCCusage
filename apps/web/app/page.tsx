@@ -190,8 +190,8 @@ export default function Page() {
             <div>
               <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight">
                 {process.env.NEXT_PUBLIC_OWNER_NAME
-                  ? `${process.env.NEXT_PUBLIC_OWNER_NAME}'s Claude Code Usage Dashboard`
-                  : "Claude Code Usage Dashboard"
+                  ? `${process.env.NEXT_PUBLIC_OWNER_NAME}'s Coding Usage Dashboard`
+                  : "Coding Usage Dashboard"
                 }
               </h1>
             </div>
