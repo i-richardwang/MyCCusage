@@ -55,7 +55,7 @@ export interface CollectorConfig {
   endpoint: string
   apiKey: string
   displayName?: string
-  agentType?: AgentType
+  agentTypes?: AgentType[]
   maxRetries?: number
   retryDelay?: number
 }

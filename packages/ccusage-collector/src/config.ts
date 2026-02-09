@@ -13,7 +13,7 @@ export interface Config {
   deviceId?: string
   deviceName?: string
   displayName?: string
-  agentType?: AgentType
+  agentTypes?: AgentType[]
 }
 
 export const AGENT_OPTIONS = [
@@ -67,7 +67,8 @@ export class ConfigManager {
         deviceId: config.deviceId,
         deviceName: config.deviceName,
         displayName: config.displayName,
-        agentType: config.agentType || 'claude-code'
+        // Migrate legacy single agentType to agentTypes array
+        agentTypes: config.agentTypes || (config.agentType ? [config.agentType] : ['claude-code'])
       }
     } catch (error) {
       console.error('Failed to load config:', error)

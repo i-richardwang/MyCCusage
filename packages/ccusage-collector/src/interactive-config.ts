@@ -1,6 +1,7 @@
 import inquirer from 'inquirer'
 import { ConfigManager, Config, SCHEDULE_OPTIONS, AGENT_OPTIONS } from './config.js'
 import { UsageCollector } from './collector.js'
+import type { AgentType } from './types.js'
 
 export class InteractiveConfig {
   private configManager: ConfigManager
@@ -16,10 +17,10 @@ export class InteractiveConfig {
     try {
       // Load existing config if available
       const existingConfig = this.configManager.loadConfig()
-      
+
       if (existingConfig) {
         console.log('✅ Found existing configuration')
-        
+
         const { shouldReconfigure } = await inquirer.prompt([
           {
             type: 'confirm',
@@ -35,20 +36,28 @@ export class InteractiveConfig {
         }
       }
 
-      // Get configuration from user
+      // Get agent selection first (checkbox prompt)
+      const { agentTypes } = await inquirer.prompt({
+        type: 'checkbox',
+        name: 'agentTypes' as const,
+        message: 'Select the coding agents to track (space to select, enter to confirm):',
+        choices: AGENT_OPTIONS.map(option => ({
+          name: option.label,
+          value: option.value,
+          checked: existingConfig
+            ? existingConfig.agentTypes?.includes(option.value) ?? false
+            : option.value === 'claude-code'
+        })),
+        validate: (input: readonly unknown[]) => {
+          if (input.length === 0) {
+            return 'Please select at least one agent'
+          }
+          return true
+        }
+      })
+
+      // Get remaining configuration
       const answers = await inquirer.prompt([
-        {
-          type: 'list',
-          name: 'agentOption',
-          message: 'Select the coding agent to track:',
-          choices: AGENT_OPTIONS.map(option => ({
-            name: option.label,
-            value: option
-          })),
-          default: existingConfig
-            ? AGENT_OPTIONS.find(opt => opt.value === existingConfig.agentType)
-            : AGENT_OPTIONS[0] // Default to Claude Code
-        },
         {
           type: 'password',
           name: 'apiKey',
@@ -100,7 +109,7 @@ export class InteractiveConfig {
             name: option.label,
             value: option
           })),
-          default: existingConfig 
+          default: existingConfig
             ? SCHEDULE_OPTIONS.find(opt => opt.value === existingConfig.schedule)
             : SCHEDULE_OPTIONS[3] // Default to "Every 4 hours"
         }
@@ -109,7 +118,7 @@ export class InteractiveConfig {
       // Build configuration with auto-generated endpoint
       const baseUrl = answers.baseUrl.trim().replace(/\/$/, '') // Remove trailing slash
       const endpoint = `${baseUrl}/api/usage-sync`
-      
+
       const config: Config = {
         apiKey: answers.apiKey.trim(),
         endpoint: endpoint,
@@ -121,16 +130,16 @@ export class InteractiveConfig {
         deviceId: existingConfig?.deviceId,
         deviceName: existingConfig?.deviceName,
         displayName: answers.displayName.trim() || undefined,
-        agentType: answers.agentOption.value
+        agentTypes: agentTypes as AgentType[]
       }
 
       // Test configuration
       console.log('\n🧪 Testing configuration...')
       const testResult = await this.testConfiguration(config)
-      
+
       if (!testResult.success) {
         console.log('❌ Configuration test failed:', testResult.error)
-        
+
         const { shouldSaveAnyway } = await inquirer.prompt([
           {
             type: 'confirm',
@@ -150,16 +159,20 @@ export class InteractiveConfig {
 
       // Save configuration
       this.configManager.saveConfig(config)
-      
+
+      const agentLabels = (config.agentTypes || [])
+        .map(t => AGENT_OPTIONS.find(o => o.value === t)?.label || t)
+        .join(', ')
+
       console.log('\n📋 Configuration Summary:')
-      console.log(`   Agent Type: ${answers.agentOption.label}`)
+      console.log(`   Agents: ${agentLabels}`)
       console.log(`   API Endpoint: ${config.endpoint}`)
       console.log(`   Sync Schedule: ${config.scheduleLabel}`)
       if (config.displayName) {
         console.log(`   Device Display Name: ${config.displayName}`)
       }
       console.log(`   Config saved to: ${this.configManager.getConfigPath()}`)
-      
+
       console.log('\n💡 Start with PM2:')
       console.log('   pm2 start ccusage-collector -- start')
 
@@ -175,27 +188,36 @@ export class InteractiveConfig {
         apiKey: config.apiKey,
         endpoint: config.endpoint,
         displayName: config.displayName,
-        agentType: config.agentType,
+        agentTypes: config.agentTypes,
         maxRetries: 1,
         retryDelay: 1000
       })
 
-      // Test data collection
-      const data = await collector.collectUsageData()
+      // Test data collection for all configured agents
+      const allData = await collector.collectAllUsageData()
 
-      if (!data || !data.daily || data.daily.length === 0) {
-        const agentLabel = AGENT_OPTIONS.find(opt => opt.value === config.agentType)?.label || config.agentType
-        return { success: false, error: `No usage data found. Make sure you have ${agentLabel} usage to sync.` }
+      if (allData.length === 0) {
+        const agentLabels = (config.agentTypes || [])
+          .map(t => AGENT_OPTIONS.find(o => o.value === t)?.label || t)
+          .join(', ')
+        return { success: false, error: `No usage data found for any agent (${agentLabels}). Make sure the tools are installed.` }
       }
 
-      // Test a minimal sync (we could add a test endpoint later)
+      const emptyAgents = (config.agentTypes || []).filter(
+        t => !allData.some(d => d.device.agentType === t)
+      )
+      if (emptyAgents.length > 0) {
+        const labels = emptyAgents.map(t => AGENT_OPTIONS.find(o => o.value === t)?.label || t).join(', ')
+        console.log(`⚠️  No data found for: ${labels} (will be retried on next sync)`)
+      }
+
       console.log('✅ Data collection test passed')
-      
+
       return { success: true }
     } catch (error) {
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
       }
     }
   }
