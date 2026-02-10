@@ -27,11 +27,7 @@ async function getUnifiedUsageStats() {
       last30DaysCacheCreationTokens: sql<number>`SUM(CASE WHEN ${usageRecords.date} >= CURRENT_DATE - INTERVAL '30 days' THEN ${usageRecords.cacheCreationTokens} ELSE 0 END)::bigint`.as('last_30_days_cache_creation_tokens'),
       last30DaysCacheReadTokens: sql<number>`SUM(CASE WHEN ${usageRecords.date} >= CURRENT_DATE - INTERVAL '30 days' THEN ${usageRecords.cacheReadTokens} ELSE 0 END)::bigint`.as('last_30_days_cache_read_tokens'),
       last30DaysCredits: sql<number>`SUM(CASE WHEN ${usageRecords.date} >= CURRENT_DATE - INTERVAL '30 days' THEN ${usageRecords.credits} ELSE 0 END)::numeric`.as('last_30_days_credits'),
-      last30DaysActiveDays: sql<number>`COUNT(DISTINCT CASE WHEN ${usageRecords.date} >= CURRENT_DATE - INTERVAL '30 days' THEN ${usageRecords.date} END)::bigint`.as('last_30_days_active_days'),
-
-      // Cumulative metadata
-      earliestDate: sql<string>`MIN(${usageRecords.date})`.as('earliest_date'),
-      latestDate: sql<string>`MAX(${usageRecords.date})`.as('latest_date')
+      last30DaysActiveDays: sql<number>`COUNT(DISTINCT CASE WHEN ${usageRecords.date} >= CURRENT_DATE - INTERVAL '30 days' THEN ${usageRecords.date} END)::bigint`.as('last_30_days_active_days')
     })
     .from(usageRecords)
   )
@@ -50,7 +46,7 @@ function safeNumber(value: unknown, defaultValue: number = 0): number {
 // Optimized daily and device data queries using parallel execution
 async function getDailyAndDeviceData() {
   return await Promise.all([
-    // Daily records query (last 30 days, aggregated by date)
+    // Daily records (aggregated by date, no limit for All Time support)
     db.select({
       date: usageRecords.date,
       totalCost: sql<number>`SUM(${usageRecords.totalCost})::numeric`.as('total_cost'),
@@ -65,8 +61,7 @@ async function getDailyAndDeviceData() {
     })
     .from(usageRecords)
     .groupBy(usageRecords.date)
-    .orderBy(desc(usageRecords.date))
-    .limit(QUERY_LIMITS.DAILY_RECORDS),
+    .orderBy(desc(usageRecords.date)),
 
     // Device-specific daily records for multi-device charts
     db.select({
@@ -101,7 +96,7 @@ async function getDailyAndDeviceData() {
     .leftJoin(usageRecords, eq(devices.deviceId, usageRecords.deviceId))
     .groupBy(devices.deviceId, devices.deviceName, devices.displayName, devices.createdAt, devices.updatedAt),
 
-    // Agent-specific daily records for multi-agent charts
+    // Agent-specific daily records for multi-agent charts and per-agent filtering
     db.select({
       date: usageRecords.date,
       agentType: usageRecords.agentType,
@@ -115,8 +110,7 @@ async function getDailyAndDeviceData() {
     })
     .from(usageRecords)
     .groupBy(usageRecords.date, usageRecords.agentType)
-    .orderBy(desc(usageRecords.date))
-    .limit(QUERY_LIMITS.DAILY_RECORDS * 3), // Account for multiple agents
+    .orderBy(desc(usageRecords.date)),
 
     // Available agents (distinct agent types in the database)
     db.selectDistinct({
@@ -229,15 +223,6 @@ export async function GET() {
       avgDailyCost: safeNumber(statsResult.last30DaysActiveDays) > 0 ? safeNumber(statsResult.last30DaysCost) / safeNumber(statsResult.last30DaysActiveDays) : 0
     }
 
-    // Cumulative data for ROI calculations
-    const processedCumulative = {
-      totalCost: safeNumber(statsResult.totalCost),
-      totalTokens: safeNumber(statsResult.totalTokens),
-      activeDays: safeNumber(statsResult.activeDays),
-      earliestDate: statsResult.earliestDate || null,
-      latestDate: statsResult.latestDate || null
-    }
-
     return NextResponse.json({
       totals,
       last30Days,
@@ -246,7 +231,6 @@ export async function GET() {
       deviceData: deviceData,
       agentData: agentData,
       availableAgents: availableAgents,
-      cumulative: processedCumulative,
       billingStartDate
     })
   } catch (error) {

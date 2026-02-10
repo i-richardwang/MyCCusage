@@ -9,7 +9,7 @@ const FOOTER_CONFIG = {
   project: {
     name: "Coding Usage Dashboard",
     description: "Open source dashboard for tracking coding agent usage, costs, and statistics with beautiful charts and insights.",
-    version: '0.5.2',
+    version: '0.5.3',
     repository: "https://github.com/i-richardwang/MyCCusage",
     author: {
       name: "Richard Wang",

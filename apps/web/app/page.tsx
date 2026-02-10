@@ -147,7 +147,6 @@ export default function Page() {
         />
 
         <PlanComparison
-          cumulativeData={stats.cumulative}
           billingStartDate={stats.billingStartDate}
           filteredMetrics={filteredMetrics}
           isAllTime={timeRange === "all"}

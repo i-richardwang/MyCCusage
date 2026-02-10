@@ -2,15 +2,14 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@workspace/ui/components/card"
 import {
-  calculateCumulativeMetrics,
-  getCumulativeUserStatus,
+  getSubscriptionPeriod,
   formatCurrency,
   formatSavings,
   getUserStatusByAmount,
   getSubscriptionPlan,
   getPlanPricing
 } from "@/lib/cumulative-metrics"
-import type { CumulativeData, AggregatedMetrics } from "@/types/api-types"
+import type { AggregatedMetrics } from "@/types/api-types"
 import type { UserStatus, UserTier } from "@/constants/business-config"
 import { Crown, Zap, Users, Lightbulb, CreditCard, Calculator, Calendar, TrendingUp, LucideIcon } from "lucide-react"
 
@@ -22,79 +21,72 @@ const STATUS_ICONS: Record<UserTier, LucideIcon> = {
 }
 
 interface PlanComparisonProps {
-  cumulativeData?: CumulativeData
-  billingStartDate?: string
   filteredMetrics?: AggregatedMetrics
+  billingStartDate?: string
   isAllTime?: boolean
 }
 
 export function PlanComparison({
-  cumulativeData,
-  billingStartDate,
   filteredMetrics,
+  billingStartDate,
   isAllTime = false
 }: PlanComparisonProps) {
   const subscriptionPlan = getSubscriptionPlan()
   const planPrice = getPlanPricing(subscriptionPlan)
 
-  const cumulativeMetrics = cumulativeData && billingStartDate
-    ? calculateCumulativeMetrics(cumulativeData, billingStartDate)
+  const subscriptionPeriod = billingStartDate
+    ? getSubscriptionPeriod(billingStartDate)
     : null
 
-  const activeMetrics = filteredMetrics || null
-  const activeCost = activeMetrics?.totalCost || 0
-  const activeActiveDays = activeMetrics?.activeDays || 0
-  const activeAvgDailyCost = activeMetrics?.avgDailyCost || 0
+  const activeCost = filteredMetrics?.totalCost || 0
+  const activeActiveDays = filteredMetrics?.activeDays || 0
+  const activeAvgDailyCost = filteredMetrics?.avgDailyCost || 0
 
-  const vsPlan = activeCost - planPrice
+  // In "All Time" mode, calculate monthly average and vs Plan over full subscription
+  const avgMonthlyCost = isAllTime && subscriptionPeriod
+    ? activeCost / subscriptionPeriod.totalMonths
+    : 0
 
-  const userStatus: UserStatus = isAllTime && cumulativeMetrics
-    ? getCumulativeUserStatus(cumulativeMetrics.avgMonthlyCost)
+  const vsPlan = isAllTime && subscriptionPeriod
+    ? activeCost - planPrice * subscriptionPeriod.totalMonths
+    : activeCost - planPrice
+
+  const userStatus: UserStatus = isAllTime && subscriptionPeriod
+    ? getUserStatusByAmount(avgMonthlyCost)
     : getUserStatusByAmount(activeCost)
-
-  const vsPlanSavings = cumulativeMetrics ? formatSavings(cumulativeMetrics.totalSavedVsPlan) : null
 
   const IconComponent = STATUS_ICONS[userStatus.tier]
 
-  const formatValueComparison = (value: number): string => {
-    return value > 0
-      ? `+${formatCurrency(Math.abs(value))}`
-      : `-${formatCurrency(Math.abs(value))}`
-  }
-
-  const getApiValueConsumed = () => {
-    if (isAllTime && cumulativeMetrics) {
-      return formatCurrency(cumulativeMetrics.totalCostAllTime)
-    }
-    return formatCurrency(activeCost)
-  }
+  const getApiValueConsumed = () => formatCurrency(activeCost)
 
   const getVsPlanValue = () => {
-    if (isAllTime && vsPlanSavings) {
-      return vsPlanSavings.text
+    if (isAllTime && subscriptionPeriod) {
+      return formatSavings(vsPlan).text
     }
-    return formatValueComparison(vsPlan)
+    return vsPlan > 0
+      ? `+${formatCurrency(Math.abs(vsPlan))}`
+      : `-${formatCurrency(Math.abs(vsPlan))}`
   }
 
   const getVsPlanColor = () => {
-    if (isAllTime && vsPlanSavings) {
-      return vsPlanSavings.colorClass
+    if (isAllTime && subscriptionPeriod) {
+      return formatSavings(vsPlan).colorClass
     }
     return vsPlan > 0 ? 'text-primary' : 'text-muted-foreground'
   }
 
   const getSubtitle = () => {
-    if (isAllTime && cumulativeMetrics) {
-      return `Avg: ${formatCurrency(cumulativeMetrics.avgMonthlyCost)}/month`
+    if (isAllTime && subscriptionPeriod) {
+      return `Avg: ${formatCurrency(avgMonthlyCost)}/month`
     }
     return `Avg: ${formatCurrency(activeAvgDailyCost)}/day`
   }
 
   const getDaysDisplay = () => {
-    if (isAllTime && cumulativeMetrics) {
+    if (isAllTime && subscriptionPeriod) {
       return (
         <>
-          {cumulativeMetrics.totalSubscriptionDays} <span className="text-sm font-normal">days</span>
+          {subscriptionPeriod.totalDays} <span className="text-sm font-normal">days</span>
         </>
       )
     }
@@ -106,8 +98,8 @@ export function PlanComparison({
   }
 
   const getDaysSubtitle = () => {
-    if (isAllTime && cumulativeMetrics) {
-      return `Since ${cumulativeMetrics.subscriptionStartDate.toLocaleDateString()}`
+    if (isAllTime && subscriptionPeriod) {
+      return `Since ${subscriptionPeriod.startDate.toLocaleDateString()}`
     }
     return "In selected period"
   }

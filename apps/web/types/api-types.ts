@@ -21,20 +21,10 @@ export interface AggregatedMetrics {
 // Alias for semantic clarity
 export type Last30DaysMetrics = AggregatedMetrics
 
-// Cumulative metrics for ROI calculations
-export interface CumulativeData {
-  totalCost: number
-  totalTokens: number
-  activeDays: number
-  earliestDate: string | null
-  latestDate: string | null
-}
-
 // Complete API response type
 export interface UsageStatsResponse {
   totals: AggregatedMetrics
   last30Days: Last30DaysMetrics
-  cumulative: CumulativeData
   billingStartDate: string
   daily: DailyRecord[]
   devices: Device[]

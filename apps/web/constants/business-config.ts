@@ -46,7 +46,6 @@ export function getPlanPricing(plan: SubscriptionPlan): number {
  * Query limits for database operations
  */
 export const QUERY_LIMITS = {
-  DAILY_RECORDS: 30,
   DEVICE_RECORDS: 300
 } as const
 

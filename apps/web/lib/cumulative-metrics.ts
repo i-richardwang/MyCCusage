@@ -1,5 +1,5 @@
 /**
- * Cumulative metrics utilities for ROI calculations
+ * Subscription period and ROI calculation utilities
  */
 
 import {
@@ -8,44 +8,31 @@ import {
   getUserStatusByAmount,
   getSubscriptionPlan,
   getPlanPricing,
-  type UserStatus,
   type SubscriptionPlan
 } from '@/constants/business-config'
-import type { CumulativeData } from '@/types/api-types'
 
-export interface CumulativeMetrics {
-  totalCostAllTime: number
-  totalTokensAllTime: number
-  totalActiveDays: number
-  totalSubscriptionDays: number
-  subscriptionStartDate: Date
+export interface SubscriptionPeriod {
+  startDate: Date
+  totalDays: number
   totalMonths: number
-  avgMonthlyCost: number
-  totalSavedVsPlan: number
-  subscriptionPlan: SubscriptionPlan
 }
 
 /**
- * Calculate cumulative metrics for ROI dashboard
+ * Calculate subscription period metadata from billing start date
  */
-export function calculateCumulativeMetrics(
-  cumulativeData: CumulativeData,
-  billingStartDate: string
-): CumulativeMetrics {
-  const { totalCost, totalTokens, activeDays } = cumulativeData
+export function getSubscriptionPeriod(billingStartDate: string): SubscriptionPeriod {
+  const startDate = new Date(billingStartDate)
 
-  const subscriptionStartDate = new Date(billingStartDate)
-
-  if (isNaN(subscriptionStartDate.getTime())) {
+  if (isNaN(startDate.getTime())) {
     throw new Error(`Invalid subscription start date: ${billingStartDate}`)
   }
 
   const today = new Date()
 
   // Calculate total months
-  const yearDiff = today.getFullYear() - subscriptionStartDate.getFullYear()
-  const monthDiff = today.getMonth() - subscriptionStartDate.getMonth()
-  const dayDiff = today.getDate() - subscriptionStartDate.getDate()
+  const yearDiff = today.getFullYear() - startDate.getFullYear()
+  const monthDiff = today.getMonth() - startDate.getMonth()
+  const dayDiff = today.getDate() - startDate.getDate()
 
   let totalMonths = yearDiff * 12 + monthDiff
   if (dayDiff >= 0) {
@@ -54,33 +41,10 @@ export function calculateCumulativeMetrics(
   totalMonths = Math.max(totalMonths, 1)
 
   // Calculate total subscription days
-  const timeDiff = today.getTime() - subscriptionStartDate.getTime()
-  const totalSubscriptionDays = Math.floor(timeDiff / (1000 * 60 * 60 * 24)) + 1
+  const timeDiff = today.getTime() - startDate.getTime()
+  const totalDays = Math.floor(timeDiff / (1000 * 60 * 60 * 24)) + 1
 
-  // Calculate derived metrics
-  const subscriptionPlan = getSubscriptionPlan()
-  const planPrice = getPlanPricing(subscriptionPlan)
-  const avgMonthlyCost = totalCost / totalMonths
-  const totalSavedVsPlan = totalCost - (planPrice * totalMonths)
-
-  return {
-    totalCostAllTime: totalCost,
-    totalTokensAllTime: totalTokens,
-    totalActiveDays: activeDays,
-    totalSubscriptionDays,
-    subscriptionStartDate,
-    totalMonths,
-    avgMonthlyCost,
-    totalSavedVsPlan,
-    subscriptionPlan
-  }
-}
-
-/**
- * Get user status based on average monthly cost
- */
-export function getCumulativeUserStatus(avgMonthlyCost: number): UserStatus {
-  return getUserStatusByAmount(avgMonthlyCost)
+  return { startDate, totalDays, totalMonths }
 }
 
 /**
@@ -96,18 +60,16 @@ export function formatCurrency(amount: number): string {
 export function formatSavings(savings: number): {
   text: string
   colorClass: string
-  description: string
 } {
   const isPositive = savings > 0
   return {
     text: isPositive
       ? `+${formatCurrency(Math.abs(savings))}`
       : `-${formatCurrency(Math.abs(savings))}`,
-    colorClass: isPositive ? 'text-primary' : 'text-destructive',
-    description: isPositive ? 'Total Earned!' : 'Still Behind'
+    colorClass: isPositive ? 'text-primary' : 'text-destructive'
   }
 }
 
 // Re-export for convenience
 export { USER_TIER_THRESHOLDS, PLAN_PRICING, getUserStatusByAmount, getSubscriptionPlan, getPlanPricing }
-export type { CumulativeData, SubscriptionPlan }
+export type { SubscriptionPlan }
