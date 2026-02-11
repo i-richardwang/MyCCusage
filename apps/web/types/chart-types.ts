@@ -1,13 +1,16 @@
 // Shared types for chart components
 
 // Agent type definitions
-export type AgentType = "claude-code" | "amp" | "codex" | "opencode";
+export type AgentType = "claude-code" | "opencode" | "amp" | "codex";
+
+// Ordered list of agents for UI display (tab order, etc.)
+export const AGENT_TYPE_ORDER: AgentType[] = ["claude-code", "opencode", "amp"];
 
 export const AGENT_TYPE_LABELS: Record<AgentType, string> = {
   "claude-code": "Claude Code",
+  opencode: "OpenCode",
   amp: "AMP",
   codex: "Codex",
-  opencode: "OpenCode",
 };
 
 export interface DailyRecord {

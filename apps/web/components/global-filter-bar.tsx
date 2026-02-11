@@ -1,25 +1,39 @@
-"use client"
+"use client";
 
-import * as React from "react"
-import { format } from "date-fns"
-import { CalendarIcon } from "lucide-react"
-import { type DateRange } from "react-day-picker"
-import { TimeRange, AgentType, AGENT_TYPE_LABELS } from "@/types/chart-types"
-import { cn } from "@workspace/ui/lib/utils"
-import { Tabs, TabsList, TabsTrigger } from "@workspace/ui/components/tabs"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
-import { Button } from "@workspace/ui/components/button"
-import { Calendar } from "@workspace/ui/components/calendar"
-import { Popover, PopoverContent, PopoverTrigger } from "@workspace/ui/components/popover"
+import * as React from "react";
+import { format } from "date-fns";
+import { CalendarIcon } from "lucide-react";
+import { type DateRange } from "react-day-picker";
+import {
+  TimeRange,
+  AgentType,
+  AGENT_TYPE_LABELS,
+  AGENT_TYPE_ORDER,
+} from "@/types/chart-types";
+import { cn } from "@workspace/ui/lib/utils";
+import { Tabs, TabsList, TabsTrigger } from "@workspace/ui/components/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@workspace/ui/components/select";
+import { Button } from "@workspace/ui/components/button";
+import { Calendar } from "@workspace/ui/components/calendar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@workspace/ui/components/popover";
 
 interface GlobalFilterBarProps {
-  timeRange: TimeRange
-  onTimeRangeChange: (timeRange: TimeRange) => void
-  dateRange: DateRange | undefined
-  onDateRangeChange: (dateRange: DateRange | undefined) => void
-  agentFilter: AgentType | 'all'
-  onAgentFilterChange: (agent: AgentType | 'all') => void
-  availableAgents: AgentType[]
+  timeRange: TimeRange;
+  onTimeRangeChange: (timeRange: TimeRange) => void;
+  dateRange: DateRange | undefined;
+  onDateRangeChange: (dateRange: DateRange | undefined) => void;
+  agentFilter: AgentType | "all";
+  onAgentFilterChange: (agent: AgentType | "all") => void;
 }
 
 export function GlobalFilterBar({
@@ -29,26 +43,30 @@ export function GlobalFilterBar({
   onDateRangeChange,
   agentFilter,
   onAgentFilterChange,
-  availableAgents
 }: GlobalFilterBarProps) {
   const formatDateRange = (range: DateRange | undefined) => {
     if (range?.from) {
       if (range.to) {
-        return `${format(range.from, "LLL dd, y")} - ${format(range.to, "LLL dd, y")}`
+        return `${format(range.from, "LLL dd, y")} - ${format(range.to, "LLL dd, y")}`;
       } else {
-        return format(range.from, "LLL dd, y")
+        return format(range.from, "LLL dd, y");
       }
     }
-    return "Pick a date range"
-  }
+    return "Pick a date range";
+  };
 
   return (
     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
       {/* Agent Filter Tabs */}
-      <Tabs value={agentFilter} onValueChange={(value) => onAgentFilterChange(value as AgentType | 'all')}>
+      <Tabs
+        value={agentFilter}
+        onValueChange={(value) =>
+          onAgentFilterChange(value as AgentType | "all")
+        }
+      >
         <TabsList>
           <TabsTrigger value="all">All Agents</TabsTrigger>
-          {availableAgents.map(agent => (
+          {AGENT_TYPE_ORDER.map((agent) => (
             <TabsTrigger key={agent} value={agent}>
               {AGENT_TYPE_LABELS[agent]}
             </TabsTrigger>
@@ -64,7 +82,7 @@ export function GlobalFilterBar({
               variant="outline"
               className={cn(
                 "w-[280px] justify-start text-left font-normal rounded-lg",
-                !dateRange && "text-muted-foreground"
+                !dateRange && "text-muted-foreground",
               )}
             >
               <CalendarIcon className="mr-2 h-4 w-4" />
@@ -83,7 +101,10 @@ export function GlobalFilterBar({
           </PopoverContent>
         </Popover>
 
-        <Select value={timeRange} onValueChange={(value) => onTimeRangeChange(value as TimeRange)}>
+        <Select
+          value={timeRange}
+          onValueChange={(value) => onTimeRangeChange(value as TimeRange)}
+        >
           <SelectTrigger className="w-[160px] rounded-lg">
             <SelectValue />
           </SelectTrigger>
@@ -107,5 +128,5 @@ export function GlobalFilterBar({
         </Select>
       </div>
     </div>
-  )
+  );
 }
