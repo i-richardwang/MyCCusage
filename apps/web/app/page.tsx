@@ -180,6 +180,7 @@ export default function Page() {
           billingStartDate={stats.billingStartDate}
           filteredMetrics={filteredMetrics}
           isAllTime={timeRange === "all"}
+          agentFilter={agentFilter}
         />
 
         <StatsCards
