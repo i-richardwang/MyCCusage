@@ -63,8 +63,50 @@ async function resolveCommand(agentType: AgentType): Promise<string> {
   return `npx ${pkg} daily --json`;
 }
 
+// Extract modelsUsed and modelBreakdowns from codex-style models object
+// Codex outputs: { models: { "gpt-5.2": { inputTokens, cachedInputTokens, outputTokens, reasoningOutputTokens, totalTokens, isFallback }, ... } }
+function extractModelsFromObject(
+  models: Record<string, Record<string, unknown>>,
+): {
+  modelsUsed: string[];
+  modelBreakdowns: DailyUsageRecord["modelBreakdowns"];
+} {
+  const modelsUsed = Object.keys(models);
+  const modelBreakdowns = modelsUsed.map((modelName) => {
+    const m = models[modelName] ?? {};
+    return {
+      modelName,
+      inputTokens: (m.inputTokens as number) || 0,
+      outputTokens: (m.outputTokens as number) || 0,
+      cacheCreationTokens: 0,
+      // Codex uses cachedInputTokens for cache read tokens
+      cacheReadTokens: (m.cachedInputTokens as number) || 0,
+      cost: 0,
+    };
+  });
+  return { modelsUsed, modelBreakdowns };
+}
+
 // Map ccusage output fields to API expected fields
 function mapCcusageRecord(record: Record<string, unknown>): DailyUsageRecord {
+  // Extract models info: codex uses a models object, others use modelsUsed array + modelBreakdowns array
+  let modelsUsed = (record.modelsUsed as string[]) || [];
+  let modelBreakdowns =
+    (record.modelBreakdowns as DailyUsageRecord["modelBreakdowns"]) || [];
+
+  if (
+    modelsUsed.length === 0 &&
+    record.models &&
+    typeof record.models === "object" &&
+    !Array.isArray(record.models)
+  ) {
+    const extracted = extractModelsFromObject(
+      record.models as Record<string, Record<string, unknown>>,
+    );
+    modelsUsed = extracted.modelsUsed;
+    modelBreakdowns = extracted.modelBreakdowns;
+  }
+
   return {
     date: record.date as string,
     inputTokens: (record.inputTokens as number) || 0,
@@ -75,18 +117,19 @@ function mapCcusageRecord(record: Record<string, unknown>): DailyUsageRecord {
       (record.cacheCreationTokens as number) ||
       0,
     // ccusage uses cacheReadInputTokens, API expects cacheReadTokens
+    // Codex uses cachedInputTokens for cache read tokens
     cacheReadTokens:
       (record.cacheReadInputTokens as number) ||
       (record.cacheReadTokens as number) ||
+      (record.cachedInputTokens as number) ||
       0,
     totalTokens: (record.totalTokens as number) || 0,
     // ccusage uses costUSD, API expects totalCost
     totalCost: (record.costUSD as number) || (record.totalCost as number) || 0,
     // AMP specific field
     credits: (record.credits as number) || 0,
-    modelsUsed: (record.modelsUsed as string[]) || [],
-    modelBreakdowns:
-      (record.modelBreakdowns as DailyUsageRecord["modelBreakdowns"]) || [],
+    modelsUsed,
+    modelBreakdowns,
   };
 }
 
