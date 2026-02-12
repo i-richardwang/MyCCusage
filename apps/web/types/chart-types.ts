@@ -4,7 +4,12 @@
 export type AgentType = "claude-code" | "opencode" | "amp" | "codex";
 
 // Ordered list of agents for UI display (tab order, etc.)
-export const AGENT_TYPE_ORDER: AgentType[] = ["claude-code", "opencode", "amp"];
+export const AGENT_TYPE_ORDER: AgentType[] = [
+  "claude-code",
+  "opencode",
+  "amp",
+  "codex",
+];
 
 export const AGENT_TYPE_LABELS: Record<AgentType, string> = {
   "claude-code": "Claude Code",
