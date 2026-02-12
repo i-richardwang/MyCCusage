@@ -1,6 +1,6 @@
 {
   "name": "ccusage-collector",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Local collector for Claude Code usage statistics",
   "main": "dist/index.js",
   "type": "module",

@@ -41,6 +41,7 @@ const AGENT_BIN: Record<AgentType, { bin: string; pkg: string }> = {
   "claude-code": { bin: "ccusage", pkg: "ccusage" },
   amp: { bin: "ccusage-amp", pkg: "@ccusage/amp" },
   opencode: { bin: "ccusage-opencode", pkg: "@ccusage/opencode" },
+  codex: { bin: "ccusage-codex", pkg: "@ccusage/codex" },
 };
 
 // Check if a command (or alias) exists in the user's shell

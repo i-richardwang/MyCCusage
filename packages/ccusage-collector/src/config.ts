@@ -30,6 +30,7 @@ export const AGENT_OPTIONS = [
     label: "OpenCode",
     package: "@ccusage/opencode",
   },
+  { value: "codex" as const, label: "Codex", package: "@ccusage/codex" },
 ];
 
 export const SCHEDULE_OPTIONS = [
