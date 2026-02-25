@@ -56,6 +56,22 @@ export const AGENT_CHART_CONFIG = {
   },
 } as const;
 
+// Cache efficiency pie chart config
+export const CACHE_EFFICIENCY_CHART_CONFIG = {
+  cacheRead: {
+    label: "Cache Read",
+    color: "var(--chart-1)",
+  },
+  cacheCreation: {
+    label: "Cache Creation",
+    color: "var(--chart-2)",
+  },
+  nonCached: {
+    label: "Non-Cached",
+    color: "var(--chart-3)",
+  },
+} as const;
+
 export const TIME_RANGE_DAYS = {
   all: Infinity,
   "7d": 7,

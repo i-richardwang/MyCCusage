@@ -102,3 +102,16 @@ export interface ChartConfig {
     color: string;
   };
 }
+
+// Pie chart data types
+export interface PieChartRecord {
+  name: string;
+  value: number;
+  fill: string;
+}
+
+export interface PieChartData {
+  chartData: PieChartRecord[];
+  chartConfig: ChartConfig;
+  total: number;
+}

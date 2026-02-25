@@ -1,25 +1,65 @@
-"use client"
+"use client";
 
-import { useMemo } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@workspace/ui/components/card"
-import { Progress } from "@workspace/ui/components/progress"
-import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@workspace/ui/components/chart"
-import { Area, AreaChart, Bar, BarChart, Line, LineChart, CartesianGrid, XAxis } from "recharts"
-import { useMultiDeviceChartData, useInputOutputRatioChartData, useMultiDeviceTokenData, useMultiAgentChartData, filterByTimeRange } from "@/hooks/use-chart-data"
-import { DailyRecord, DeviceRecord, Device, TimeRange, AgentType, AgentRecord } from "@/types/chart-types"
-import { CHART_COLORS } from "@/constants/chart-config"
-import type { AggregatedMetrics } from "@/types/api-types"
+import { useMemo } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@workspace/ui/components/card";
+import { Progress } from "@workspace/ui/components/progress";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  ChartLegend,
+  ChartLegendContent,
+} from "@workspace/ui/components/chart";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  CartesianGrid,
+  XAxis,
+} from "recharts";
+import {
+  useMultiDeviceChartData,
+  useInputOutputRatioChartData,
+  useMultiDeviceTokenData,
+  useMultiAgentChartData,
+  useAgentTokenPieData,
+  useAgentCostPieData,
+  useDeviceCostPieData,
+  useCacheEfficiencyPieData,
+  filterByTimeRange,
+} from "@/hooks/use-chart-data";
+import {
+  DailyRecord,
+  DeviceRecord,
+  Device,
+  TimeRange,
+  AgentType,
+  AgentRecord,
+} from "@/types/chart-types";
+import { CHART_COLORS } from "@/constants/chart-config";
+import type { AggregatedMetrics } from "@/types/api-types";
 
 interface ChartsProps {
-  dailyData: DailyRecord[]
-  devices: Device[]
-  deviceData: DeviceRecord[]
-  agentData?: AgentRecord[]
-  timeRange: TimeRange
-  customDateRange?: { from: Date; to: Date }
-  totals?: AggregatedMetrics
-  last30Days?: AggregatedMetrics
-  agentFilter?: AgentType | 'all'
+  dailyData: DailyRecord[];
+  devices: Device[];
+  deviceData: DeviceRecord[];
+  agentData?: AgentRecord[];
+  timeRange: TimeRange;
+  customDateRange?: { from: Date; to: Date };
+  totals?: AggregatedMetrics;
+  last30Days?: AggregatedMetrics;
+  agentFilter?: AgentType | "all";
 }
 
 export function Charts({
@@ -31,90 +71,140 @@ export function Charts({
   customDateRange,
   totals,
   last30Days,
-  agentFilter = 'all'
+  agentFilter = "all",
 }: ChartsProps) {
-  const { chartData: multiDeviceChartData, chartConfig: multiDeviceChartConfig, activeDevices: activeCostDevices } = useMultiDeviceChartData(
-    deviceData,
-    devices,
-    timeRange,
-    customDateRange
-  )
+  const {
+    chartData: multiDeviceChartData,
+    chartConfig: multiDeviceChartConfig,
+    activeDevices: activeCostDevices,
+  } = useMultiDeviceChartData(deviceData, devices, timeRange, customDateRange);
 
-  const { chartData: ratioChartData, chartConfig: ratioChartConfig } = useInputOutputRatioChartData(
-    dailyData,
-    timeRange,
-    customDateRange
-  )
+  const { chartData: ratioChartData, chartConfig: ratioChartConfig } =
+    useInputOutputRatioChartData(dailyData, timeRange, customDateRange);
 
-  const { chartData: multiDeviceTokenData, chartConfig: multiDeviceTokenConfig, activeDevices: activeTokenDevices } = useMultiDeviceTokenData(
-    deviceData,
-    devices,
-    timeRange,
-    customDateRange
-  )
+  const {
+    chartData: multiDeviceTokenData,
+    chartConfig: multiDeviceTokenConfig,
+    activeDevices: activeTokenDevices,
+  } = useMultiDeviceTokenData(deviceData, devices, timeRange, customDateRange);
 
   // Multi-agent chart data (only when viewing all agents)
-  const { chartData: multiAgentChartData, chartConfig: multiAgentChartConfig, activeAgents } = useMultiAgentChartData(
-    agentData || [],
-    timeRange,
-    customDateRange
-  )
+  const {
+    chartData: multiAgentChartData,
+    chartConfig: multiAgentChartConfig,
+    activeAgents,
+  } = useMultiAgentChartData(agentData || [], timeRange, customDateRange);
 
-  const showAgentChart = agentFilter === 'all' && activeAgents.length > 1
+  // Pie chart data (only when viewing all agents)
+  const { chartData: agentTokenPieData, chartConfig: agentTokenPieConfig } =
+    useAgentTokenPieData(agentData || [], timeRange, customDateRange);
+  const { chartData: agentCostPieData, chartConfig: agentCostPieConfig } =
+    useAgentCostPieData(agentData || [], timeRange, customDateRange);
+  const { chartData: deviceCostPieData, chartConfig: deviceCostPieConfig } =
+    useDeviceCostPieData(deviceData, devices, timeRange, customDateRange);
+  const {
+    chartData: cacheEfficiencyPieData,
+    chartConfig: cacheEfficiencyPieConfig,
+  } = useCacheEfficiencyPieData(dailyData, timeRange, customDateRange);
+
+  const showAgentChart = agentFilter === "all" && activeAgents.length > 1;
+  const showPieCharts = agentFilter === "all" && agentTokenPieData.length > 0;
 
   const { usageActivityRate, cacheHitRate, tokenUnitPrice } = useMemo(() => {
     if (timeRange === "all" && totals) {
-      const cacheHit = totals.totalCacheReadTokens > 0
-        ? (totals.totalCacheReadTokens / (totals.totalCacheReadTokens + totals.totalCacheCreationTokens)) * 100
-        : 0
-      const unitPrice = totals.totalTokens > 0
-        ? (totals.totalCost / totals.totalTokens) * 1000000
-        : 0
-      const filteredData = filterByTimeRange(dailyData, timeRange, customDateRange)
-      const usageActivity = filteredData.length > 0
-        ? (filteredData.filter(day => day.totalTokens > 0).length / filteredData.length) * 100
-        : 0
+      const cacheHit =
+        totals.totalCacheReadTokens > 0
+          ? (totals.totalCacheReadTokens /
+              (totals.totalCacheReadTokens + totals.totalCacheCreationTokens)) *
+            100
+          : 0;
+      const unitPrice =
+        totals.totalTokens > 0
+          ? (totals.totalCost / totals.totalTokens) * 1000000
+          : 0;
+      const filteredData = filterByTimeRange(
+        dailyData,
+        timeRange,
+        customDateRange,
+      );
+      const usageActivity =
+        filteredData.length > 0
+          ? (filteredData.filter((day) => day.totalTokens > 0).length /
+              filteredData.length) *
+            100
+          : 0;
 
-      return { usageActivityRate: usageActivity, cacheHitRate: cacheHit, tokenUnitPrice: unitPrice }
+      return {
+        usageActivityRate: usageActivity,
+        cacheHitRate: cacheHit,
+        tokenUnitPrice: unitPrice,
+      };
     }
 
     if (timeRange === "30d" && last30Days) {
-      const cacheHit = last30Days.totalCacheReadTokens > 0
-        ? (last30Days.totalCacheReadTokens / (last30Days.totalCacheReadTokens + last30Days.totalCacheCreationTokens)) * 100
-        : 0
-      const unitPrice = last30Days.totalTokens > 0
-        ? (last30Days.totalCost / last30Days.totalTokens) * 1000000
-        : 0
-      const usageActivity = (last30Days.activeDays / 30) * 100
+      const cacheHit =
+        last30Days.totalCacheReadTokens > 0
+          ? (last30Days.totalCacheReadTokens /
+              (last30Days.totalCacheReadTokens +
+                last30Days.totalCacheCreationTokens)) *
+            100
+          : 0;
+      const unitPrice =
+        last30Days.totalTokens > 0
+          ? (last30Days.totalCost / last30Days.totalTokens) * 1000000
+          : 0;
+      const usageActivity = (last30Days.activeDays / 30) * 100;
 
-      return { usageActivityRate: usageActivity, cacheHitRate: cacheHit, tokenUnitPrice: unitPrice }
+      return {
+        usageActivityRate: usageActivity,
+        cacheHitRate: cacheHit,
+        tokenUnitPrice: unitPrice,
+      };
     }
 
-    const filteredData = filterByTimeRange(dailyData, timeRange, customDateRange)
+    const filteredData = filterByTimeRange(
+      dailyData,
+      timeRange,
+      customDateRange,
+    );
 
     if (filteredData.length === 0) {
-      return { usageActivityRate: 0, cacheHitRate: 0, tokenUnitPrice: 0 }
+      return { usageActivityRate: 0, cacheHitRate: 0, tokenUnitPrice: 0 };
     }
 
-    const usageActivity = (filteredData.filter(day => day.totalTokens > 0).length / filteredData.length) * 100
+    const usageActivity =
+      (filteredData.filter((day) => day.totalTokens > 0).length /
+        filteredData.length) *
+      100;
 
-    const aggregated = filteredData.reduce((acc, day) => ({
-      cacheRead: acc.cacheRead + day.cacheReadTokens,
-      cacheCreation: acc.cacheCreation + day.cacheCreationTokens,
-      tokens: acc.tokens + day.totalTokens,
-      cost: acc.cost + day.totalCost
-    }), { cacheRead: 0, cacheCreation: 0, tokens: 0, cost: 0 })
+    const aggregated = filteredData.reduce(
+      (acc, day) => ({
+        cacheRead: acc.cacheRead + day.cacheReadTokens,
+        cacheCreation: acc.cacheCreation + day.cacheCreationTokens,
+        tokens: acc.tokens + day.totalTokens,
+        cost: acc.cost + day.totalCost,
+      }),
+      { cacheRead: 0, cacheCreation: 0, tokens: 0, cost: 0 },
+    );
 
-    const cacheHit = aggregated.cacheRead > 0
-      ? (aggregated.cacheRead / (aggregated.cacheRead + aggregated.cacheCreation)) * 100
-      : 0
+    const cacheHit =
+      aggregated.cacheRead > 0
+        ? (aggregated.cacheRead /
+            (aggregated.cacheRead + aggregated.cacheCreation)) *
+          100
+        : 0;
 
-    const unitPrice = aggregated.tokens > 0
-      ? (aggregated.cost / aggregated.tokens) * 1000000
-      : 0
+    const unitPrice =
+      aggregated.tokens > 0
+        ? (aggregated.cost / aggregated.tokens) * 1000000
+        : 0;
 
-    return { usageActivityRate: usageActivity, cacheHitRate: cacheHit, tokenUnitPrice: unitPrice }
-  }, [dailyData, timeRange, customDateRange, totals, last30Days])
+    return {
+      usageActivityRate: usageActivity,
+      cacheHitRate: cacheHit,
+      tokenUnitPrice: unitPrice,
+    };
+  }, [dailyData, timeRange, customDateRange, totals, last30Days]);
 
   return (
     <div className="space-y-6">
@@ -127,17 +217,32 @@ export function Charts({
             </div>
           </CardHeader>
           <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
-            <ChartContainer config={multiDeviceChartConfig} className="aspect-auto h-[250px] w-full">
+            <ChartContainer
+              config={multiDeviceChartConfig}
+              className="aspect-auto h-[250px] w-full"
+            >
               <AreaChart data={multiDeviceChartData}>
                 <defs>
                   {activeCostDevices.map((device, deviceIndex) => {
-                    const color = CHART_COLORS[deviceIndex % CHART_COLORS.length]
+                    const color =
+                      CHART_COLORS[deviceIndex % CHART_COLORS.length];
                     return (
-                      <linearGradient key={device.deviceId} id={`fill${device.deviceId}`} x1="0" y1="0" x2="0" y2="1">
+                      <linearGradient
+                        key={device.deviceId}
+                        id={`fill${device.deviceId}`}
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
                         <stop offset="5%" stopColor={color} stopOpacity={0.8} />
-                        <stop offset="95%" stopColor={color} stopOpacity={0.1} />
+                        <stop
+                          offset="95%"
+                          stopColor={color}
+                          stopOpacity={0.1}
+                        />
                       </linearGradient>
-                    )
+                    );
                   })}
                 </defs>
                 <CartesianGrid vertical={false} />
@@ -148,15 +253,23 @@ export function Charts({
                   tickMargin={8}
                   minTickGap={32}
                   tickFormatter={(value) => {
-                    const date = new Date(value)
-                    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                    const date = new Date(value);
+                    return date.toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                    });
                   }}
                 />
                 <ChartTooltip
                   cursor={false}
                   content={
                     <ChartTooltipContent
-                      labelFormatter={(value) => new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                      labelFormatter={(value) =>
+                        new Date(value).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                        })
+                      }
                       indicator="dot"
                     />
                   }
@@ -181,11 +294,16 @@ export function Charts({
           <CardHeader className="flex items-center gap-2 space-y-0 border-b py-5 sm:flex-row">
             <div className="grid flex-1 gap-1">
               <CardTitle>Token Usage</CardTitle>
-              <CardDescription>Token consumption over time (millions)</CardDescription>
+              <CardDescription>
+                Token consumption over time (millions)
+              </CardDescription>
             </div>
           </CardHeader>
           <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
-            <ChartContainer config={multiDeviceTokenConfig} className="aspect-auto h-[250px] w-full">
+            <ChartContainer
+              config={multiDeviceTokenConfig}
+              className="aspect-auto h-[250px] w-full"
+            >
               <BarChart data={multiDeviceTokenData}>
                 <CartesianGrid vertical={false} />
                 <XAxis
@@ -195,11 +313,17 @@ export function Charts({
                   tickMargin={8}
                   minTickGap={32}
                   tickFormatter={(value) => {
-                    const date = new Date(value)
-                    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                    const date = new Date(value);
+                    return date.toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                    });
                   }}
                 />
-                <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
+                <ChartTooltip
+                  cursor={false}
+                  content={<ChartTooltipContent hideLabel />}
+                />
                 <ChartLegend content={<ChartLegendContent />} />
                 {activeTokenDevices.map((device, index) => (
                   <Bar
@@ -211,8 +335,8 @@ export function Charts({
                       index === 0
                         ? [0, 0, 4, 4]
                         : index === activeTokenDevices.length - 1
-                        ? [4, 4, 0, 0]
-                        : [0, 0, 0, 0]
+                          ? [4, 4, 0, 0]
+                          : [0, 0, 0, 0]
                     }
                   />
                 ))}
@@ -228,21 +352,39 @@ export function Charts({
           <CardHeader className="flex items-center gap-2 space-y-0 border-b py-5 sm:flex-row">
             <div className="grid flex-1 gap-1">
               <CardTitle>Cost by Agent</CardTitle>
-              <CardDescription>Compare usage costs across different coding agents</CardDescription>
+              <CardDescription>
+                Compare usage costs across different coding agents
+              </CardDescription>
             </div>
           </CardHeader>
           <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
-            <ChartContainer config={multiAgentChartConfig} className="aspect-auto h-[250px] w-full">
+            <ChartContainer
+              config={multiAgentChartConfig}
+              className="aspect-auto h-[250px] w-full"
+            >
               <AreaChart data={multiAgentChartData}>
                 <defs>
                   {activeAgents.map((agent, agentIndex) => {
-                    const color = multiAgentChartConfig[agent]?.color || CHART_COLORS[agentIndex % CHART_COLORS.length]
+                    const color =
+                      multiAgentChartConfig[agent]?.color ||
+                      CHART_COLORS[agentIndex % CHART_COLORS.length];
                     return (
-                      <linearGradient key={agent} id={`fillAgent${agent}`} x1="0" y1="0" x2="0" y2="1">
+                      <linearGradient
+                        key={agent}
+                        id={`fillAgent${agent}`}
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
                         <stop offset="5%" stopColor={color} stopOpacity={0.8} />
-                        <stop offset="95%" stopColor={color} stopOpacity={0.1} />
+                        <stop
+                          offset="95%"
+                          stopColor={color}
+                          stopOpacity={0.1}
+                        />
                       </linearGradient>
-                    )
+                    );
                   })}
                 </defs>
                 <CartesianGrid vertical={false} />
@@ -253,15 +395,23 @@ export function Charts({
                   tickMargin={8}
                   minTickGap={32}
                   tickFormatter={(value) => {
-                    const date = new Date(value)
-                    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                    const date = new Date(value);
+                    return date.toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                    });
                   }}
                 />
                 <ChartTooltip
                   cursor={false}
                   content={
                     <ChartTooltipContent
-                      labelFormatter={(value) => new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                      labelFormatter={(value) =>
+                        new Date(value).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                        })
+                      }
                       indicator="dot"
                     />
                   }
@@ -283,16 +433,162 @@ export function Charts({
         </Card>
       )}
 
+      {/* Distribution Pie Charts - only shown when viewing all agents */}
+      {showPieCharts && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Agent Token Distribution */}
+          <Card className="pt-0">
+            <CardHeader className="flex items-center gap-2 space-y-0 border-b py-5 sm:flex-row">
+              <div className="grid flex-1 gap-1">
+                <CardTitle>Token by Agent</CardTitle>
+                <CardDescription>Distribution of token usage</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
+              <ChartContainer
+                config={agentTokenPieConfig}
+                className="aspect-auto h-[250px] w-full"
+              >
+                <PieChart>
+                  <ChartTooltip
+                    cursor={false}
+                    content={<ChartTooltipContent hideLabel />}
+                  />
+                  <Pie
+                    data={agentTokenPieData}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={60}
+                  />
+                  <ChartLegend
+                    content={<ChartLegendContent nameKey="name" />}
+                    className="-translate-y-2 flex-wrap gap-2 [&>*]:justify-center"
+                  />
+                </PieChart>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+
+          {/* Agent Cost Distribution */}
+          <Card className="pt-0">
+            <CardHeader className="flex items-center gap-2 space-y-0 border-b py-5 sm:flex-row">
+              <div className="grid flex-1 gap-1">
+                <CardTitle>Cost by Agent</CardTitle>
+                <CardDescription>Distribution of costs</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
+              <ChartContainer
+                config={agentCostPieConfig}
+                className="aspect-auto h-[250px] w-full"
+              >
+                <PieChart>
+                  <ChartTooltip
+                    cursor={false}
+                    content={<ChartTooltipContent hideLabel />}
+                  />
+                  <Pie
+                    data={agentCostPieData}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={60}
+                  />
+                  <ChartLegend
+                    content={<ChartLegendContent nameKey="name" />}
+                    className="-translate-y-2 flex-wrap gap-2 [&>*]:justify-center"
+                  />
+                </PieChart>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+
+          {/* Device Cost Distribution */}
+          <Card className="pt-0">
+            <CardHeader className="flex items-center gap-2 space-y-0 border-b py-5 sm:flex-row">
+              <div className="grid flex-1 gap-1">
+                <CardTitle>Cost by Device</CardTitle>
+                <CardDescription>Distribution across devices</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
+              <ChartContainer
+                config={deviceCostPieConfig}
+                className="aspect-auto h-[250px] w-full"
+              >
+                <PieChart>
+                  <ChartTooltip
+                    cursor={false}
+                    content={<ChartTooltipContent hideLabel />}
+                  />
+                  <Pie
+                    data={deviceCostPieData}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={60}
+                  />
+                  <ChartLegend
+                    content={<ChartLegendContent nameKey="name" />}
+                    className="-translate-y-2 flex-wrap gap-2 [&>*]:justify-center"
+                  />
+                </PieChart>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+
+          {/* Cache Efficiency */}
+          <Card className="pt-0">
+            <CardHeader className="flex items-center gap-2 space-y-0 border-b py-5 sm:flex-row">
+              <div className="grid flex-1 gap-1">
+                <CardTitle>Cache Efficiency</CardTitle>
+                <CardDescription>Input token cache breakdown</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
+              <ChartContainer
+                config={cacheEfficiencyPieConfig}
+                className="aspect-auto h-[250px] w-full"
+              >
+                <PieChart>
+                  <ChartTooltip
+                    cursor={false}
+                    content={<ChartTooltipContent hideLabel />}
+                  />
+                  <Pie
+                    data={cacheEfficiencyPieData}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={60}
+                  />
+                  <ChartLegend
+                    content={<ChartLegendContent nameKey="name" />}
+                    className="-translate-y-2 flex-wrap gap-2 [&>*]:justify-center"
+                  />
+                </PieChart>
+              </ChartContainer>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       <Card className="pt-0">
         <CardHeader className="flex items-center gap-2 space-y-0 border-b py-5 sm:flex-row">
           <div className="grid flex-1 gap-1">
             <CardTitle>Input/Output Ratio Analysis</CardTitle>
-            <CardDescription>Trend analysis of input vs output token efficiency over time</CardDescription>
+            <CardDescription>
+              Trend analysis of input vs output token efficiency over time
+            </CardDescription>
           </div>
         </CardHeader>
         <CardContent className="px-2 pt-4 sm:px-6 sm:pt-6">
-          <ChartContainer config={ratioChartConfig} className="aspect-auto h-[300px] w-full">
-            <LineChart accessibilityLayer data={ratioChartData} margin={{ left: 12, right: 12 }}>
+          <ChartContainer
+            config={ratioChartConfig}
+            className="aspect-auto h-[300px] w-full"
+          >
+            <LineChart
+              accessibilityLayer
+              data={ratioChartData}
+              margin={{ left: 12, right: 12 }}
+            >
               <CartesianGrid vertical={false} />
               <XAxis
                 dataKey="date"
@@ -301,17 +597,27 @@ export function Charts({
                 tickMargin={8}
                 minTickGap={32}
                 tickFormatter={(value) => {
-                  const date = new Date(value)
-                  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                  const date = new Date(value);
+                  return date.toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                  });
                 }}
               />
-              <ChartTooltip cursor={false} content={<ChartTooltipContent indicator="dot" />} />
+              <ChartTooltip
+                cursor={false}
+                content={<ChartTooltipContent indicator="dot" />}
+              />
               <Line
                 dataKey="ratio"
                 type="monotone"
                 stroke={ratioChartConfig.ratio?.color}
                 strokeWidth={2}
-                dot={{ fill: ratioChartConfig.ratio?.color, strokeWidth: 2, r: 4 }}
+                dot={{
+                  fill: ratioChartConfig.ratio?.color,
+                  strokeWidth: 2,
+                  r: 4,
+                }}
                 activeDot={{ r: 6 }}
               />
               <Line
@@ -340,32 +646,51 @@ export function Charts({
             <div className="space-y-3">
               <div className="flex justify-between items-center">
                 <span className="text-sm font-medium">Usage Activity</span>
-                <span className="text-sm font-bold">{usageActivityRate.toFixed(1)}%</span>
+                <span className="text-sm font-bold">
+                  {usageActivityRate.toFixed(1)}%
+                </span>
               </div>
               <Progress value={usageActivityRate} className="h-2" />
-              <p className="text-xs text-muted-foreground">Days with usage vs total days</p>
+              <p className="text-xs text-muted-foreground">
+                Days with usage vs total days
+              </p>
             </div>
 
             <div className="space-y-3">
               <div className="flex justify-between items-center">
                 <span className="text-sm font-medium">Cache Hit Rate</span>
-                <span className="text-sm font-bold">{cacheHitRate.toFixed(1)}%</span>
+                <span className="text-sm font-bold">
+                  {cacheHitRate.toFixed(1)}%
+                </span>
               </div>
               <Progress value={cacheHitRate} className="h-2" />
-              <p className="text-xs text-muted-foreground">Percentage of requests served from cache</p>
+              <p className="text-xs text-muted-foreground">
+                Percentage of requests served from cache
+              </p>
             </div>
 
             <div className="space-y-3">
               <div className="flex justify-between items-center">
                 <span className="text-sm font-medium">Token Unit Price</span>
-                <span className="text-sm font-bold">${tokenUnitPrice.toFixed(2)}</span>
+                <span className="text-sm font-bold">
+                  ${tokenUnitPrice.toFixed(2)}
+                </span>
               </div>
-              <Progress value={tokenUnitPrice > 0 ? Math.min(100, (6 / tokenUnitPrice) * 100) : 0} className="h-2" />
-              <p className="text-xs text-muted-foreground">Average cost per million tokens</p>
+              <Progress
+                value={
+                  tokenUnitPrice > 0
+                    ? Math.min(100, (6 / tokenUnitPrice) * 100)
+                    : 0
+                }
+                className="h-2"
+              />
+              <p className="text-xs text-muted-foreground">
+                Average cost per million tokens
+              </p>
             </div>
           </div>
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }
