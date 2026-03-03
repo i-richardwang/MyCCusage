@@ -138,7 +138,7 @@ export function useMultiDeviceChartData(
         if (!acc[record.date]) {
           acc[record.date] = {};
         }
-        acc[record.date]![record.deviceId] = record.totalCost;
+        acc[record.date]![record.deviceId] = (acc[record.date]![record.deviceId] || 0) + record.totalCost;
         return acc;
       },
       {} as Record<string, Record<string, number>>,
@@ -278,7 +278,7 @@ export function useMultiDeviceTokenData(
         if (!acc[record.date]) {
           acc[record.date] = {};
         }
-        acc[record.date]![record.deviceId] = record.totalTokens / 1000000; // Convert to millions
+        acc[record.date]![record.deviceId] = (acc[record.date]![record.deviceId] || 0) + record.totalTokens / 1000000; // Convert to millions
         return acc;
       },
       {} as Record<string, Record<string, number>>,
