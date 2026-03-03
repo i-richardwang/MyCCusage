@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { db } from "@/src/db";
 import { usageRecords, devices } from "@/src/db/schema";
 import { sql, desc, eq } from "drizzle-orm";
-import { QUERY_LIMITS } from "@/constants/business-config";
 import type { AgentType } from "@/types/chart-types";
 
 // Optimized unified statistics query using CTE
@@ -155,8 +154,7 @@ async function getDailyAndDeviceData() {
         credits: sql<number>`${usageRecords.credits}::numeric`.as("credits"),
       })
       .from(usageRecords)
-      .orderBy(desc(usageRecords.date))
-      .limit(QUERY_LIMITS.DEVICE_RECORDS),
+      .orderBy(desc(usageRecords.date)),
 
     // Device information with aggregated usage statistics
     db

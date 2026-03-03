@@ -48,6 +48,7 @@ import {
   AgentRecord,
 } from "@/types/chart-types";
 import { CHART_COLORS } from "@/constants/chart-config";
+import { formatChartDate } from "@/lib/date-utils";
 import type { AggregatedMetrics } from "@/types/api-types";
 
 interface ChartsProps {
@@ -252,24 +253,13 @@ export function Charts({
                   axisLine={false}
                   tickMargin={8}
                   minTickGap={32}
-                  tickFormatter={(value) => {
-                    const date = new Date(value);
-                    return date.toLocaleDateString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                    });
-                  }}
+                  tickFormatter={(value) => formatChartDate(value)}
                 />
                 <ChartTooltip
                   cursor={false}
                   content={
                     <ChartTooltipContent
-                      labelFormatter={(value) =>
-                        new Date(value).toLocaleDateString("en-US", {
-                          month: "short",
-                          day: "numeric",
-                        })
-                      }
+                      labelFormatter={(value) => formatChartDate(value)}
                       indicator="dot"
                     />
                   }
@@ -312,13 +302,7 @@ export function Charts({
                   axisLine={false}
                   tickMargin={8}
                   minTickGap={32}
-                  tickFormatter={(value) => {
-                    const date = new Date(value);
-                    return date.toLocaleDateString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                    });
-                  }}
+                  tickFormatter={(value) => formatChartDate(value)}
                 />
                 <ChartTooltip
                   cursor={false}
@@ -394,24 +378,13 @@ export function Charts({
                   axisLine={false}
                   tickMargin={8}
                   minTickGap={32}
-                  tickFormatter={(value) => {
-                    const date = new Date(value);
-                    return date.toLocaleDateString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                    });
-                  }}
+                  tickFormatter={(value) => formatChartDate(value)}
                 />
                 <ChartTooltip
                   cursor={false}
                   content={
                     <ChartTooltipContent
-                      labelFormatter={(value) =>
-                        new Date(value).toLocaleDateString("en-US", {
-                          month: "short",
-                          day: "numeric",
-                        })
-                      }
+                      labelFormatter={(value) => formatChartDate(value)}
                       indicator="dot"
                     />
                   }
@@ -596,13 +569,7 @@ export function Charts({
                 axisLine={false}
                 tickMargin={8}
                 minTickGap={32}
-                tickFormatter={(value) => {
-                  const date = new Date(value);
-                  return date.toLocaleDateString("en-US", {
-                    month: "short",
-                    day: "numeric",
-                  });
-                }}
+                tickFormatter={(value) => formatChartDate(value)}
               />
               <ChartTooltip
                 cursor={false}

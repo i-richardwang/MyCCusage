@@ -43,13 +43,6 @@ export function getPlanPricing(plan: SubscriptionPlan): number {
 }
 
 /**
- * Query limits for database operations
- */
-export const QUERY_LIMITS = {
-  DEVICE_RECORDS: 300
-} as const
-
-/**
  * User tier type
  */
 export type UserTier = 'Heavy User' | 'Power User' | 'Regular User' | 'Light User'

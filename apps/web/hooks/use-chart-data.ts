@@ -18,6 +18,7 @@ import {
   AGENT_CHART_CONFIG,
   CACHE_EFFICIENCY_CHART_CONFIG,
 } from "@/constants/chart-config";
+import { parseLocalDate } from "@/lib/date-utils";
 
 // Shared utility for time range filtering
 export function filterByTimeRange<T extends { date: string }>(
@@ -31,13 +32,13 @@ export function filterByTimeRange<T extends { date: string }>(
 
   if (timeRange === "custom" && customDateRange) {
     return data.filter((item) => {
-      const date = new Date(item.date);
+      const date = parseLocalDate(item.date);
       return date >= customDateRange.from && date <= customDateRange.to;
     });
   }
 
   return data.filter((item) => {
-    const date = new Date(item.date);
+    const date = parseLocalDate(item.date);
     const referenceDate = new Date();
     const daysToSubtract = TIME_RANGE_DAYS[timeRange];
     const startDate = new Date(referenceDate);

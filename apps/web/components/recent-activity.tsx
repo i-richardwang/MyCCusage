@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@work
 import { DataTablePagination } from "@/components/data-table-pagination"
 import { DailyRecord, TimeRange } from "@/types/chart-types"
 import { filterByTimeRange } from "@/hooks/use-chart-data"
+import { formatChartDate } from "@/lib/date-utils"
 
 interface RecentActivityProps {
   dailyData: DailyRecord[]
@@ -67,7 +68,7 @@ export function RecentActivity({
               {paginatedData.map((day) => (
                 <tr key={day.date} className="border-b">
                   <td className="py-3 px-2 text-sm font-medium">
-                    {new Date(day.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    {formatChartDate(day.date)}
                   </td>
                   <td className="py-3 px-2 text-sm font-bold">{formatCurrency(day.totalCost)}</td>
                   <td className="py-3 px-2 text-sm font-medium">{formatTokens(day.totalTokens)}</td>
