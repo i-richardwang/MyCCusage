@@ -26,6 +26,7 @@ export interface DailyUsageRecord {
     cacheReadTokens: number;
     cost: number;
   }>;
+  rawData?: Record<string, unknown>;
 }
 
 export interface UsageData {

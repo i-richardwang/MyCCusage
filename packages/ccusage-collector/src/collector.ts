@@ -36,12 +36,13 @@ function extractJSON(stdout: string): string {
   throw new Error("Malformed JSON in output");
 }
 
-// Binary name → npm package name mapping per agent type
-const AGENT_BIN: Record<AgentType, { bin: string; pkg: string }> = {
-  "claude-code": { bin: "ccusage", pkg: "ccusage" },
-  amp: { bin: "ccusage-amp", pkg: "@ccusage/amp" },
-  opencode: { bin: "ccusage-opencode", pkg: "@ccusage/opencode" },
-  codex: { bin: "ccusage-codex", pkg: "@ccusage/codex" },
+// MyCCusage keeps the historical "claude-code" id in storage/UI, while
+// ccusage v20+ exposes the agent as the "claude" subcommand.
+const AGENT_CLI: Record<AgentType, { subcommand: string }> = {
+  "claude-code": { subcommand: "claude" },
+  amp: { subcommand: "amp" },
+  opencode: { subcommand: "opencode" },
+  codex: { subcommand: "codex" },
 };
 
 // Check if a command (or alias) exists in the user's shell
@@ -54,13 +55,47 @@ async function commandExists(bin: string): Promise<boolean> {
   }
 }
 
-// Resolve the command to run: prefer local command/alias, fallback to npx
+// Resolve the command to run: prefer local command/alias, fallback to npx.
+// The unified Rust CLI replaced standalone wrappers such as ccusage-codex.
 async function resolveCommand(agentType: AgentType): Promise<string> {
-  const { bin, pkg } = AGENT_BIN[agentType];
-  if (await commandExists(bin)) {
-    return `${bin} daily --json`;
+  const { subcommand } = AGENT_CLI[agentType];
+  if (await commandExists("ccusage")) {
+    return `ccusage ${subcommand} daily --json`;
   }
-  return `npx ${pkg} daily --json`;
+  console.warn(
+    "ccusage command not found in PATH; falling back to npx ccusage. " +
+      "If you rely on a local ccusage fork, install it first so the collector uses that binary.",
+  );
+  return `npx ccusage ${subcommand} daily --json`;
+}
+
+function numberField(record: Record<string, unknown>, field: string): number {
+  const value = record[field];
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function stringArrayField(
+  record: Record<string, unknown>,
+  field: string,
+): string[] {
+  const value = record[field];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+function getDailyRecordDate(record: Record<string, unknown>): string {
+  if (typeof record.date === "string" && record.date.length > 0) {
+    return record.date;
+  }
+
+  if (typeof record.period === "string" || typeof record.agent === "string") {
+    throw new Error(
+      "Received all-agent ccusage output; collector must call an explicit agent subcommand",
+    );
+  }
+
+  throw new Error("Missing daily record date");
 }
 
 // Extract modelsUsed and modelBreakdowns from codex-style models object
@@ -90,7 +125,7 @@ function extractModelsFromObject(
 // Map ccusage output fields to API expected fields
 function mapCcusageRecord(record: Record<string, unknown>): DailyUsageRecord {
   // Extract models info: codex uses a models object, others use modelsUsed array + modelBreakdowns array
-  let modelsUsed = (record.modelsUsed as string[]) || [];
+  let modelsUsed = stringArrayField(record, "modelsUsed");
   let modelBreakdowns =
     (record.modelBreakdowns as DailyUsageRecord["modelBreakdowns"]) || [];
 
@@ -108,28 +143,30 @@ function mapCcusageRecord(record: Record<string, unknown>): DailyUsageRecord {
   }
 
   return {
-    date: record.date as string,
-    inputTokens: (record.inputTokens as number) || 0,
-    outputTokens: (record.outputTokens as number) || 0,
+    date: getDailyRecordDate(record),
+    inputTokens: numberField(record, "inputTokens"),
+    outputTokens: numberField(record, "outputTokens"),
     // ccusage uses cacheCreationInputTokens, API expects cacheCreationTokens
     cacheCreationTokens:
-      (record.cacheCreationInputTokens as number) ||
-      (record.cacheCreationTokens as number) ||
+      numberField(record, "cacheCreationInputTokens") ||
+      numberField(record, "cacheCreationTokens") ||
       0,
     // ccusage uses cacheReadInputTokens, API expects cacheReadTokens
     // Codex uses cachedInputTokens for cache read tokens
     cacheReadTokens:
-      (record.cacheReadInputTokens as number) ||
-      (record.cacheReadTokens as number) ||
-      (record.cachedInputTokens as number) ||
+      numberField(record, "cacheReadInputTokens") ||
+      numberField(record, "cacheReadTokens") ||
+      numberField(record, "cachedInputTokens") ||
       0,
-    totalTokens: (record.totalTokens as number) || 0,
+    totalTokens: numberField(record, "totalTokens"),
     // ccusage uses costUSD, API expects totalCost
-    totalCost: (record.costUSD as number) || (record.totalCost as number) || 0,
+    totalCost:
+      numberField(record, "costUSD") || numberField(record, "totalCost"),
     // AMP specific field
-    credits: (record.credits as number) || 0,
+    credits: numberField(record, "credits"),
     modelsUsed,
     modelBreakdowns,
+    rawData: record,
   };
 }
 

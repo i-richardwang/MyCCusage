@@ -24,13 +24,13 @@ export interface Config {
 
 export const AGENT_OPTIONS = [
   { value: "claude-code" as const, label: "Claude Code", package: "ccusage" },
-  { value: "amp" as const, label: "AMP", package: "@ccusage/amp" },
+  { value: "amp" as const, label: "AMP", package: "ccusage" },
   {
     value: "opencode" as const,
     label: "OpenCode",
-    package: "@ccusage/opencode",
+    package: "ccusage",
   },
-  { value: "codex" as const, label: "Codex", package: "@ccusage/codex" },
+  { value: "codex" as const, label: "Codex", package: "ccusage" },
 ];
 
 export const SCHEDULE_OPTIONS = [

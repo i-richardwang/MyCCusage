@@ -17,7 +17,8 @@ npm install -g pm2
 
 - Node.js ≥20
 - PM2 process manager (for reliable background execution)
-- Claude Code CLI installed and configured
+- `ccusage` CLI installed and available in PATH
+- At least one supported coding agent installed and configured
 - Access to a deployed My Claude Code Usage Dashboard
 
 ## Quick Start
@@ -165,7 +166,7 @@ pm2 start ccusage-collector -- start
 ## Data Collection
 
 The collector:
-- Uses `npx ccusage daily --json` to gather usage statistics
+- Uses explicit ccusage agent commands such as `ccusage claude daily --json`, `ccusage opencode daily --json`, `ccusage codex daily --json`, and `ccusage amp daily --json`
 - Collects historical data (not just recent usage)
 - Syncs complete usage records to your dashboard
 - Supports upsert operations (updates existing records)
@@ -229,8 +230,8 @@ ccusage-collector config
 ```
 
 **❌ "ccusage command not found"**
-- Ensure Claude Code CLI is installed and in PATH
-- Run `npx ccusage --help` to verify installation
+- Ensure the `ccusage` CLI is installed and in PATH
+- Run `ccusage --help` to verify installation
 
 **❌ "Authentication failed"**
 - Run `ccusage-collector config` to update credentials

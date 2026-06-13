@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
         totalCost: record.totalCost.toString(),
         credits: record.credits?.toString() || '0',
         modelsUsed: record.modelsUsed,
-        rawData: record
+        rawData: record.rawData ?? record
       }))
 
       try {

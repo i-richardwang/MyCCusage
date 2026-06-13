@@ -18,7 +18,7 @@ function formatAgentList(agentTypes: string[]): string {
 program
   .name("ccusage-collector")
   .description("Collect and sync coding agent usage statistics")
-  .version("0.5.1");
+  .version("0.5.4");
 
 // Config command - Interactive configuration
 program

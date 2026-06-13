@@ -56,6 +56,7 @@ export interface UsageSyncRecord {
   cacheReadTokens: number;
   credits?: number;
   modelsUsed: string[];
+  rawData?: Record<string, unknown>;
 }
 
 export interface UsageSyncRequest {
