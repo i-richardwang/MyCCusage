@@ -66,9 +66,25 @@ Visit [http://localhost:3000](http://localhost:3000) to see your dashboard.
 
 ### 4. Install Data Collector
 
+Install globally with Bun (recommended):
+
+```bash
+bun add -g ccusage-collector
+bun add -g pm2
+```
+
+Or with npm:
+
 ```bash
 npm install -g ccusage-collector
 npm install -g pm2
+```
+
+Or run one-off commands without installing:
+
+```bash
+bunx ccusage-collector config
+bunx ccusage-collector sync
 ```
 
 ### 5. Configure and Start Data Collection

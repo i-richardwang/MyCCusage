@@ -8,14 +8,30 @@ This package automatically collects your local Claude Code usage data and syncs 
 
 ## Installation
 
+Install globally with Bun (recommended):
+
+```bash
+bun add -g ccusage-collector
+bun add -g pm2
+```
+
+Or with npm:
+
 ```bash
 npm install -g ccusage-collector
 npm install -g pm2
 ```
 
+Or run one-off commands without installing:
+
+```bash
+bunx ccusage-collector config
+bunx ccusage-collector sync
+```
+
 ## Prerequisites
 
-- Node.js ≥20
+- Bun ≥1.0 or Node.js ≥20
 - PM2 process manager (for reliable background execution)
 - `ccusage` CLI installed and available in PATH
 - At least one supported coding agent installed and configured
@@ -152,9 +168,9 @@ API_KEY=your-secret-api-key-here
 
 ### 3. Install and Configure Collector
 ```bash
-# Install globally
-npm install -g ccusage-collector
-npm install -g pm2
+# Install globally (or use npm install -g)
+bun add -g ccusage-collector
+bun add -g pm2
 
 # Configure
 ccusage-collector config

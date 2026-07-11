@@ -56,15 +56,23 @@ async function commandExists(bin: string): Promise<boolean> {
   }
 }
 
-// Resolve the command to run: prefer local command/alias, fallback to npx.
+// Resolve the command to run: prefer local command/alias, fallback to bunx
+// (then npx when bun is not installed).
 // The unified Rust CLI replaced standalone wrappers such as ccusage-codex.
 async function resolveCommand(agentType: AgentType): Promise<string> {
   const { subcommand } = AGENT_CLI[agentType];
   if (await commandExists("ccusage")) {
     return `ccusage ${subcommand} daily --json`;
   }
+  if (await commandExists("bunx")) {
+    console.warn(
+      "ccusage command not found in PATH; falling back to bunx ccusage. " +
+        "If you rely on a local ccusage fork, install it first so the collector uses that binary.",
+    );
+    return `bunx ccusage ${subcommand} daily --json`;
+  }
   console.warn(
-    "ccusage command not found in PATH; falling back to npx ccusage. " +
+    "ccusage command not found in PATH and bunx is unavailable; falling back to npx ccusage. " +
       "If you rely on a local ccusage fork, install it first so the collector uses that binary.",
   );
   return `npx ccusage ${subcommand} daily --json`;
