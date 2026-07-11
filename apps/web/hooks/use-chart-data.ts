@@ -4,8 +4,6 @@ import {
   DeviceRecord,
   Device,
   TimeRange,
-  ChartRecord,
-  MultiDeviceChartRecord,
   RatioChartData,
   AgentType,
   AgentRecord,
@@ -18,7 +16,7 @@ import {
   AGENT_CHART_CONFIG,
   CACHE_EFFICIENCY_CHART_CONFIG,
 } from "@/constants/chart-config";
-import { parseLocalDate } from "@/lib/date-utils";
+import { parseLocalDate, formatLocalDate } from "@/lib/date-utils";
 
 // Shared utility for time range filtering
 export function filterByTimeRange<T extends { date: string }>(
@@ -75,10 +73,7 @@ function generateDateRange(
   const currentDate = new Date(startDate);
 
   while (currentDate <= endDate) {
-    const dateString = currentDate.toISOString().split("T")[0];
-    if (dateString) {
-      dates.push(dateString);
-    }
+    dates.push(formatLocalDate(currentDate));
     currentDate.setDate(currentDate.getDate() + 1);
   }
 
@@ -108,85 +103,106 @@ export function useSingleDeviceChartData(
   }, [dailyData, timeRange, customDateRange]);
 }
 
-// Hook for multi-device chart data
+// Shared builder for per-device daily series; cost and token charts only
+// differ in which metric each record contributes.
+function buildMultiDeviceSeries(
+  deviceData: DeviceRecord[],
+  devices: Device[],
+  timeRange: TimeRange,
+  customDateRange: { from: Date; to: Date } | undefined,
+  getValue: (record: DeviceRecord) => number,
+) {
+  // First filter device data by time range
+  const filteredDeviceData = filterByTimeRange(
+    deviceData,
+    timeRange,
+    customDateRange,
+  );
+
+  // Get active device IDs from filtered data
+  const activeDeviceIds = new Set(
+    filteredDeviceData.map((record) => record.deviceId),
+  );
+
+  // Filter devices to only include those with data in the selected time range
+  const activeDevices = devices.filter((device) =>
+    activeDeviceIds.has(device.deviceId),
+  );
+
+  // Group device data by date
+  const dateGroups = filteredDeviceData.reduce(
+    (acc, record) => {
+      if (!acc[record.date]) {
+        acc[record.date] = {};
+      }
+      acc[record.date]![record.deviceId] =
+        (acc[record.date]![record.deviceId] || 0) + getValue(record);
+      return acc;
+    },
+    {} as Record<string, Record<string, number>>,
+  );
+
+  // Generate complete date range for continuity
+  const allDates =
+    timeRange === "all"
+      ? Array.from(
+          new Set(filteredDeviceData.map((record) => record.date)),
+        ).sort()
+      : generateDateRange(timeRange, customDateRange);
+
+  // Create complete chart data with zero-fill for missing dates
+  const chartData = allDates.map((date) => {
+    const dataPoint: Record<string, string | number> = { date };
+
+    // Add data for each active device, defaulting to 0 if no data exists
+    activeDevices.forEach((device) => {
+      dataPoint[device.deviceId] = dateGroups[date]?.[device.deviceId] || 0;
+    });
+
+    return dataPoint;
+  });
+
+  // Generate chart configuration only for active devices
+  const chartConfig = activeDevices.reduce(
+    (config, device, index) => {
+      const deviceName =
+        device.displayName?.trim() ||
+        device.deviceName ||
+        `Device ${index + 1}`;
+      config[device.deviceId] = {
+        label: deviceName,
+        color: CHART_COLORS[index % CHART_COLORS.length] || CHART_COLORS[0],
+      };
+      return config;
+    },
+    {} as Record<string, { label: string; color: string }>,
+  );
+
+  return {
+    chartData,
+    chartConfig,
+    activeDevices, // Return filtered devices for chart rendering
+  };
+}
+
+// Hook for multi-device cost chart data
 export function useMultiDeviceChartData(
   deviceData: DeviceRecord[],
   devices: Device[],
   timeRange: TimeRange,
   customDateRange?: { from: Date; to: Date },
 ) {
-  return useMemo(() => {
-    // First filter device data by time range
-    const filteredDeviceData = filterByTimeRange(
-      deviceData,
-      timeRange,
-      customDateRange,
-    );
-
-    // Get active device IDs from filtered data
-    const activeDeviceIds = new Set(
-      filteredDeviceData.map((record) => record.deviceId),
-    );
-
-    // Filter devices to only include those with data in the selected time range
-    const activeDevices = devices.filter((device) =>
-      activeDeviceIds.has(device.deviceId),
-    );
-
-    // Group device data by date
-    const dateGroups = filteredDeviceData.reduce(
-      (acc, record) => {
-        if (!acc[record.date]) {
-          acc[record.date] = {};
-        }
-        acc[record.date]![record.deviceId] = (acc[record.date]![record.deviceId] || 0) + record.totalCost;
-        return acc;
-      },
-      {} as Record<string, Record<string, number>>,
-    );
-
-    // Generate complete date range for continuity
-    const allDates =
-      timeRange === "all"
-        ? Array.from(
-            new Set(filteredDeviceData.map((record) => record.date)),
-          ).sort()
-        : generateDateRange(timeRange, customDateRange);
-
-    // Create complete chart data with zero-fill for missing dates
-    const chartData = allDates.map((date) => {
-      const dataPoint: Record<string, string | number> = { date };
-
-      // Add data for each active device, defaulting to 0 if no data exists
-      activeDevices.forEach((device) => {
-        dataPoint[device.deviceId] = dateGroups[date]?.[device.deviceId] || 0;
-      });
-
-      return dataPoint;
-    });
-
-    // Generate chart configuration only for active devices
-    const chartConfig = activeDevices.reduce(
-      (config, device, index) => {
-        const deviceName =
-          device.displayName?.trim() ||
-          device.deviceName ||
-          `Device ${index + 1}`;
-        config[device.deviceId] = {
-          label: deviceName,
-          color: CHART_COLORS[index % CHART_COLORS.length] || CHART_COLORS[0],
-        };
-        return config;
-      },
-      {} as Record<string, { label: string; color: string }>,
-    );
-
-    return {
-      chartData,
-      chartConfig,
-      activeDevices, // Return filtered devices for chart rendering
-    };
-  }, [deviceData, devices, timeRange, customDateRange]);
+  return useMemo(
+    () =>
+      buildMultiDeviceSeries(
+        deviceData,
+        devices,
+        timeRange,
+        customDateRange,
+        (record) => record.totalCost,
+      ),
+    [deviceData, devices, timeRange, customDateRange],
+  );
 }
 
 // Hook for Input/Output ratio chart data
@@ -219,20 +235,17 @@ export function useInputOutputRatioChartData(
       customDateRange,
     );
 
-    // Calculate rolling average ratio for the filtered data
-    const chartData = filteredData.map((record, index) => {
-      // Calculate average ratio from the beginning of the filtered period up to current point
-      const relevantRecords = filteredData.slice(0, index + 1);
-      const totalInput = relevantRecords.reduce(
-        (sum, r) => sum + r.inputTokens,
-        0,
-      );
-      const totalOutput = relevantRecords.reduce(
-        (sum, r) => sum + r.outputTokens,
-        0,
-      );
+    // Calculate cumulative average ratio (from start of filtered period)
+    // in a single pass using running totals
+    let cumulativeInput = 0;
+    let cumulativeOutput = 0;
+    const chartData = filteredData.map((record) => {
+      cumulativeInput += record.inputTokens;
+      cumulativeOutput += record.outputTokens;
       const averageRatio =
-        totalOutput > 0 ? Number((totalInput / totalOutput).toFixed(2)) : 0;
+        cumulativeOutput > 0
+          ? Number((cumulativeInput / cumulativeOutput).toFixed(2))
+          : 0;
 
       return {
         date: record.date,
@@ -248,85 +261,24 @@ export function useInputOutputRatioChartData(
   }, [dailyData, timeRange, customDateRange]);
 }
 
-// Hook for multi-device token chart data
+// Hook for multi-device token chart data (in millions of tokens)
 export function useMultiDeviceTokenData(
   deviceData: DeviceRecord[],
   devices: Device[],
   timeRange: TimeRange,
   customDateRange?: { from: Date; to: Date },
 ) {
-  return useMemo(() => {
-    // First filter device data by time range
-    const filteredDeviceData = filterByTimeRange(
-      deviceData,
-      timeRange,
-      customDateRange,
-    );
-
-    // Get active device IDs from filtered data
-    const activeDeviceIds = new Set(
-      filteredDeviceData.map((record) => record.deviceId),
-    );
-
-    // Filter devices to only include those with data in the selected time range
-    const activeDevices = devices.filter((device) =>
-      activeDeviceIds.has(device.deviceId),
-    );
-
-    // Group device data by date for token usage
-    const dateGroups = filteredDeviceData.reduce(
-      (acc, record) => {
-        if (!acc[record.date]) {
-          acc[record.date] = {};
-        }
-        acc[record.date]![record.deviceId] = (acc[record.date]![record.deviceId] || 0) + record.totalTokens / 1000000; // Convert to millions
-        return acc;
-      },
-      {} as Record<string, Record<string, number>>,
-    );
-
-    // Generate complete date range for continuity
-    const allDates =
-      timeRange === "all"
-        ? Array.from(
-            new Set(filteredDeviceData.map((record) => record.date)),
-          ).sort()
-        : generateDateRange(timeRange, customDateRange);
-
-    // Create complete chart data with zero-fill for missing dates
-    const chartData = allDates.map((date) => {
-      const dataPoint: Record<string, string | number> = { date };
-
-      // Add data for each active device, defaulting to 0 if no data exists
-      activeDevices.forEach((device) => {
-        dataPoint[device.deviceId] = dateGroups[date]?.[device.deviceId] || 0;
-      });
-
-      return dataPoint;
-    });
-
-    // Generate chart configuration only for active devices
-    const chartConfig = activeDevices.reduce(
-      (config, device, index) => {
-        const deviceName =
-          device.displayName?.trim() ||
-          device.deviceName ||
-          `Device ${index + 1}`;
-        config[device.deviceId] = {
-          label: deviceName,
-          color: CHART_COLORS[index % CHART_COLORS.length] || CHART_COLORS[0],
-        };
-        return config;
-      },
-      {} as Record<string, { label: string; color: string }>,
-    );
-
-    return {
-      chartData,
-      chartConfig,
-      activeDevices, // Return filtered devices for chart rendering
-    };
-  }, [deviceData, devices, timeRange, customDateRange]);
+  return useMemo(
+    () =>
+      buildMultiDeviceSeries(
+        deviceData,
+        devices,
+        timeRange,
+        customDateRange,
+        (record) => record.totalTokens / 1000000,
+      ),
+    [deviceData, devices, timeRange, customDateRange],
+  );
 }
 
 // Utility for filtering data by agent type
@@ -338,59 +290,79 @@ export function filterByAgent<T extends { agentType?: AgentType }>(
   return data.filter((item) => item.agentType === agentFilter);
 }
 
+// Shared builder for agent distribution pie charts; token and cost variants
+// only differ in the aggregated metric, tooltip label, and rounding.
+function buildAgentPieData(
+  agentData: AgentRecord[],
+  timeRange: TimeRange,
+  customDateRange: { from: Date; to: Date } | undefined,
+  getValue: (record: AgentRecord) => number,
+  valueLabel: string,
+  roundValues: boolean,
+): PieChartData {
+  const filteredData = filterByTimeRange(agentData, timeRange, customDateRange);
+
+  // Aggregate metric by agent type
+  const agentTotals = filteredData.reduce(
+    (acc, record) => {
+      acc[record.agentType] = (acc[record.agentType] || 0) + getValue(record);
+      return acc;
+    },
+    {} as Partial<Record<AgentType, number>>,
+  );
+
+  const total = Object.values(agentTotals).reduce(
+    (sum, val) => sum + (val || 0),
+    0,
+  );
+
+  const activeEntries = Object.entries(agentTotals).filter(
+    ([, value]) => (value || 0) > 0,
+  );
+
+  const chartData = activeEntries.map(([agent]) => {
+    const value = agentTotals[agent as AgentType] || 0;
+    return {
+      name: agent,
+      value: roundValues ? Number(value.toFixed(2)) : value,
+      fill: `var(--color-${agent})`,
+    };
+  });
+
+  // Build config for active agents only
+  const chartConfig = activeEntries.reduce(
+    (config, [agent]) => {
+      const agentKey = agent as AgentType;
+      config[agentKey] = AGENT_CHART_CONFIG[agentKey];
+      return config;
+    },
+    {} as Record<string, { label: string; color: string }>,
+  );
+
+  // Add the value key config for tooltip
+  chartConfig.value = { label: valueLabel, color: "" };
+
+  return { chartData, chartConfig, total };
+}
+
 // Hook for agent token distribution pie chart
 export function useAgentTokenPieData(
   agentData: AgentRecord[],
   timeRange: TimeRange,
   customDateRange?: { from: Date; to: Date },
 ): PieChartData {
-  return useMemo(() => {
-    const filteredData = filterByTimeRange(
-      agentData,
-      timeRange,
-      customDateRange,
-    );
-
-    // Aggregate tokens by agent type
-    const agentTotals = filteredData.reduce(
-      (acc, record) => {
-        acc[record.agentType] =
-          (acc[record.agentType] || 0) + record.totalTokens;
-        return acc;
-      },
-      {} as Partial<Record<AgentType, number>>,
-    );
-
-    const total = Object.values(agentTotals).reduce(
-      (sum, val) => sum + (val || 0),
-      0,
-    );
-
-    const chartData = Object.entries(agentTotals)
-      .filter(([, value]) => (value || 0) > 0)
-      .map(([agent]) => ({
-        name: agent,
-        value: agentTotals[agent as AgentType] || 0,
-        fill: `var(--color-${agent})`,
-      }));
-
-    // Build config for active agents only
-    const chartConfig = Object.entries(agentTotals)
-      .filter(([, value]) => (value || 0) > 0)
-      .reduce(
-        (config, [agent]) => {
-          const agentKey = agent as AgentType;
-          config[agentKey] = AGENT_CHART_CONFIG[agentKey];
-          return config;
-        },
-        {} as Record<string, { label: string; color: string }>,
-      );
-
-    // Add the value key config for tooltip
-    chartConfig.value = { label: "Tokens", color: "" };
-
-    return { chartData, chartConfig, total };
-  }, [agentData, timeRange, customDateRange]);
+  return useMemo(
+    () =>
+      buildAgentPieData(
+        agentData,
+        timeRange,
+        customDateRange,
+        (record) => record.totalTokens,
+        "Tokens",
+        false,
+      ),
+    [agentData, timeRange, customDateRange],
+  );
 }
 
 // Hook for agent cost distribution pie chart
@@ -399,50 +371,18 @@ export function useAgentCostPieData(
   timeRange: TimeRange,
   customDateRange?: { from: Date; to: Date },
 ): PieChartData {
-  return useMemo(() => {
-    const filteredData = filterByTimeRange(
-      agentData,
-      timeRange,
-      customDateRange,
-    );
-
-    // Aggregate cost by agent type
-    const agentTotals = filteredData.reduce(
-      (acc, record) => {
-        acc[record.agentType] = (acc[record.agentType] || 0) + record.totalCost;
-        return acc;
-      },
-      {} as Partial<Record<AgentType, number>>,
-    );
-
-    const total = Object.values(agentTotals).reduce(
-      (sum, val) => sum + (val || 0),
-      0,
-    );
-
-    const chartData = Object.entries(agentTotals)
-      .filter(([, value]) => (value || 0) > 0)
-      .map(([agent]) => ({
-        name: agent,
-        value: Number((agentTotals[agent as AgentType] || 0).toFixed(2)),
-        fill: `var(--color-${agent})`,
-      }));
-
-    const chartConfig = Object.entries(agentTotals)
-      .filter(([, value]) => (value || 0) > 0)
-      .reduce(
-        (config, [agent]) => {
-          const agentKey = agent as AgentType;
-          config[agentKey] = AGENT_CHART_CONFIG[agentKey];
-          return config;
-        },
-        {} as Record<string, { label: string; color: string }>,
-      );
-
-    chartConfig.value = { label: "Cost", color: "" };
-
-    return { chartData, chartConfig, total };
-  }, [agentData, timeRange, customDateRange]);
+  return useMemo(
+    () =>
+      buildAgentPieData(
+        agentData,
+        timeRange,
+        customDateRange,
+        (record) => record.totalCost,
+        "Cost",
+        true,
+      ),
+    [agentData, timeRange, customDateRange],
+  );
 }
 
 // Hook for device cost distribution pie chart

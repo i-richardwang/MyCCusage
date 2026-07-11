@@ -5,15 +5,23 @@
     "build": {
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
-      "outputs": [".next/**", "!.next/cache/**"],
-      "env": ["DATABASE_URL", "API_KEY", "CLAUDE_BILLING_CYCLE_START_DATE"]
+      "outputs": [".next/**", "!.next/cache/**", "dist/**"],
+      "env": [
+        "DATABASE_URL",
+        "API_KEY",
+        "CLAUDE_BILLING_CYCLE_START_DATE",
+        "NEXT_PUBLIC_APP_URL",
+        "NEXT_PUBLIC_OWNER_NAME",
+        "NEXT_PUBLIC_SUBSCRIPTION_PLAN"
+      ]
     },
     "lint": {
       "dependsOn": ["^lint"]
     },
-    "check-types": {
-      "dependsOn": ["^check-types"]
+    "typecheck": {
+      "dependsOn": ["^typecheck"]
     },
+    "test": {},
     "dev": {
       "cache": false,
       "persistent": true

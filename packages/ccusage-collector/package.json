@@ -1,12 +1,15 @@
 {
   "name": "ccusage-collector",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "description": "Local collector for Claude Code usage statistics",
   "main": "dist/index.js",
   "type": "module",
   "bin": {
     "ccusage-collector": "dist/cli.js"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",
@@ -14,6 +17,7 @@
     "cli": "tsx src/cli.ts",
     "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "prepublishOnly": "pnpm build"
   },
   "keywords": [
@@ -43,8 +47,10 @@
     "@types/node-cron": "^3.0.11",
     "@workspace/eslint-config": "workspace:*",
     "@workspace/typescript-config": "workspace:*",
+    "eslint": "^9.20.1",
     "tsx": "^4.20.3",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
   },
   "publishConfig": {
     "access": "public"
@@ -52,7 +58,6 @@
   "dependencies": {
     "axios": "^1.10.0",
     "commander": "^14.0.0",
-    "dotenv": "^17.1.0",
     "node-cron": "^4.2.0",
     "inquirer": "^12.1.0"
   }

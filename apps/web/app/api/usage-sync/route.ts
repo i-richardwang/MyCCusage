@@ -1,8 +1,16 @@
+import { createHash, timingSafeEqual } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/src/db'
-import { devices, usageRecords } from '@/src/db/schema'
+import { devices, usageRecords, AGENT_TYPES, type AgentType } from '@/src/db/schema'
 import { sql } from 'drizzle-orm'
 import type { UsageSyncRequest, UsageSyncResponse, UsageSyncResult } from '@/types/api-types'
+
+// Constant-time secret comparison; hashing first makes it length-independent
+function safeKeyCompare(a: string, b: string): boolean {
+  const hashA = createHash('sha256').update(a).digest()
+  const hashB = createHash('sha256').update(b).digest()
+  return timingSafeEqual(hashA, hashB)
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -17,7 +25,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (!apiKey || apiKey !== expectedApiKey) {
+    if (!apiKey || !safeKeyCompare(apiKey, expectedApiKey)) {
       return NextResponse.json(
         { error: 'Invalid API key' },
         { status: 401 }
@@ -61,14 +69,22 @@ export async function POST(request: NextRequest) {
     // Get agent type from request, default to 'claude-code' for backward compatibility
     const agentType = body.device.agentType || 'claude-code'
 
-    // Filter and validate records
-    const validRecords = body.daily.filter(
-      record => record.date && typeof record.totalTokens === 'number' && typeof record.totalCost === 'number'
-    )
+    // Reject unknown agent types so bad clients can't pollute per-agent charts
+    if (!AGENT_TYPES.includes(agentType as AgentType)) {
+      return NextResponse.json(
+        { error: `Invalid agent type: ${agentType}` },
+        { status: 400 }
+      )
+    }
 
-    const invalidRecords = body.daily.filter(
-      record => !record.date || typeof record.totalTokens !== 'number' || typeof record.totalCost !== 'number'
-    )
+    // Filter and validate records (NaN/Infinity would fail the numeric columns)
+    const isValidRecord = (record: (typeof body.daily)[number]) =>
+      Boolean(record.date) &&
+      Number.isFinite(record.totalTokens) &&
+      Number.isFinite(record.totalCost)
+
+    const validRecords = body.daily.filter(record => isValidRecord(record))
+    const invalidRecords = body.daily.filter(record => !isValidRecord(record))
 
     const results: UsageSyncResult[] = []
 
@@ -83,17 +99,23 @@ export async function POST(request: NextRequest) {
 
     // Batch upsert valid records
     if (validRecords.length > 0) {
+      const toSafeInt = (value: unknown): number =>
+        typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : 0
+
       const recordsToInsert = validRecords.map(record => ({
         deviceId: body.device.deviceId,
         agentType: agentType,
         date: record.date,
-        inputTokens: record.inputTokens,
-        outputTokens: record.outputTokens,
-        cacheCreationTokens: record.cacheCreationTokens,
-        cacheReadTokens: record.cacheReadTokens,
-        totalTokens: record.totalTokens,
+        inputTokens: toSafeInt(record.inputTokens),
+        outputTokens: toSafeInt(record.outputTokens),
+        cacheCreationTokens: toSafeInt(record.cacheCreationTokens),
+        cacheReadTokens: toSafeInt(record.cacheReadTokens),
+        totalTokens: toSafeInt(record.totalTokens),
         totalCost: record.totalCost.toString(),
-        credits: record.credits?.toString() || '0',
+        credits:
+          typeof record.credits === 'number' && Number.isFinite(record.credits)
+            ? record.credits.toString()
+            : '0',
         modelsUsed: record.modelsUsed,
         rawData: record.rawData ?? record
       }))

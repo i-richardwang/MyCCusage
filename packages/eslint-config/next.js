@@ -14,6 +14,10 @@ import { config as baseConfig } from "./base.js"
  * @type {import("eslint").Linter.Config}
  * */
 export const nextJsConfig = [
+  {
+    // Build artifacts must never be linted
+    ignores: [".next/**", "next-env.d.ts"],
+  },
   ...baseConfig,
   js.configs.recommended,
   eslintConfigPrettier,

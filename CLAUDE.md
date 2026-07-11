@@ -4,18 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a shadcn/ui monorepo template built with Next.js 15, React 19, and TypeScript. It uses Turbo for build orchestration and pnpm for package management.
+MyCCusage is a self-hosted dashboard for tracking coding-agent usage statistics (Claude Code, Codex, OpenCode, AMP). It is a monorepo built with Next.js 16, React 19, and TypeScript, using Turbo for build orchestration and pnpm for package management.
 
 ## Architecture
 
 **Monorepo Structure:**
-- `apps/web/` - Next.js application with shadcn/ui components
+- `apps/web/` - Next.js dashboard application with shadcn/ui components
+- `packages/ccusage-collector/` - Published npm CLI that collects local usage data and syncs it to the dashboard
 - `packages/ui/` - Shared UI component library with shadcn/ui components
 - `packages/eslint-config/` - Shared ESLint configurations
 - `packages/typescript-config/` - Shared TypeScript configurations
 
 **Key Dependencies:**
-- Next.js 15 with Turbopack for development
+- Next.js 16 with Turbopack for development
 - React 19 with TypeScript
 - Tailwind CSS 4.0 for styling
 - Radix UI primitives for component foundations

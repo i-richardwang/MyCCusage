@@ -13,7 +13,7 @@ A self-hosted web dashboard for tracking Claude Code usage statistics with autom
 ## Architecture
 
 This is a monorepo built with:
-- **Next.js 15** + **React 19** + **TypeScript**
+- **Next.js 16** + **React 19** + **TypeScript**
 - **shadcn/ui** component system
 - **PostgreSQL** + **Drizzle ORM**
 - **Turbo** for build orchestration

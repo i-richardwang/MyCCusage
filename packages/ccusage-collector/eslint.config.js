@@ -1,13 +1,3 @@
-import baseConfig from '@workspace/eslint-config/base.js'
+import { config as baseConfig } from '@workspace/eslint-config/base'
 
-export default [
-  ...baseConfig,
-  {
-    languageOptions: {
-      parserOptions: {
-        project: true,
-        tsconfigRootDir: import.meta.dirname
-      }
-    }
-  }
-]
+export default [...baseConfig]

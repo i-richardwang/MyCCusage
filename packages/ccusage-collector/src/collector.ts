@@ -12,7 +12,8 @@ import { getDeviceInfo } from "./utils/device-info.js";
 
 const execAsync = promisify(exec);
 
-// User's login shell for alias support
+// User's login shell for alias support (runtime-only lookup, not a build input)
+// eslint-disable-next-line turbo/no-undeclared-env-vars
 const USER_SHELL = process.env.SHELL || "/bin/bash";
 
 // Execute a command in the user's interactive shell (loads aliases from rc files)
@@ -23,7 +24,7 @@ async function execInShell(
 }
 
 // Extract JSON from stdout (interactive shells may prepend noise from rc files)
-function extractJSON(stdout: string): string {
+export function extractJSON(stdout: string): string {
   const start = stdout.indexOf("{");
   if (start === -1) throw new Error("No JSON object found in output");
   // Find the matching closing brace
@@ -84,7 +85,7 @@ function stringArrayField(
     : [];
 }
 
-function getDailyRecordDate(record: Record<string, unknown>): string {
+export function getDailyRecordDate(record: Record<string, unknown>): string {
   if (typeof record.date === "string" && record.date.length > 0) {
     return record.date;
   }
@@ -123,7 +124,7 @@ function extractModelsFromObject(
 }
 
 // Map ccusage output fields to API expected fields
-function mapCcusageRecord(record: Record<string, unknown>): DailyUsageRecord {
+export function mapCcusageRecord(record: Record<string, unknown>): DailyUsageRecord {
   // Extract models info: codex uses a models object, others use modelsUsed array + modelBreakdowns array
   let modelsUsed = stringArrayField(record, "modelsUsed");
   let modelBreakdowns =
@@ -337,7 +338,7 @@ export class UsageCollector {
 
   async run(): Promise<void> {
     const agentTypes = this.config.agentTypes || ["claude-code"];
-    let hasError = false;
+    let successCount = 0;
 
     for (const agentType of agentTypes) {
       try {
@@ -345,17 +346,19 @@ export class UsageCollector {
         const data = await this.collectUsageData(agentType);
         await this.syncData(data);
         console.log(`${agentType} sync completed successfully`);
+        successCount++;
       } catch (error) {
         console.error(
           `${agentType} sync failed:`,
           error instanceof Error ? error.message : error,
         );
-        hasError = true;
         // Continue with other agents
       }
     }
 
-    if (hasError && agentTypes.length === 1) {
+    // Exit non-zero when nothing synced so cron/PM2 can surface the failure;
+    // partial success stays exit 0 since per-agent errors are already logged.
+    if (successCount === 0) {
       process.exit(1);
     }
   }

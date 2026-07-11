@@ -1,11 +1,15 @@
 #!/usr/bin/env node
 
+import { createRequire } from "module";
 import { program } from "commander";
 import * as cron from "node-cron";
 import { UsageCollector } from "./collector.js";
 import { ConfigManager, AGENT_OPTIONS } from "./config.js";
 import { InteractiveConfig } from "./interactive-config.js";
 import type { CollectorConfig } from "./types.js";
+
+// Single source of truth for the version (works from both src/ and dist/)
+const { version } = createRequire(import.meta.url)("../package.json");
 
 const configManager = new ConfigManager();
 
@@ -18,7 +22,7 @@ function formatAgentList(agentTypes: string[]): string {
 program
   .name("ccusage-collector")
   .description("Collect and sync coding agent usage statistics")
-  .version("0.5.4");
+  .version(version);
 
 // Config command - Interactive configuration
 program
