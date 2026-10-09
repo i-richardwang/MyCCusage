@@ -18,6 +18,7 @@ export const AGENT_TYPES = [
   "amp",
   "codex",
   "dimagent",
+  "cursor",
 ] as const;
 export type AgentType = (typeof AGENT_TYPES)[number];
 

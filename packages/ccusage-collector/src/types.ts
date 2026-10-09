@@ -4,7 +4,8 @@ export type AgentType =
   | "amp"
   | "opencode"
   | "codex"
-  | "dimagent";
+  | "dimagent"
+  | "cursor";
 
 export interface DeviceInfo {
   deviceId: string;

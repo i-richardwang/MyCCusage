@@ -10,6 +10,7 @@ import type {
 } from "./types.js";
 import { getDeviceInfo } from "./utils/device-info.js";
 import { collectDimagentUsage } from "./dimagent.js";
+import { collectCursorUsage } from "./cursor.js";
 
 const execAsync = promisify(exec);
 
@@ -39,8 +40,9 @@ export function extractJSON(stdout: string): string {
 }
 
 // Agents served by the ccusage CLI. DimAgent is parsed from its local
-// SQLite store instead (see dimagent.ts) and never reaches resolveCommand.
-type CcusageAgentType = Exclude<AgentType, "dimagent">;
+// SQLite store and Cursor from its cloud export instead (see dimagent.ts
+// and cursor.ts); neither reaches resolveCommand.
+type CcusageAgentType = Exclude<AgentType, "dimagent" | "cursor">;
 
 // MyCCusage keeps the historical "claude-code" id in storage/UI, while
 // ccusage v20+ exposes the agent as the "claude" subcommand.
@@ -205,6 +207,12 @@ export class UsageCollector {
       return this.collectDimagentData();
     }
 
+    // Cursor has no ccusage support; its usage is pulled from the cloud
+    // export and may skip quietly on transient failures.
+    if (agent === "cursor") {
+      return this.collectCursorData();
+    }
+
     const command = await resolveCommand(agent);
 
     try {
@@ -277,6 +285,49 @@ export class UsageCollector {
     const displayName = deviceInfo.displayName || deviceInfo.deviceName;
     console.log(`Device: ${displayName} (${deviceInfo.deviceId})`);
     console.log(`Agent Type: dimagent`);
+
+    // Map parser output (ccusage field names) to API expected fields
+    const mappedDaily = daily.map((record) =>
+      mapCcusageRecord(record as unknown as Record<string, unknown>),
+    );
+
+    // Combine data with device info
+    const data: UsageData = {
+      device: deviceInfo,
+      daily: mappedDaily,
+      totals,
+    };
+
+    console.log(`Collected ${data.daily.length} daily records`);
+    return data;
+  }
+
+  // Cursor usage comes from its cloud export (no ccusage support, no
+  // local ledger). The parser emits ccusage-shaped daily records, so the
+  // shared mapping and sync path stays untouched. Skipped runs surface
+  // their warnings and sync nothing; dead credentials throw.
+  private async collectCursorData(): Promise<UsageData> {
+    console.log("Collecting cursor usage data from cloud export");
+    const { daily, totals, warnings } = await collectCursorUsage();
+
+    for (const warning of warnings) {
+      console.warn(warning);
+    }
+
+    // Get device information
+    const deviceInfo = getDeviceInfo();
+
+    // Override displayName from collector config if provided
+    if (this.config.displayName) {
+      deviceInfo.displayName = this.config.displayName;
+    }
+
+    // Set agent type
+    deviceInfo.agentType = "cursor";
+
+    const displayName = deviceInfo.displayName || deviceInfo.deviceName;
+    console.log(`Device: ${displayName} (${deviceInfo.deviceId})`);
+    console.log(`Agent Type: cursor`);
 
     // Map parser output (ccusage field names) to API expected fields
     const mappedDaily = daily.map((record) =>
