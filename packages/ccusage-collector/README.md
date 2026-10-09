@@ -80,6 +80,35 @@ pm2 status
 
 Configuration is stored in `~/.ccusage-collector/config.json` with user-only file permissions.
 
+### Environment Variable Overrides
+
+Deployment credentials can be supplied via the environment instead of the config file. Environment values win over the file and are never written back to disk:
+
+| Variable | Overrides | Example |
+|---|---|---|
+| `MYCCUSAGE_API_KEY` | `apiKey` | `export MYCCUSAGE_API_KEY=your-secret-api-key` |
+| `MYCCUSAGE_ENDPOINT` | `endpoint` | `export MYCCUSAGE_ENDPOINT=https://your-app.com/api/usage-sync` |
+
+Blank values count as unset, so an empty export can never shadow a valid file entry. When both are set, no config file is needed at all — only behavioral settings (`agentTypes`, `schedule`, device names) are read from the file.
+
+The `config` wizard skips questions whose values already come from the environment, and `status` shows each credential's source (`via MYCCUSAGE_API_KEY` vs `via config file`) without printing the secret.
+
+Production example with PM2 (`ecosystem.config.js`):
+
+```js
+module.exports = {
+  apps: [{
+    name: "ccusage-collector",
+    script: "ccusage-collector",
+    args: "start",
+    env: {
+      MYCCUSAGE_API_KEY: "your-secret-api-key",
+      MYCCUSAGE_ENDPOINT: "https://your-app.com/api/usage-sync",
+    },
+  }],
+};
+```
+
 ### Interactive Configuration
 
 ```bash
@@ -183,8 +212,6 @@ pm2 start ccusage-collector -- start
 
 The collector:
 - Uses explicit ccusage agent commands such as `ccusage claude daily --json`, `ccusage opencode daily --json`, `ccusage codex daily --json`, and `ccusage amp daily --json`
-- Parses DimAgent's local SQLite store (`~/.dimcode/v2/dimcode.sqlite`) directly; no ccusage support needed
-- Pulls Cursor usage from the cloud CSV export via the local session token in Cursor's state DB; no ccusage support needed. The export is account-wide, so enable Cursor on exactly one device per account to avoid double-counting
 - Collects historical data (not just recent usage)
 - Syncs complete usage records to your dashboard
 - Supports upsert operations (updates existing records)

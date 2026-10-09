@@ -1,5 +1,5 @@
 import inquirer from 'inquirer'
-import { ConfigManager, Config, SCHEDULE_OPTIONS, AGENT_OPTIONS } from './config.js'
+import { ConfigManager, Config, SCHEDULE_OPTIONS, AGENT_OPTIONS, getEnvOverride } from './config.js'
 import { UsageCollector } from './collector.js'
 import type { AgentType } from './types.js'
 
@@ -17,9 +17,14 @@ export class InteractiveConfig {
     try {
       // Load existing config if available
       const existingConfig = this.configManager.loadConfig()
+      const hasFileConfig = this.configManager.hasConfig()
 
       if (existingConfig) {
-        console.log('✅ Found existing configuration')
+        console.log(
+          hasFileConfig
+            ? '✅ Found existing configuration'
+            : '✅ Found credentials from environment (no config file yet)',
+        )
 
         const { shouldReconfigure } = await inquirer.prompt([
           {
@@ -56,7 +61,20 @@ export class InteractiveConfig {
         }
       })
 
-      // Get remaining configuration
+      // Deployment credentials may come from MYCCUSAGE_* environment
+      // variables; env wins over the file and is never written to disk,
+      // so already-supplied values are not asked about again.
+      const { apiKeyFromEnv, endpointFromEnv } =
+        this.configManager.getEnvOverrideStatus()
+      if (apiKeyFromEnv) {
+        console.log('🔑 API Key: using MYCCUSAGE_API_KEY from environment')
+      }
+      if (endpointFromEnv) {
+        console.log('🌐 Endpoint: using MYCCUSAGE_ENDPOINT from environment')
+      }
+
+      // Credential answers: skipped when the environment already
+      // supplies them (inquirer's `when` keeps a single prompt call).
       const answers = await inquirer.prompt([
         {
           type: 'password',
@@ -64,18 +82,22 @@ export class InteractiveConfig {
           message: 'Enter your API Key:',
           mask: '*',
           default: existingConfig?.apiKey,
+          when: !apiKeyFromEnv,
           validate: (input: string) => {
             if (!input || input.trim().length === 0) {
               return 'API Key is required'
             }
             return true
-          }
+          },
         },
         {
           type: 'input',
           name: 'baseUrl',
           message: 'Enter your dashboard URL (domain only):',
-          default: existingConfig ? existingConfig.endpoint.replace('/api/usage-sync', '') : 'https://your-app.com',
+          default: existingConfig
+            ? existingConfig.endpoint.replace('/api/usage-sync', '')
+            : 'https://your-app.com',
+          when: !endpointFromEnv,
           validate: (input: string) => {
             if (!input || input.trim().length === 0) {
               return 'Dashboard URL is required'
@@ -86,7 +108,7 @@ export class InteractiveConfig {
             } catch {
               return 'Please enter a valid URL (e.g., https://your-app.com)'
             }
-          }
+          },
         },
         {
           type: 'input',
@@ -115,13 +137,18 @@ export class InteractiveConfig {
         }
       ])
 
-      // Build configuration with auto-generated endpoint
-      const baseUrl = answers.baseUrl.trim().replace(/\/$/, '') // Remove trailing slash
-      const endpoint = `${baseUrl}/api/usage-sync`
+      // Build configuration with auto-generated endpoint.
+      // Skipped questions leave no answer; env values fill those gaps.
+      // saveConfig() strips env values before writing the file so secrets
+      // never land on disk.
+      const apiKey = answers.apiKey?.trim() ?? getEnvOverride("MYCCUSAGE_API_KEY")
+      const endpoint = answers.baseUrl
+        ? `${answers.baseUrl.trim().replace(/\/$/, '')}/api/usage-sync`
+        : getEnvOverride("MYCCUSAGE_ENDPOINT")
 
       const config: Config = {
-        apiKey: answers.apiKey.trim(),
-        endpoint: endpoint,
+        apiKey: apiKey as string,
+        endpoint: endpoint as string,
         schedule: answers.scheduleOption.value,
         scheduleLabel: answers.scheduleOption.label,
         maxRetries: existingConfig?.maxRetries || 3,
