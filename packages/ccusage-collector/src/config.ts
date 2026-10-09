@@ -31,6 +31,7 @@ export const AGENT_OPTIONS = [
     package: "ccusage",
   },
   { value: "codex" as const, label: "Codex", package: "ccusage" },
+  { value: "dimagent" as const, label: "DimAgent", package: "dimcode" },
 ];
 
 export const SCHEDULE_OPTIONS = [
