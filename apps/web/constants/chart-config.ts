@@ -5,6 +5,7 @@ export const CHART_COLORS = [
   "var(--chart-3)",
   "var(--chart-4)",
   "var(--chart-5)",
+  "var(--chart-6)",
 ] as const;
 
 export const BASE_CHART_CONFIG = {
@@ -36,6 +37,7 @@ export const AGENT_COLORS = {
   codex: "var(--chart-3)",
   opencode: "var(--chart-4)",
   dimagent: "var(--chart-5)",
+  cursor: "var(--chart-6)",
 } as const;
 
 export const AGENT_CHART_CONFIG = {
@@ -58,6 +60,10 @@ export const AGENT_CHART_CONFIG = {
   dimagent: {
     label: "DimAgent",
     color: "var(--chart-5)",
+  },
+  cursor: {
+    label: "Cursor",
+    color: "var(--chart-6)",
   },
 } as const;
 
