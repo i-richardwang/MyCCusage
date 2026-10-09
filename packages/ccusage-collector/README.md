@@ -212,6 +212,8 @@ pm2 start ccusage-collector -- start
 
 The collector:
 - Uses explicit ccusage agent commands such as `ccusage claude daily --json`, `ccusage opencode daily --json`, `ccusage codex daily --json`, and `ccusage amp daily --json`
+- Parses DimAgent's local SQLite store (`~/.dimcode/v2/dimcode.sqlite`) directly; no ccusage support needed
+- Pulls Cursor usage from the cloud CSV export via the local session token in Cursor's state DB; no ccusage support needed. The export is account-wide, so enable Cursor on exactly one device per account to avoid double-counting
 - Collects historical data (not just recent usage)
 - Syncs complete usage records to your dashboard
 - Supports upsert operations (updates existing records)
