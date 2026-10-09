@@ -12,7 +12,13 @@ import {
 } from "drizzle-orm/pg-core";
 
 // Define agent types as a const for type safety
-export const AGENT_TYPES = ["claude-code", "opencode", "amp", "codex"] as const;
+export const AGENT_TYPES = [
+  "claude-code",
+  "opencode",
+  "amp",
+  "codex",
+  "dimagent",
+] as const;
 export type AgentType = (typeof AGENT_TYPES)[number];
 
 // Devices table for tracking different devices

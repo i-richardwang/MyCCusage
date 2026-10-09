@@ -9,6 +9,7 @@ import type {
   DailyUsageRecord,
 } from "./types.js";
 import { getDeviceInfo } from "./utils/device-info.js";
+import { collectDimagentUsage } from "./dimagent.js";
 
 const execAsync = promisify(exec);
 
@@ -37,9 +38,13 @@ export function extractJSON(stdout: string): string {
   throw new Error("Malformed JSON in output");
 }
 
+// Agents served by the ccusage CLI. DimAgent is parsed from its local
+// SQLite store instead (see dimagent.ts) and never reaches resolveCommand.
+type CcusageAgentType = Exclude<AgentType, "dimagent">;
+
 // MyCCusage keeps the historical "claude-code" id in storage/UI, while
 // ccusage v20+ exposes the agent as the "claude" subcommand.
-const AGENT_CLI: Record<AgentType, { subcommand: string }> = {
+const AGENT_CLI: Record<CcusageAgentType, { subcommand: string }> = {
   "claude-code": { subcommand: "claude" },
   amp: { subcommand: "amp" },
   opencode: { subcommand: "opencode" },
@@ -59,7 +64,7 @@ async function commandExists(bin: string): Promise<boolean> {
 // Resolve the command to run: prefer local command/alias, fallback to bunx
 // (then npx when bun is not installed).
 // The unified Rust CLI replaced standalone wrappers such as ccusage-codex.
-async function resolveCommand(agentType: AgentType): Promise<string> {
+async function resolveCommand(agentType: CcusageAgentType): Promise<string> {
   const { subcommand } = AGENT_CLI[agentType];
   if (await commandExists("ccusage")) {
     return `ccusage ${subcommand} daily --json`;
@@ -194,6 +199,12 @@ export class UsageCollector {
   async collectUsageData(agentType?: AgentType): Promise<UsageData> {
     // If no explicit agentType, use the first configured one (backward compat)
     const agent = agentType || this.config.agentTypes?.[0] || "claude-code";
+
+    // DimAgent has no ccusage support; parse its local SQLite store directly.
+    if (agent === "dimagent") {
+      return this.collectDimagentData();
+    }
+
     const command = await resolveCommand(agent);
 
     try {
@@ -243,6 +254,44 @@ export class UsageCollector {
       }
       throw new Error(`Failed to collect ${agent} usage data: Unknown error`);
     }
+  }
+
+  // DimAgent usage comes from its local SQLite store (no ccusage support).
+  // The parser emits ccusage-shaped daily records, so the shared
+  // mapping and sync path stays untouched.
+  private collectDimagentData(): UsageData {
+    console.log("Collecting dimagent usage data from local SQLite store");
+    const { daily, totals } = collectDimagentUsage();
+
+    // Get device information
+    const deviceInfo = getDeviceInfo();
+
+    // Override displayName from collector config if provided
+    if (this.config.displayName) {
+      deviceInfo.displayName = this.config.displayName;
+    }
+
+    // Set agent type
+    deviceInfo.agentType = "dimagent";
+
+    const displayName = deviceInfo.displayName || deviceInfo.deviceName;
+    console.log(`Device: ${displayName} (${deviceInfo.deviceId})`);
+    console.log(`Agent Type: dimagent`);
+
+    // Map parser output (ccusage field names) to API expected fields
+    const mappedDaily = daily.map((record) =>
+      mapCcusageRecord(record as unknown as Record<string, unknown>),
+    );
+
+    // Combine data with device info
+    const data: UsageData = {
+      device: deviceInfo,
+      daily: mappedDaily,
+      totals,
+    };
+
+    console.log(`Collected ${data.daily.length} daily records`);
+    return data;
   }
 
   // Collect usage data for all configured agent types

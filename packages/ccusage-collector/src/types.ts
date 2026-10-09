@@ -1,5 +1,10 @@
 // Agent types supported by the collector
-export type AgentType = "claude-code" | "amp" | "opencode" | "codex";
+export type AgentType =
+  | "claude-code"
+  | "amp"
+  | "opencode"
+  | "codex"
+  | "dimagent";
 
 export interface DeviceInfo {
   deviceId: string;

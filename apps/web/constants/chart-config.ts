@@ -35,6 +35,7 @@ export const AGENT_COLORS = {
   amp: "var(--chart-2)",
   codex: "var(--chart-3)",
   opencode: "var(--chart-4)",
+  dimagent: "var(--chart-5)",
 } as const;
 
 export const AGENT_CHART_CONFIG = {
@@ -53,6 +54,10 @@ export const AGENT_CHART_CONFIG = {
   opencode: {
     label: "OpenCode",
     color: "var(--chart-4)",
+  },
+  dimagent: {
+    label: "DimAgent",
+    color: "var(--chart-5)",
   },
 } as const;
 
