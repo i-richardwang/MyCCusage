@@ -84,17 +84,18 @@ interface RunCostRow {
 }
 
 export function getDimAgentDbPath(): string {
-  // Test/fixture override (runtime-only lookup, not a build input)
-  // eslint-disable-next-line turbo/no-undeclared-env-vars
-  const override = process.env.MYCCUSAGE_DIMAGENT_DB?.trim();
-  if (override) return resolve(override);
-
-  // DimAgent home override (runtime-only lookup, not a build input)
+  // DimAgent's own home override (runtime-only lookup, not a build input).
   // eslint-disable-next-line turbo/no-undeclared-env-vars
   const explicitHome = process.env.DIMCODE_HOME?.trim();
   if (explicitHome) return join(resolve(explicitHome), "dimcode.sqlite");
 
-  return join(homedir(), ".dimcode", "v2", "dimcode.sqlite");
+  // XDG base directory support, same as the ccusage adapters.
+  // eslint-disable-next-line turbo/no-undeclared-env-vars
+  const xdgConfigHome = process.env.XDG_CONFIG_HOME?.trim();
+  const baseDir = xdgConfigHome
+    ? resolve(xdgConfigHome, ".dimcode", "v2")
+    : join(homedir(), ".dimcode", "v2");
+  return join(baseDir, "dimcode.sqlite");
 }
 
 function toCount(value: unknown): number {

@@ -182,11 +182,18 @@ program
     }
 
     const agents = config.agentTypes || ["claude-code"];
+    const { apiKeyFromEnv, endpointFromEnv } =
+      configManager.getEnvOverrideStatus();
 
     console.log("✅ Configuration found");
     console.log(`📁 Config file: ${configManager.getConfigPath()}`);
     console.log(`🤖 Agents: ${formatAgentList(agents)}`);
-    console.log(`🌐 Endpoint: ${config.endpoint}`);
+    console.log(
+      `🔑 API Key: set (${apiKeyFromEnv ? "via MYCCUSAGE_API_KEY" : "via config file"})`,
+    );
+    console.log(
+      `🌐 Endpoint: ${config.endpoint} (${endpointFromEnv ? "via MYCCUSAGE_ENDPOINT" : "via config file"})`,
+    );
     console.log(`⏰ Schedule: ${config.scheduleLabel} (${config.schedule})`);
     console.log(`🔄 Max retries: ${config.maxRetries}`);
     console.log(`⏱️  Retry delay: ${config.retryDelay}ms`);

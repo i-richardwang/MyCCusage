@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { collectDimagentUsage } from "../src/dimagent";
+import { collectDimagentUsage, getDimAgentDbPath } from "../src/dimagent";
 
 function openDb(dbPath: string) {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -294,5 +294,50 @@ describe("collectDimagentUsage", () => {
     expect(
       result.daily[0].modelBreakdowns.map((b) => b.modelName),
     ).toEqual(["pricey-model", "cheap-model"]);
+  });
+});
+
+describe("getDimAgentDbPath", () => {
+  const ENV_KEYS = ["DIMCODE_HOME", "XDG_CONFIG_HOME"] as const;
+  let saved: Record<string, string | undefined>;
+
+  function setEnv(key: (typeof ENV_KEYS)[number], value: string | undefined) {
+    // Test-only override (dynamic access; runtime-only, not a build input).
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+
+  function readEnv(key: (typeof ENV_KEYS)[number]): string | undefined {
+    return process.env[key];
+  }
+
+  beforeEach(() => {
+    saved = {};
+    for (const key of ENV_KEYS) {
+      saved[key] = readEnv(key);
+      setEnv(key, undefined);
+    }
+  });
+
+  afterEach(() => {
+    for (const key of ENV_KEYS) {
+      setEnv(key, saved[key]);
+    }
+  });
+
+  it("prefers DimAgent's own DIMCODE_HOME", () => {
+    setEnv("DIMCODE_HOME", "/custom/dim-home");
+    expect(getDimAgentDbPath()).toBe("/custom/dim-home/dimcode.sqlite");
+  });
+
+  it("falls back to XDG_CONFIG_HOME when set", () => {
+    setEnv("XDG_CONFIG_HOME", "/custom/xdg");
+    expect(getDimAgentDbPath()).toBe("/custom/xdg/.dimcode/v2/dimcode.sqlite");
+  });
+
+  it("defaults to ~/.dimcode/v2", () => {
+    expect(getDimAgentDbPath().endsWith("/.dimcode/v2/dimcode.sqlite")).toBe(
+      true,
+    );
   });
 });
