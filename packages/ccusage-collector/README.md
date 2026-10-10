@@ -337,6 +337,24 @@ pnpm typecheck
 pnpm lint
 ```
 
+## Release
+
+Publishing is automated: pushing a `collector-v*` tag runs the
+`Publish collector` workflow, which verifies the tag matches
+`package.json`, runs typecheck/lint/test/build, and publishes to npm
+(requires the `NPM_TOKEN` secret in repo settings).
+
+```bash
+# 1. Bump the version
+#    packages/ccusage-collector/package.json
+# 2. Commit and push to main
+# 3. Tag and push the tag
+ git tag collector-v0.5.7
+ git push origin collector-v0.5.7
+```
+
+To retry a failed publish: `gh workflow run publish-collector.yml --ref collector-v0.5.7`.
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) file for details.
