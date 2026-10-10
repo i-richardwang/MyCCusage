@@ -100,7 +100,7 @@ pm2 start ccusage-collector -- start
 ## Data Collection
 
 The `ccusage-collector` package automatically:
-- Collects usage data using explicit ccusage agent commands, such as `ccusage claude daily --json`, `ccusage opencode daily --json`, `ccusage codex daily --json`, and `ccusage amp daily --json`
+- Collects usage data using explicit ccusage agent commands, such as `ccusage claude daily --json`, `ccusage opencode daily --json`, `ccusage codex daily --json`, `ccusage amp daily --json`, and `ccusage antigravity daily --json`
 - Syncs historical data to your dashboard
 - Supports scheduled automatic synchronization
 - Handles retries and error recovery

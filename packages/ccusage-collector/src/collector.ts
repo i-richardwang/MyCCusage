@@ -51,6 +51,7 @@ const AGENT_CLI: Record<CcusageAgentType, { subcommand: string }> = {
   amp: { subcommand: "amp" },
   opencode: { subcommand: "opencode" },
   codex: { subcommand: "codex" },
+  antigravity: { subcommand: "antigravity" },
 };
 
 // Check if a command (or alias) exists in the user's shell
