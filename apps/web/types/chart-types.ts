@@ -7,7 +7,8 @@ export type AgentType =
   | "amp"
   | "codex"
   | "dimagent"
-  | "cursor";
+  | "cursor"
+  | "antigravity";
 
 // Ordered list of agents for UI display (tab order, etc.)
 export const AGENT_TYPE_ORDER: AgentType[] = [
@@ -17,6 +18,7 @@ export const AGENT_TYPE_ORDER: AgentType[] = [
   "codex",
   "dimagent",
   "cursor",
+  "antigravity",
 ];
 
 export const AGENT_TYPE_LABELS: Record<AgentType, string> = {
@@ -26,6 +28,7 @@ export const AGENT_TYPE_LABELS: Record<AgentType, string> = {
   codex: "Codex",
   dimagent: "DimAgent",
   cursor: "Cursor",
+  antigravity: "Antigravity",
 };
 
 export interface DailyRecord {

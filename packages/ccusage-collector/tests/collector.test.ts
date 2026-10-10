@@ -125,6 +125,39 @@ describe("mapCcusageRecord", () => {
     ]);
   });
 
+  it("maps an antigravity-style record (flat new field names)", () => {
+    const record = {
+      date: "2026-05-05",
+      inputTokens: 100,
+      outputTokens: 30,
+      cacheCreationTokens: 5,
+      cacheReadTokens: 20,
+      totalTokens: 165,
+      totalCost: 0.000187,
+      modelsUsed: ["gemini-3-pro"],
+      modelBreakdowns: [
+        {
+          modelName: "gemini-3-pro",
+          inputTokens: 100,
+          outputTokens: 30,
+          cacheCreationTokens: 5,
+          cacheReadTokens: 20,
+          cost: 0.000187,
+        },
+      ],
+    };
+
+    const mapped = mapCcusageRecord(record);
+
+    expect(mapped.date).toBe("2026-05-05");
+    expect(mapped.inputTokens).toBe(100);
+    expect(mapped.cacheCreationTokens).toBe(5);
+    expect(mapped.cacheReadTokens).toBe(20);
+    expect(mapped.totalTokens).toBe(165);
+    expect(mapped.totalCost).toBe(0.000187);
+    expect(mapped.modelsUsed).toEqual(["gemini-3-pro"]);
+  });
+
   it("keeps AMP credits and falls back to totalCost when costUSD is absent", () => {
     const record = {
       date: "2026-07-10",

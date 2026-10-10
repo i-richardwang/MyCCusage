@@ -6,6 +6,7 @@ export const CHART_COLORS = [
   "var(--chart-4)",
   "var(--chart-5)",
   "var(--chart-6)",
+  "var(--chart-7)",
 ] as const;
 
 export const BASE_CHART_CONFIG = {
@@ -38,6 +39,7 @@ export const AGENT_COLORS = {
   opencode: "var(--chart-4)",
   dimagent: "var(--chart-5)",
   cursor: "var(--chart-6)",
+  antigravity: "var(--chart-7)",
 } as const;
 
 export const AGENT_CHART_CONFIG = {
@@ -64,6 +66,10 @@ export const AGENT_CHART_CONFIG = {
   cursor: {
     label: "Cursor",
     color: "var(--chart-6)",
+  },
+  antigravity: {
+    label: "Antigravity",
+    color: "var(--chart-7)",
   },
 } as const;
 

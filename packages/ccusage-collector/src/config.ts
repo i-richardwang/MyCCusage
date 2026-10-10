@@ -37,6 +37,11 @@ export const AGENT_OPTIONS = [
     label: "Cursor",
     package: "cursor",
   },
+  {
+    value: "antigravity" as const,
+    label: "Antigravity",
+    package: "ccusage",
+  },
 ];
 
 export const SCHEDULE_OPTIONS = [
