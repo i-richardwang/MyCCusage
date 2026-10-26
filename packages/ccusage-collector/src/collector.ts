@@ -7,8 +7,10 @@ import type {
   CollectorConfig,
   AgentType,
   DailyUsageRecord,
+  ModelBreakdown,
 } from "./types.js";
 import { getDeviceInfo } from "./utils/device-info.js";
+import { collectAmpUsage } from "./amp/index.js";
 import { collectDimagentUsage } from "./dimagent.js";
 import { collectCursorUsage } from "./cursor.js";
 
@@ -39,16 +41,15 @@ export function extractJSON(stdout: string): string {
   throw new Error("Malformed JSON in output");
 }
 
-// Agents served by the ccusage CLI. DimAgent is parsed from its local
-// SQLite store and Cursor from its cloud export instead (see dimagent.ts
-// and cursor.ts); neither reaches resolveCommand.
-type CcusageAgentType = Exclude<AgentType, "dimagent" | "cursor">;
+// Agents served by the ccusage CLI. AMP, DimAgent and Cursor are collected
+// from their own sources instead (see collectFromSource) and never reach
+// resolveCommand.
+type CcusageAgentType = Exclude<AgentType, "amp" | "dimagent" | "cursor">;
 
 // MyCCusage keeps the historical "claude-code" id in storage/UI, while
 // ccusage v20+ exposes the agent as the "claude" subcommand.
 const AGENT_CLI: Record<CcusageAgentType, { subcommand: string }> = {
   "claude-code": { subcommand: "claude" },
-  amp: { subcommand: "amp" },
   opencode: { subcommand: "opencode" },
   codex: { subcommand: "codex" },
   antigravity: { subcommand: "antigravity" },
@@ -121,7 +122,7 @@ function extractModelsFromObject(
   models: Record<string, Record<string, unknown>>,
 ): {
   modelsUsed: string[];
-  modelBreakdowns: DailyUsageRecord["modelBreakdowns"];
+  modelBreakdowns: ModelBreakdown[];
 } {
   const modelsUsed = Object.keys(models);
   const modelBreakdowns = modelsUsed.map((modelName) => {
@@ -144,7 +145,7 @@ export function mapCcusageRecord(record: Record<string, unknown>): DailyUsageRec
   // Extract models info: codex uses a models object, others use modelsUsed array + modelBreakdowns array
   let modelsUsed = stringArrayField(record, "modelsUsed");
   let modelBreakdowns =
-    (record.modelBreakdowns as DailyUsageRecord["modelBreakdowns"]) || [];
+    (record.modelBreakdowns as ModelBreakdown[]) || [];
 
   if (
     modelsUsed.length === 0 &&
@@ -179,12 +180,74 @@ export function mapCcusageRecord(record: Record<string, unknown>): DailyUsageRec
     // ccusage uses costUSD, API expects totalCost
     totalCost:
       numberField(record, "costUSD") || numberField(record, "totalCost"),
-    // AMP specific field
-    credits: numberField(record, "credits"),
     modelsUsed,
     modelBreakdowns,
     rawData: record,
   };
+}
+
+type CollectedUsage = Pick<UsageData, "daily" | "totals">;
+
+async function collectCcusage(agent: CcusageAgentType): Promise<CollectedUsage> {
+  const command = await resolveCommand(agent);
+  console.log(`Collecting ${agent} usage data via: ${command}`);
+  const { stdout } = await execInShell(command);
+
+  const rawData = JSON.parse(extractJSON(stdout));
+
+  if (!rawData.daily || !Array.isArray(rawData.daily)) {
+    throw new Error("Invalid usage data format");
+  }
+
+  return {
+    // Map ccusage output fields to API expected fields
+    daily: rawData.daily.map((record: Record<string, unknown>) =>
+      mapCcusageRecord(record),
+    ),
+    totals: rawData.totals,
+  };
+}
+
+// DimAgent's local SQLite store; the parser emits ccusage-shaped records.
+function collectDimagent(): CollectedUsage {
+  console.log("Collecting dimagent usage data from local SQLite store");
+  const { daily, totals } = collectDimagentUsage();
+  return {
+    daily: daily.map((record) =>
+      mapCcusageRecord(record as unknown as Record<string, unknown>),
+    ),
+    totals,
+  };
+}
+
+// Cursor's cloud export; the parser emits ccusage-shaped records. Skipped
+// runs surface their warnings and sync nothing; dead credentials throw.
+async function collectCursor(): Promise<CollectedUsage> {
+  console.log("Collecting cursor usage data from cloud export");
+  const { daily, totals, warnings } = await collectCursorUsage();
+  for (const warning of warnings) {
+    console.warn(warning);
+  }
+  return {
+    daily: daily.map((record) =>
+      mapCcusageRecord(record as unknown as Record<string, unknown>),
+    ),
+    totals,
+  };
+}
+
+async function collectFromSource(agent: AgentType): Promise<CollectedUsage> {
+  switch (agent) {
+    // AMP threads live server-side; they are read through the `amp` CLI
+    case "amp":
+      return collectAmpUsage();
+    case "dimagent":
+      return collectDimagent();
+    case "cursor":
+      return collectCursor();
+    default:
+      return collectCcusage(agent);
+  }
 }
 
 export class UsageCollector {
@@ -203,28 +266,8 @@ export class UsageCollector {
     // If no explicit agentType, use the first configured one (backward compat)
     const agent = agentType || this.config.agentTypes?.[0] || "claude-code";
 
-    // DimAgent has no ccusage support; parse its local SQLite store directly.
-    if (agent === "dimagent") {
-      return this.collectDimagentData();
-    }
-
-    // Cursor has no ccusage support; its usage is pulled from the cloud
-    // export and may skip quietly on transient failures.
-    if (agent === "cursor") {
-      return this.collectCursorData();
-    }
-
-    const command = await resolveCommand(agent);
-
     try {
-      console.log(`Collecting ${agent} usage data via: ${command}`);
-      const { stdout } = await execInShell(command);
-
-      const rawData = JSON.parse(extractJSON(stdout));
-
-      if (!rawData.daily || !Array.isArray(rawData.daily)) {
-        throw new Error("Invalid usage data format");
-      }
+      const { daily, totals } = await collectFromSource(agent);
 
       // Get device information
       const deviceInfo = getDeviceInfo();
@@ -241,16 +284,10 @@ export class UsageCollector {
       console.log(`Device: ${displayName} (${deviceInfo.deviceId})`);
       console.log(`Agent Type: ${agent}`);
 
-      // Map ccusage output fields to API expected fields
-      const mappedDaily = rawData.daily.map((record: Record<string, unknown>) =>
-        mapCcusageRecord(record),
-      );
-
-      // Combine raw data with device info
       const data: UsageData = {
         device: deviceInfo,
-        daily: mappedDaily,
-        totals: rawData.totals,
+        daily,
+        totals,
       };
 
       console.log(`Collected ${data.daily.length} daily records`);
@@ -263,87 +300,6 @@ export class UsageCollector {
       }
       throw new Error(`Failed to collect ${agent} usage data: Unknown error`);
     }
-  }
-
-  // DimAgent usage comes from its local SQLite store (no ccusage support).
-  // The parser emits ccusage-shaped daily records, so the shared
-  // mapping and sync path stays untouched.
-  private collectDimagentData(): UsageData {
-    console.log("Collecting dimagent usage data from local SQLite store");
-    const { daily, totals } = collectDimagentUsage();
-
-    // Get device information
-    const deviceInfo = getDeviceInfo();
-
-    // Override displayName from collector config if provided
-    if (this.config.displayName) {
-      deviceInfo.displayName = this.config.displayName;
-    }
-
-    // Set agent type
-    deviceInfo.agentType = "dimagent";
-
-    const displayName = deviceInfo.displayName || deviceInfo.deviceName;
-    console.log(`Device: ${displayName} (${deviceInfo.deviceId})`);
-    console.log(`Agent Type: dimagent`);
-
-    // Map parser output (ccusage field names) to API expected fields
-    const mappedDaily = daily.map((record) =>
-      mapCcusageRecord(record as unknown as Record<string, unknown>),
-    );
-
-    // Combine data with device info
-    const data: UsageData = {
-      device: deviceInfo,
-      daily: mappedDaily,
-      totals,
-    };
-
-    console.log(`Collected ${data.daily.length} daily records`);
-    return data;
-  }
-
-  // Cursor usage comes from its cloud export (no ccusage support, no
-  // local ledger). The parser emits ccusage-shaped daily records, so the
-  // shared mapping and sync path stays untouched. Skipped runs surface
-  // their warnings and sync nothing; dead credentials throw.
-  private async collectCursorData(): Promise<UsageData> {
-    console.log("Collecting cursor usage data from cloud export");
-    const { daily, totals, warnings } = await collectCursorUsage();
-
-    for (const warning of warnings) {
-      console.warn(warning);
-    }
-
-    // Get device information
-    const deviceInfo = getDeviceInfo();
-
-    // Override displayName from collector config if provided
-    if (this.config.displayName) {
-      deviceInfo.displayName = this.config.displayName;
-    }
-
-    // Set agent type
-    deviceInfo.agentType = "cursor";
-
-    const displayName = deviceInfo.displayName || deviceInfo.deviceName;
-    console.log(`Device: ${displayName} (${deviceInfo.deviceId})`);
-    console.log(`Agent Type: cursor`);
-
-    // Map parser output (ccusage field names) to API expected fields
-    const mappedDaily = daily.map((record) =>
-      mapCcusageRecord(record as unknown as Record<string, unknown>),
-    );
-
-    // Combine data with device info
-    const data: UsageData = {
-      device: deviceInfo,
-      daily: mappedDaily,
-      totals,
-    };
-
-    console.log(`Collected ${data.daily.length} daily records`);
-    return data;
   }
 
   // Collect usage data for all configured agent types

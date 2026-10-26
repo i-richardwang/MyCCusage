@@ -15,6 +15,15 @@ export interface DeviceInfo {
   agentType?: AgentType;
 }
 
+export interface ModelBreakdown {
+  modelName: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  cost: number;
+}
+
 export interface DailyUsageRecord {
   date: string;
   inputTokens: number;
@@ -23,16 +32,8 @@ export interface DailyUsageRecord {
   cacheReadTokens: number;
   totalTokens: number;
   totalCost: number;
-  credits?: number; // AMP specific
   modelsUsed: string[];
-  modelBreakdowns: Array<{
-    modelName: string;
-    inputTokens: number;
-    outputTokens: number;
-    cacheCreationTokens: number;
-    cacheReadTokens: number;
-    cost: number;
-  }>;
+  modelBreakdowns: ModelBreakdown[];
   rawData?: Record<string, unknown>;
 }
 

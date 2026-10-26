@@ -24,7 +24,7 @@ export interface Config {
 
 export const AGENT_OPTIONS = [
   { value: "claude-code" as const, label: "Claude Code", package: "ccusage" },
-  { value: "amp" as const, label: "AMP", package: "ccusage" },
+  { value: "amp" as const, label: "AMP", package: "amp" },
   {
     value: "opencode" as const,
     label: "OpenCode",

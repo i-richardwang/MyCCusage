@@ -2,6 +2,7 @@ import { existsSync } from "fs";
 import { homedir } from "os";
 import { join, resolve } from "path";
 import { queryRows } from "./sqlite.js";
+import { toLocalDate } from "./utils/local-date.js";
 
 // ---------------------------------------------------------------------------
 // Cursor usage parser
@@ -473,17 +474,6 @@ export function parseCursorCsv(text: string): CsvRow[] {
     });
   }
   return parsed;
-}
-
-function toLocalDate(timestamp: Date): string {
-  // Group by calendar day in the collector's system timezone, matching
-  // ccusage daily semantics. toISOString() would group by UTC and
-  // misattribute late-night usage to the previous day.
-  return (
-    `${timestamp.getFullYear()}-` +
-    `${String(timestamp.getMonth() + 1).padStart(2, "0")}-` +
-    `${String(timestamp.getDate()).padStart(2, "0")}`
-  );
 }
 
 interface DayModelAcc {

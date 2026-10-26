@@ -2,6 +2,7 @@ import { existsSync } from "fs";
 import { homedir } from "os";
 import { join, resolve } from "path";
 import { queryRows } from "./sqlite.js";
+import { toLocalDate } from "./utils/local-date.js";
 
 // ---------------------------------------------------------------------------
 // DimAgent usage parser
@@ -235,14 +236,7 @@ export function collectDimagentUsage(
 
     const timestamp = new Date(row.createdAt);
     if (Number.isNaN(timestamp.getTime())) continue;
-    // Group by calendar day in the collector's system timezone, matching
-    // ccusage daily semantics (ccusage groups by JiffTimeZone::system
-    // unless --timezone is given). toISOString() would group by UTC and
-    // misattribute late-night usage to the previous day.
-    const date =
-      `${timestamp.getFullYear()}-` +
-      `${String(timestamp.getMonth() + 1).padStart(2, "0")}-` +
-      `${String(timestamp.getDate()).padStart(2, "0")}`;
+    const date = toLocalDate(timestamp);
 
     const promptTokens = toCount(usage.promptTokens);
     const cacheReadTokens = toCount(usage.cacheReadTokens);
