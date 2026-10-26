@@ -4,19 +4,21 @@ import { createRequire } from "module";
 import { program } from "commander";
 import * as cron from "node-cron";
 import { UsageCollector } from "./collector.js";
-import { ConfigManager, AGENT_OPTIONS } from "./config.js";
+import { ConfigManager, formatSchedule } from "./config.js";
+import { formatAgentList } from "./agents.js";
 import { InteractiveConfig } from "./interactive-config.js";
-import type { CollectorConfig } from "./types.js";
 
-// Single source of truth for the version (works from both src/ and dist/)
 const { version } = createRequire(import.meta.url)("../package.json");
-
 const configManager = new ConfigManager();
 
-function formatAgentList(agentTypes: string[]): string {
-  return agentTypes
-    .map((t) => AGENT_OPTIONS.find((o) => o.value === t)?.label || t)
-    .join(", ");
+function requireConfig() {
+  const config = configManager.loadConfig();
+  if (!config) {
+    throw new Error(
+      "Set MYCCUSAGE_API_KEY and MYCCUSAGE_ENDPOINT in the environment, or run ccusage-collector config.",
+    );
+  }
+  return config;
 }
 
 program
@@ -24,64 +26,24 @@ program
   .description("Collect and sync coding agent usage statistics")
   .version(version);
 
-// Config command - Interactive configuration
 program
   .command("config")
   .description("Configure API credentials and sync settings")
-  .action(async () => {
-    const interactiveConfig = new InteractiveConfig();
-    await interactiveConfig.runConfigurationWizard();
-  });
+  .action(() => new InteractiveConfig().runConfigurationWizard());
 
-// Start command - Start scheduled sync
 program
   .command("start")
-  .description("Start scheduled sync (requires configuration)")
+  .description("Start scheduled sync")
   .action(async () => {
-    const config = configManager.loadConfig();
-
-    if (!config) {
-      configManager.showNoConfigMessage();
-      process.exit(1);
-    }
-
-    const collectorConfig: CollectorConfig = {
-      apiKey: config.apiKey,
-      endpoint: config.endpoint,
-      displayName: config.displayName,
-      agentTypes: config.agentTypes,
-      maxRetries: config.maxRetries,
-      retryDelay: config.retryDelay,
-    };
-
-    const collector = new UsageCollector(collectorConfig);
-    const agents = config.agentTypes || ["claude-code"];
-
-    console.log(`🚀 Starting scheduled sync: ${config.scheduleLabel}`);
+    const config = requireConfig();
+    const collector = new UsageCollector(config);
+    console.log(
+      `🚀 Starting scheduled sync: ${formatSchedule(config.schedule)}`,
+    );
     console.log(`📋 Schedule: ${config.schedule}`);
-    console.log(`🤖 Agents: ${formatAgentList(agents)}`);
+    console.log(`🤖 Agents: ${formatAgentList(config.agentTypes)}`);
 
-    // Validate cron expression
-    if (!cron.validate(config.schedule)) {
-      console.error("❌ Invalid cron expression in configuration");
-      process.exit(1);
-    }
-
-    // Run once immediately
-    console.log("\n⏳ Running initial sync...");
-    try {
-      await collector.run();
-      console.log("✅ Initial sync completed");
-    } catch (error) {
-      console.error(
-        "❌ Initial sync failed:",
-        error instanceof Error ? error.message : error,
-      );
-      // Continue with scheduling even if initial sync fails
-    }
-
-    // Schedule periodic runs
-    cron.schedule(config.schedule, async () => {
+    async function sync() {
       console.log(
         `\n[${new Date().toISOString()}] ⏳ Running scheduled sync...`,
       );
@@ -94,199 +56,85 @@ program
           error instanceof Error ? error.message : error,
         );
       }
-    });
-
+    }
+    await sync();
+    const task = cron.schedule(config.schedule, sync, { noOverlap: true });
     console.log("\n🔄 Scheduled sync is running. Press Ctrl+C to stop.");
-
-    // Keep the process running
-    process.on("SIGINT", () => {
-      console.log("\n🛑 Stopping scheduled sync...");
-      process.exit(0);
-    });
-
-    process.on("SIGTERM", () => {
-      console.log("\n🛑 Received SIGTERM, stopping scheduled sync...");
-      process.exit(0);
-    });
+    for (const signal of ["SIGINT", "SIGTERM"] as const) {
+      process.once(signal, () => {
+        task.stop();
+        process.exit(0);
+      });
+    }
   });
 
-// Sync command - Run single sync
 program
   .command("sync")
   .description("Run a single sync operation")
   .option("--dry-run", "Collect data but don't sync to server")
-  .action(async (options) => {
-    const config = configManager.loadConfig();
-
-    if (!config) {
-      configManager.showNoConfigMessage();
-      process.exit(1);
-    }
-
-    const collectorConfig: CollectorConfig = {
-      apiKey: config.apiKey,
-      endpoint: config.endpoint,
-      displayName: config.displayName,
-      agentTypes: config.agentTypes,
-      maxRetries: config.maxRetries,
-      retryDelay: config.retryDelay,
-    };
-
-    const collector = new UsageCollector(collectorConfig);
-    const agents = config.agentTypes || ["claude-code"];
-
+  .action(async (options: { dryRun?: boolean }) => {
+    const config = requireConfig();
+    const collector = new UsageCollector(config);
     if (options.dryRun) {
       console.log(
-        `🧪 Dry run mode: collecting data for ${formatAgentList(agents)}`,
+        `🧪 Dry run mode: collecting data for ${formatAgentList(config.agentTypes)}`,
       );
-      try {
-        const allData = await collector.collectAllUsageData();
-        console.log("📊 Collected data:");
-        console.log(JSON.stringify(allData, null, 2));
-      } catch (error) {
-        console.error(
-          "❌ Failed to collect data:",
-          error instanceof Error ? error.message : error,
-        );
-        process.exit(1);
-      }
+      const data = await collector.collectAllUsageData();
+      if (data.length === 0)
+        throw new Error("No usage data collected for any agent");
+      console.log(JSON.stringify(data, null, 2));
       return;
     }
-
-    console.log(`⏳ Running single sync for ${formatAgentList(agents)}...`);
-    try {
-      await collector.run();
-      console.log("✅ Sync completed successfully");
-    } catch (error) {
-      console.error(
-        "❌ Sync failed:",
-        error instanceof Error ? error.message : error,
-      );
-      process.exit(1);
-    }
+    console.log(
+      `⏳ Running single sync for ${formatAgentList(config.agentTypes)}...`,
+    );
+    await collector.run();
+    console.log("✅ Sync completed successfully");
   });
 
-// Status command - Check configuration and status
 program
   .command("status")
   .description("Check configuration status")
   .action(() => {
-    const config = configManager.loadConfig();
-
-    if (!config) {
-      console.log("❌ No configuration found");
-      console.log(`📁 Expected location: ${configManager.getConfigPath()}`);
-      console.log("\n📋 Run configuration:");
-      console.log("   ccusage-collector config");
-      return;
-    }
-
-    const agents = config.agentTypes || ["claude-code"];
-    const { apiKeyFromEnv, endpointFromEnv } =
-      configManager.getEnvOverrideStatus();
-
+    const config = requireConfig();
     console.log("✅ Configuration found");
-    console.log(`📁 Config file: ${configManager.getConfigPath()}`);
-    console.log(`🤖 Agents: ${formatAgentList(agents)}`);
     console.log(
-      `🔑 API Key: set (${apiKeyFromEnv ? "via MYCCUSAGE_API_KEY" : "via config file"})`,
+      configManager.hasConfig()
+        ? `📁 Config file: ${configManager.getConfigPath()}`
+        : "📁 No config file (using environment and defaults)",
     );
+    console.log(`🤖 Agents: ${formatAgentList(config.agentTypes)}`);
+    console.log(`📱 Device ID: ${config.deviceId}`);
+    console.log(`📱 Device name: ${config.deviceName}`);
+    if (config.displayName)
+      console.log(`📱 Display name: ${config.displayName}`);
+    console.log("🔑 API Key: set");
+    console.log(`🌐 Endpoint: ${config.endpoint}`);
     console.log(
-      `🌐 Endpoint: ${config.endpoint} (${endpointFromEnv ? "via MYCCUSAGE_ENDPOINT" : "via config file"})`,
+      `⏰ Schedule: ${formatSchedule(config.schedule)} (${config.schedule})`,
     );
-    console.log(`⏰ Schedule: ${config.scheduleLabel} (${config.schedule})`);
     console.log(`🔄 Max retries: ${config.maxRetries}`);
-    console.log(`⏱️  Retry delay: ${config.retryDelay}ms`);
-
-    console.log("\n💡 Available commands:");
-    console.log("   ccusage-collector sync     # Run single sync");
-    console.log("   ccusage-collector start    # Start scheduled sync");
+    console.log(`⏱️ Retry delay: ${config.retryDelay}ms`);
   });
 
-// Test command - Test configuration and connection
 program
   .command("test")
-  .description("Test configuration and connection")
+  .description("Test data collection and endpoint connectivity")
   .action(async () => {
-    const config = configManager.loadConfig();
-
-    if (!config) {
-      configManager.showNoConfigMessage();
-      process.exit(1);
-    }
-
-    const collectorConfig: CollectorConfig = {
-      apiKey: config.apiKey,
-      endpoint: config.endpoint,
-      displayName: config.displayName,
-      agentTypes: config.agentTypes,
-      maxRetries: config.maxRetries,
-      retryDelay: config.retryDelay,
-    };
-
-    const collector = new UsageCollector(collectorConfig);
-    const agents = config.agentTypes || ["claude-code"];
-
-    console.log(`🧪 Testing configuration for ${formatAgentList(agents)}...`);
-
-    try {
-      console.log(`📊 Testing data collection...`);
-      const allData = await collector.collectAllUsageData();
-
-      if (allData.length === 0) {
-        console.log(
-          `⚠️  No usage data found for any agent. Make sure the tools are installed.`,
-        );
-      } else {
-        const totalRecords = allData.reduce(
-          (sum, d) => sum + d.daily.length,
-          0,
-        );
-        console.log(
-          `✅ Found ${totalRecords} total daily records across ${allData.length} agent(s)`,
-        );
-      }
-
-      console.log("🌐 Testing connection to endpoint...");
-      console.log("⏳ Running test sync...");
-
-      await collector.run();
-      console.log("✅ Test completed successfully!");
-    } catch (error) {
-      console.error(
-        "❌ Test failed:",
-        error instanceof Error ? error.message : error,
-      );
-      process.exit(1);
-    }
+    const collector = new UsageCollector(requireConfig());
+    const data = await collector.collectAllUsageData();
+    if (data.length === 0)
+      throw new Error("No usage data collected for any agent");
+    for (const usage of data) await collector.syncData(usage);
+    console.log("✅ Test completed successfully!");
   });
 
-// Default action (no command specified)
-program.action(() => {
-  console.log("ccusage-collector - Coding Agent Usage Statistics Collector\n");
+program.action(() => program.outputHelp());
 
-  const config = configManager.loadConfig();
-
-  if (!config) {
-    console.log("❌ No configuration found\n");
-    console.log("🔧 Get started:");
-    console.log(
-      "   ccusage-collector config   # Configure credentials and settings",
-    );
-    console.log("");
-    console.log("📚 Other commands:");
-    console.log("   ccusage-collector --help   # Show all available commands");
-  } else {
-    console.log("✅ Configuration found\n");
-    console.log("🚀 Common commands:");
-    console.log("   ccusage-collector sync      # Run single sync");
-    console.log("   ccusage-collector start     # Start scheduled sync");
-    console.log("   ccusage-collector status    # Check status");
-    console.log("   ccusage-collector test      # Test configuration");
-    console.log("");
-    console.log("📚 Other commands:");
-    console.log("   ccusage-collector --help    # Show all available commands");
-  }
+program.parseAsync().catch((error: unknown) => {
+  console.error(
+    "❌",
+    error instanceof Error ? error.message : "Command failed",
+  );
+  process.exitCode = 1;
 });
-
-program.parse();

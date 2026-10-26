@@ -1,18 +1,14 @@
-// Agent types supported by the collector
-export type AgentType =
-  | "claude-code"
-  | "amp"
-  | "opencode"
-  | "codex"
-  | "dimagent"
-  | "cursor"
-  | "antigravity";
+import type { AgentType } from "./agents.js";
+export type { AgentType } from "./agents.js";
 
-export interface DeviceInfo {
+export interface DeviceIdentity {
   deviceId: string;
   deviceName: string;
   displayName?: string;
-  agentType?: AgentType;
+}
+
+export interface DeviceInfo extends DeviceIdentity {
+  agentType: AgentType;
 }
 
 export interface ModelBreakdown {
@@ -60,11 +56,10 @@ export interface SyncResult {
   }>;
 }
 
-export interface CollectorConfig {
+export interface CollectorConfig extends DeviceIdentity {
   endpoint: string;
   apiKey: string;
-  displayName?: string;
-  agentTypes?: AgentType[];
-  maxRetries?: number;
-  retryDelay?: number;
+  agentTypes: AgentType[];
+  maxRetries: number;
+  retryDelay: number;
 }

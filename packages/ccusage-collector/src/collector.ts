@@ -3,13 +3,13 @@ import { promisify } from "util";
 import axios from "axios";
 import type {
   UsageData,
+  DeviceInfo,
   SyncResult,
   CollectorConfig,
   AgentType,
   DailyUsageRecord,
   ModelBreakdown,
 } from "./types.js";
-import { getDeviceInfo } from "./utils/device-info.js";
 import { collectAmpUsage } from "./amp/index.js";
 import { collectDimagentUsage } from "./dimagent.js";
 import { collectCursorUsage } from "./cursor.js";
@@ -46,8 +46,7 @@ export function extractJSON(stdout: string): string {
 // resolveCommand.
 type CcusageAgentType = Exclude<AgentType, "amp" | "dimagent" | "cursor">;
 
-// MyCCusage keeps the historical "claude-code" id in storage/UI, while
-// ccusage v20+ exposes the agent as the "claude" subcommand.
+// Domain agent identifiers mapped to ccusage subcommands.
 const AGENT_CLI: Record<CcusageAgentType, { subcommand: string }> = {
   "claude-code": { subcommand: "claude" },
   opencode: { subcommand: "opencode" },
@@ -141,11 +140,12 @@ function extractModelsFromObject(
 }
 
 // Map ccusage output fields to API expected fields
-export function mapCcusageRecord(record: Record<string, unknown>): DailyUsageRecord {
+export function mapCcusageRecord(
+  record: Record<string, unknown>,
+): DailyUsageRecord {
   // Extract models info: codex uses a models object, others use modelsUsed array + modelBreakdowns array
   let modelsUsed = stringArrayField(record, "modelsUsed");
-  let modelBreakdowns =
-    (record.modelBreakdowns as ModelBreakdown[]) || [];
+  let modelBreakdowns = (record.modelBreakdowns as ModelBreakdown[]) || [];
 
   if (
     modelsUsed.length === 0 &&
@@ -188,7 +188,9 @@ export function mapCcusageRecord(record: Record<string, unknown>): DailyUsageRec
 
 type CollectedUsage = Pick<UsageData, "daily" | "totals">;
 
-async function collectCcusage(agent: CcusageAgentType): Promise<CollectedUsage> {
+async function collectCcusage(
+  agent: CcusageAgentType,
+): Promise<CollectedUsage> {
   const command = await resolveCommand(agent);
   console.log(`Collecting ${agent} usage data via: ${command}`);
   const { stdout } = await execInShell(command);
@@ -251,34 +253,23 @@ async function collectFromSource(agent: AgentType): Promise<CollectedUsage> {
 }
 
 export class UsageCollector {
-  private config: CollectorConfig;
+  private readonly config: CollectorConfig;
 
   constructor(config: CollectorConfig) {
-    this.config = {
-      maxRetries: 3,
-      retryDelay: 1000,
-      ...config,
-    };
+    this.config = { ...config, agentTypes: [...config.agentTypes] };
   }
 
-  // Collect usage data for a single agent type
-  async collectUsageData(agentType?: AgentType): Promise<UsageData> {
-    // If no explicit agentType, use the first configured one (backward compat)
-    const agent = agentType || this.config.agentTypes?.[0] || "claude-code";
-
+  async collectUsageData(agent: AgentType): Promise<UsageData> {
     try {
       const { daily, totals } = await collectFromSource(agent);
 
-      // Get device information
-      const deviceInfo = getDeviceInfo();
-
-      // Override displayName from collector config if provided
-      if (this.config.displayName) {
-        deviceInfo.displayName = this.config.displayName;
-      }
-
-      // Set agent type
-      deviceInfo.agentType = agent;
+      // Copy the resolved identity so each agent keeps its own metadata.
+      const deviceInfo: DeviceInfo = {
+        deviceId: this.config.deviceId,
+        deviceName: this.config.deviceName,
+        displayName: this.config.displayName,
+        agentType: agent,
+      };
 
       const displayName = deviceInfo.displayName || deviceInfo.deviceName;
       console.log(`Device: ${displayName} (${deviceInfo.deviceId})`);
@@ -304,7 +295,7 @@ export class UsageCollector {
 
   // Collect usage data for all configured agent types
   async collectAllUsageData(): Promise<UsageData[]> {
-    const agentTypes = this.config.agentTypes || ["claude-code"];
+    const agentTypes = this.config.agentTypes;
     const results: UsageData[] = [];
 
     for (const agentType of agentTypes) {
@@ -324,12 +315,12 @@ export class UsageCollector {
   }
 
   async syncData(data: UsageData): Promise<SyncResult> {
-    const { endpoint, apiKey, maxRetries = 3, retryDelay = 1000 } = this.config;
+    const { endpoint, apiKey, maxRetries, retryDelay } = this.config;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         console.log(
-          `Syncing ${data.device.agentType || "claude-code"} data (attempt ${attempt}/${maxRetries})...`,
+          `Syncing ${data.device.agentType} data (attempt ${attempt}/${maxRetries})...`,
         );
 
         const response = await axios.post(endpoint, data, {
@@ -402,7 +393,7 @@ export class UsageCollector {
   }
 
   async run(): Promise<void> {
-    const agentTypes = this.config.agentTypes || ["claude-code"];
+    const agentTypes = this.config.agentTypes;
     let successCount = 0;
 
     for (const agentType of agentTypes) {
@@ -421,10 +412,9 @@ export class UsageCollector {
       }
     }
 
-    // Exit non-zero when nothing synced so cron/PM2 can surface the failure;
-    // partial success stays exit 0 since per-agent errors are already logged.
+    // Let the caller decide how to report or recover from a failed run.
     if (successCount === 0) {
-      process.exit(1);
+      throw new Error("No agents synced successfully");
     }
   }
 }
