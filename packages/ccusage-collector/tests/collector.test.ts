@@ -83,7 +83,6 @@ describe("mapCcusageRecord", () => {
       cacheReadTokens: 400,
       totalTokens: 1000,
       totalCost: 12.34,
-      credits: 0,
       modelsUsed: ["claude-fable-5"],
     });
     expect(mapped.rawData).toBe(record);
@@ -158,18 +157,16 @@ describe("mapCcusageRecord", () => {
     expect(mapped.modelsUsed).toEqual(["gemini-3-pro"]);
   });
 
-  it("keeps AMP credits and falls back to totalCost when costUSD is absent", () => {
+  it("falls back to totalCost when costUSD is absent", () => {
     const record = {
       date: "2026-07-10",
       totalTokens: 10,
       totalCost: 2.5,
-      credits: 42,
     };
 
     const mapped = mapCcusageRecord(record);
 
     expect(mapped.totalCost).toBe(2.5);
-    expect(mapped.credits).toBe(42);
   });
 
   it("defaults malformed numeric fields to 0 instead of propagating garbage", () => {

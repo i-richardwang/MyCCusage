@@ -33,7 +33,8 @@ bunx ccusage-collector sync
 
 - Bun ≥1.0 or Node.js ≥20
 - PM2 process manager (for reliable background execution)
-- `ccusage` CLI installed and available in PATH
+- `ccusage` CLI installed and available in PATH (Claude Code, OpenCode, Codex, Antigravity)
+- `amp` CLI installed and logged in (AMP)
 - At least one supported coding agent installed and configured
 - Access to a deployed My Claude Code Usage Dashboard
 
@@ -211,7 +212,8 @@ pm2 start ccusage-collector -- start
 ## Data Collection
 
 The collector:
-- Uses explicit ccusage agent commands such as `ccusage claude daily --json`, `ccusage opencode daily --json`, `ccusage codex daily --json`, `ccusage amp daily --json`, and `ccusage antigravity daily --json` (Antigravity reads its local SQLite conversation databases; set `ANTIGRAVITY_DATA_DIR` when they live outside the default `~/.gemini/*` roots)
+- Uses explicit ccusage agent commands such as `ccusage claude daily --json`, `ccusage opencode daily --json`, `ccusage codex daily --json`, and `ccusage antigravity daily --json` (Antigravity reads its local SQLite conversation databases; set `ANTIGRAVITY_DATA_DIR` when they live outside the default `~/.gemini/*` roots)
+- Collects AMP through the `amp` CLI (see below)
 - Parses DimAgent's local SQLite store (`~/.dimcode/v2/dimcode.sqlite`) directly; no ccusage support needed
 - Pulls Cursor usage from the cloud CSV export via the local session token in Cursor's state DB; no ccusage support needed. The export is account-wide, so enable Cursor on exactly one device per account to avoid double-counting
 - Collects historical data (not just recent usage)
@@ -219,6 +221,23 @@ The collector:
 - Supports upsert operations (updates existing records)
 - Generates unique device fingerprints for multi-device tracking
 - Allows custom device names for better dashboard readability
+
+### AMP
+
+AMP stores threads server-side, so the collector reads them through the `amp` CLI:
+
+- Lists this machine's threads with `amp threads list --json --installation-id <id>` (the id comes from `~/.local/share/amp/device-id.json`), so each device reports only its own threads
+- Exports new or changed threads with `amp threads export`, keeping only per-message usage in `~/.ccusage-collector/amp-cache/`. Exports hold the main agent's usage only
+- Fetches `amp threads usage <id> --details` for each active day to add subagent and side-call usage (Task, Read Thread, View Media, Finder, Librarian, compaction, Thread Title) per model
+- Rebuilds daily totals from the cache on every run
+
+Notes:
+
+- AMP allows 60 usage reports per hour. The collector uses at most 40 per hour, newest days first, and pauses for an hour when AMP reports the limit. Until a day's report is fetched, that day counts the main agent only. A large backfill therefore spreads over several syncs at least an hour apart, and each sync uploads the completed days again
+- Usage AMP ran through Claude Code (`external-agent:claude-code`) is skipped, because ccusage already counts it under Claude Code
+- Per-model input and output are exact. The report splits cache reads per thread-day only, so for subagent usage the cache-read share is estimated; main-agent usage keeps its exact split
+- Cost is reported as 0: AMP exports carry no cost, and AMP records $0 for linked-provider models
+- The usage report is formatted text. If its format changes, affected days fall back to the main agent only and the collector logs a warning
 
 ### Data Format
 The collector syncs:
