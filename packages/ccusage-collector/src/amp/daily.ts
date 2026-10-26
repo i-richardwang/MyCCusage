@@ -1,6 +1,11 @@
 import type { DailyUsageRecord, ModelBreakdown } from "../types.js";
+import { estimateTokenCost, type PricingTable } from "../pricing/rates.js";
 import { mergeDayUsage, stripProvider } from "./report.js";
-import { usageDate, type AmpCachedThread, type AmpUsageEntry } from "./threads.js";
+import {
+  usageDate,
+  type AmpCachedThread,
+  type AmpUsageEntry,
+} from "./threads.js";
 
 // Name models without their provider prefix ("meta/muse-spark" ->
 // "muse-spark"), as report-based days do. Only Anthropic models have real
@@ -68,13 +73,32 @@ interface ThreadDay {
   entries: AmpUsageEntry[];
 }
 
+interface AmpDailyRecord extends DailyUsageRecord {
+  rawData: {
+    costEstimate: {
+      source: "litellm";
+      asOf: string;
+      basis: "base-token-rates";
+      unpricedModels: string[];
+      // Report model -> export model used when the report name has no price.
+      pricingAliases: Record<string, string>;
+    };
+  };
+}
+
+interface AggregateOptions {
+  onUnreconciled?: (threadId: string, date: string) => void;
+  pricing: PricingTable;
+}
+
 // Daily per-model usage across threads. Days with a reconciled usage report
 // include subagents; days without one (not fetched yet, or not reconcilable)
-// count the main agent only. Amp exports carry no cost, so cost stays 0.
+// count the main agent only. Resolve token usage before applying base rates,
+// so the main agent's export and report are never valued twice.
 export function aggregateAmpDaily(
   threads: AmpCachedThread[],
-  onUnreconciled: (threadId: string, date: string) => void = () => {},
-): DailyUsageRecord[] {
+  { onUnreconciled = () => {}, pricing }: AggregateOptions,
+): AmpDailyRecord[] {
   // Export and report name some models differently; learn the mapping from
   // reconciled days so the other days use the report names too.
   const aliases = new Map<string, string>();
@@ -90,7 +114,10 @@ export function aggregateAmpDaily(
       entriesByDay.set(date, entries);
     }
 
-    const dates = new Set([...entriesByDay.keys(), ...Object.keys(thread.reports)]);
+    const dates = new Set([
+      ...entriesByDay.keys(),
+      ...Object.keys(thread.reports),
+    ]);
     for (const date of dates) {
       const entries = entriesByDay.get(date) ?? [];
       const reportEntry = thread.reports[date];
@@ -107,6 +134,12 @@ export function aggregateAmpDaily(
   }
 
   const days = new Map<string, Map<string, ModelBreakdown>>();
+  const pricingAliases = new Map<string, string[]>();
+  for (const [exportName, reportName] of aliases) {
+    const names = pricingAliases.get(reportName) ?? [];
+    names.push(exportName);
+    pricingAliases.set(reportName, names);
+  }
   for (const { date, merged, entries } of threadDays) {
     const models = days.get(date) ?? new Map<string, ModelBreakdown>();
     days.set(date, models);
@@ -117,15 +150,31 @@ export function aggregateAmpDaily(
 
   return [...days.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, models]) => {
-      const modelBreakdowns = [...models.values()].filter((m) => tokenTotal(m) > 0);
+    .map(([date, models]): AmpDailyRecord => {
+      const modelBreakdowns = [...models.values()].filter(
+        (m) => tokenTotal(m) > 0,
+      );
       const totals = {
         inputTokens: 0,
         outputTokens: 0,
         cacheCreationTokens: 0,
         cacheReadTokens: 0,
       };
+      const unpricedModels: string[] = [];
+      const usedAliases: Record<string, string> = {};
+      let totalCost = 0;
       for (const m of modelBreakdowns) {
+        // Prefer routing names, then aliases established by reconciliation.
+        const estimate = estimateTokenCost(
+          pricing,
+          [m.modelName, ...(pricingAliases.get(m.modelName) ?? [])],
+          m,
+        );
+        if (!estimate) unpricedModels.push(m.modelName);
+        if (estimate && estimate.model !== m.modelName)
+          usedAliases[m.modelName] = estimate.model;
+        m.cost = estimate?.cost ?? 0;
+        totalCost += m.cost;
         totals.inputTokens += m.inputTokens;
         totals.outputTokens += m.outputTokens;
         totals.cacheCreationTokens += m.cacheCreationTokens;
@@ -135,9 +184,18 @@ export function aggregateAmpDaily(
         date,
         ...totals,
         totalTokens: tokenTotal(totals),
-        totalCost: 0,
+        totalCost,
         modelsUsed: modelBreakdowns.map((m) => m.modelName),
         modelBreakdowns,
+        rawData: {
+          costEstimate: {
+            source: "litellm",
+            asOf: pricing.asOf,
+            basis: "base-token-rates",
+            unpricedModels,
+            pricingAliases: usedAliases,
+          },
+        },
       };
     })
     .filter((record) => record.totalTokens > 0);

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AmpRunner } from "../../src/amp/cli";
 import { aggregateAmpDaily } from "../../src/amp/daily";
 import { loadCachedThreads, syncAmpCache } from "../../src/amp/sync";
-import { SINGLE_MODEL_REPORT, exportJson } from "./fixtures";
+import { SINGLE_MODEL_REPORT, UNPRICED, exportJson } from "./fixtures";
 
 const RATE_LIMITED =
   "Usage information is limited to 60 requests per hour. Wait an hour before trying again.";
@@ -53,7 +53,12 @@ describe("syncAmpCache", () => {
       { id: "T-2", updated: now },
     ]);
     const r1 = await syncAmpCache(first.run, "inst", cacheDir);
-    expect(r1).toMatchObject({ listed: 2, exported: 2, unchanged: 0, reportsFetched: 2 });
+    expect(r1).toMatchObject({
+      listed: 2,
+      exported: 2,
+      unchanged: 0,
+      reportsFetched: 2,
+    });
 
     const second = fakeAmp([
       { id: "T-1", updated: now },
@@ -66,7 +71,9 @@ describe("syncAmpCache", () => {
     // T-1's report was fetched after its last update, so it is kept
     expect(second.reports().sort()).toEqual(["T-2", "T-3"]);
 
-    const daily = aggregateAmpDaily(loadCachedThreads(cacheDir));
+    const daily = aggregateAmpDaily(loadCachedThreads(cacheDir), {
+      pricing: UNPRICED,
+    });
     expect(daily[0]!.totalTokens).toBe(3 * 165);
   });
 
@@ -79,7 +86,12 @@ describe("syncAmpCache", () => {
       throw new Error(RATE_LIMITED);
     });
     const r1 = await syncAmpCache(limited.run, "inst", cacheDir);
-    expect(r1).toMatchObject({ exported: 2, failed: 0, reportsFetched: 0, reportsPending: 2 });
+    expect(r1).toMatchObject({
+      exported: 2,
+      failed: 0,
+      reportsFetched: 0,
+      reportsPending: 2,
+    });
     // Requests already in flight finish; nothing new starts after the limit
     expect(limited.reports().length).toBeLessThanOrEqual(2);
 
@@ -90,7 +102,9 @@ describe("syncAmpCache", () => {
     expect(again.reports()).toEqual([]);
 
     // Main-agent usage is still collected
-    const daily = aggregateAmpDaily(loadCachedThreads(cacheDir));
+    const daily = aggregateAmpDaily(loadCachedThreads(cacheDir), {
+      pricing: UNPRICED,
+    });
     expect(daily[0]!.outputTokens).toBe(2);
   });
 
@@ -110,7 +124,9 @@ describe("syncAmpCache", () => {
     expect(other.reports()).toEqual([]);
     expect(result.reportsPending).toBe(1);
 
-    const index = JSON.parse(readFileSync(join(cacheDir, "index.json"), "utf8"));
+    const index = JSON.parse(
+      readFileSync(join(cacheDir, "index.json"), "utf8"),
+    );
     expect(index.installationId).toBe("inst-b");
     expect(index.reportsBlockedUntil).toBeDefined();
   });
