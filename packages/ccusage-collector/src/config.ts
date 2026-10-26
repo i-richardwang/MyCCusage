@@ -7,42 +7,14 @@ import {
 } from "fs";
 import { join } from "path";
 import { homedir } from "os";
-import type { AgentType } from "./types.js";
+import type { AgentType, CollectorConfig } from "./types.js";
+import { resolveDeviceIdentity } from "./utils/device-info.js";
+import { AGENT_OPTIONS } from "./agents.js";
+import { validate as validateSchedule } from "node-cron";
 
-export interface Config {
-  apiKey: string;
-  endpoint: string;
+export interface Config extends CollectorConfig {
   schedule: string;
-  scheduleLabel: string;
-  maxRetries: number;
-  retryDelay: number;
-  deviceId?: string;
-  deviceName?: string;
-  displayName?: string;
-  agentTypes?: AgentType[];
 }
-
-export const AGENT_OPTIONS = [
-  { value: "claude-code" as const, label: "Claude Code", package: "ccusage" },
-  { value: "amp" as const, label: "AMP", package: "amp" },
-  {
-    value: "opencode" as const,
-    label: "OpenCode",
-    package: "ccusage",
-  },
-  { value: "codex" as const, label: "Codex", package: "ccusage" },
-  { value: "dimagent" as const, label: "DimAgent", package: "dimcode" },
-  {
-    value: "cursor" as const,
-    label: "Cursor",
-    package: "cursor",
-  },
-  {
-    value: "antigravity" as const,
-    label: "Antigravity",
-    package: "ccusage",
-  },
-];
 
 export const SCHEDULE_OPTIONS = [
   { value: "*/30 * * * *", label: "Every 30 minutes" },
@@ -53,60 +25,195 @@ export const SCHEDULE_OPTIONS = [
   { value: "0 0 * * *", label: "Once daily" },
 ];
 
-/**
- * Read a MYCCUSAGE_* environment override.
- *
- * Blank values count as unset so an empty export can never shadow a valid
- * file entry. Raw access stays in this one place; callers use the helpers
- * below instead of touching process.env directly.
- */
-function envOverride(name: "MYCCUSAGE_API_KEY" | "MYCCUSAGE_ENDPOINT"):
-  | string
-  | undefined {
-  // Dynamic access on purpose: a single choke point instead of one
-  // process.env.LITERAL per variable (runtime-only lookup, not a build input).
-  const value = process.env[name]?.trim();
-  return value ? value : undefined;
+export const CONFIG_DEFAULTS = {
+  agentTypes: ["claude-code"],
+  schedule: "0 */4 * * *",
+  maxRetries: 3,
+  retryDelay: 1000,
+} as const;
+
+/** One mapping for runtime overrides and persistence exclusions. */
+export const CONFIG_ENV_VARS = {
+  apiKey: "MYCCUSAGE_API_KEY",
+  endpoint: "MYCCUSAGE_ENDPOINT",
+  agentTypes: "MYCCUSAGE_AGENT_TYPES",
+  deviceId: "MYCCUSAGE_DEVICE_ID",
+  deviceName: "MYCCUSAGE_DEVICE_NAME",
+  displayName: "MYCCUSAGE_DISPLAY_NAME",
+} as const;
+
+type EnvironmentConfig = Partial<Record<keyof typeof CONFIG_ENV_VARS, string>>;
+
+export function readEnvironmentConfig(
+  env: NodeJS.ProcessEnv = process.env,
+): EnvironmentConfig {
+  const config: EnvironmentConfig = {};
+  for (const [field, name] of Object.entries(CONFIG_ENV_VARS)) {
+    const value = env[name]?.trim();
+    if (value) config[field as keyof EnvironmentConfig] = value;
+  }
+  return config;
 }
 
-export interface EnvOverrideStatus {
-  apiKeyFromEnv: boolean;
-  endpointFromEnv: boolean;
+export function formatSchedule(schedule: string): string {
+  return (
+    SCHEDULE_OPTIONS.find(({ value }) => value === schedule)?.label ?? schedule
+  );
 }
 
-/** Read back a credential override for callers that skipped prompting. */
-export function getEnvOverride(
-  name: "MYCCUSAGE_API_KEY" | "MYCCUSAGE_ENDPOINT",
-): string | undefined {
-  return envOverride(name);
+function stringSetting(value: unknown, source: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") {
+    throw new Error(`${source} must be a string`);
+  }
+  return value.trim() || undefined;
+}
+
+function parseAgentTypes(value: unknown, source: string): AgentType[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`${source} must contain at least one supported agent`);
+  }
+  const agents: AgentType[] = [];
+  for (const item of value) {
+    const option = AGENT_OPTIONS.find(
+      ({ value }) => typeof item === "string" && value === item.trim(),
+    );
+    if (!option) {
+      // Do not echo arbitrary input: a misplaced secret must stay out of logs.
+      throw new Error(
+        `${source} must contain only supported agents: ${AGENT_OPTIONS.map(({ value }) => value).join(", ")}`,
+      );
+    }
+    if (!agents.includes(option.value)) agents.push(option.value);
+  }
+  return agents;
+}
+
+function numberSetting(
+  value: unknown,
+  fallback: number,
+  minimum: number,
+  source: string,
+): number {
+  if (value === undefined) return fallback;
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value < minimum
+  ) {
+    throw new Error(`${source} must be an integer >= ${minimum}`);
+  }
+  return value;
+}
+
+/** Resolve once at the boundary; collection never reads configuration sources. */
+export function resolveConfig(
+  config: Record<string, unknown>,
+  env: NodeJS.ProcessEnv = process.env,
+): Config | null {
+  const environment = readEnvironmentConfig(env);
+  const fields = new Set([
+    ...Object.keys(CONFIG_ENV_VARS),
+    "schedule",
+    "maxRetries",
+    "retryDelay",
+  ]);
+  if (Object.keys(config).some((field) => !fields.has(field))) {
+    throw new Error(
+      `Config supports only these fields: ${[...fields].join(", ")}`,
+    );
+  }
+  function setting(field: Exclude<keyof typeof CONFIG_ENV_VARS, "agentTypes">) {
+    return (
+      environment[field] ?? stringSetting(config[field], `${field} in config`)
+    );
+  }
+
+  const apiKey = setting("apiKey");
+  const endpoint = setting("endpoint");
+  if (!apiKey || !endpoint) return null;
+
+  try {
+    const url = new URL(endpoint);
+    if (url.protocol !== "https:" && url.protocol !== "http:")
+      throw new Error();
+  } catch {
+    const source = environment.endpoint
+      ? CONFIG_ENV_VARS.endpoint
+      : "endpoint in config";
+    throw new Error(`${source} must be an absolute HTTP(S) URL`);
+  }
+
+  const envAgents = environment.agentTypes;
+  const agentTypes =
+    envAgents !== undefined
+      ? parseAgentTypes(envAgents.split(","), CONFIG_ENV_VARS.agentTypes)
+      : parseAgentTypes(
+          config.agentTypes === undefined
+            ? CONFIG_DEFAULTS.agentTypes
+            : config.agentTypes,
+          "agentTypes in config",
+        );
+  const schedule =
+    stringSetting(config.schedule, "schedule in config") ??
+    CONFIG_DEFAULTS.schedule;
+  if (!validateSchedule(schedule)) {
+    throw new Error("schedule in config must be a valid cron expression");
+  }
+
+  return {
+    apiKey,
+    endpoint,
+    agentTypes,
+    schedule,
+    maxRetries: numberSetting(
+      config.maxRetries,
+      CONFIG_DEFAULTS.maxRetries,
+      1,
+      "maxRetries in config",
+    ),
+    retryDelay: numberSetting(
+      config.retryDelay,
+      CONFIG_DEFAULTS.retryDelay,
+      0,
+      "retryDelay in config",
+    ),
+    ...resolveDeviceIdentity({
+      deviceId: setting("deviceId"),
+      deviceName: setting("deviceName"),
+      displayName: setting("displayName"),
+    }),
+  };
 }
 
 export class ConfigManager {
-  private configDir: string;
-  private configPath: string;
+  private readonly configDir: string;
+  private readonly configPath: string;
 
   constructor() {
     this.configDir = join(homedir(), ".ccusage-collector");
     this.configPath = join(this.configDir, "config.json");
   }
 
-  /** Which credential fields are currently supplied via environment. */
-  getEnvOverrideStatus(): EnvOverrideStatus {
-    return {
-      apiKeyFromEnv: envOverride("MYCCUSAGE_API_KEY") !== undefined,
-      endpointFromEnv: envOverride("MYCCUSAGE_ENDPOINT") !== undefined,
-    };
-  }
-
-  /** Read and parse the config file; null when absent or unreadable. */
-  private loadFileConfig(): Record<string, unknown> | null {
+  readFileConfig(): Record<string, unknown> {
+    if (!this.hasConfig()) return {};
+    let config: unknown;
     try {
-      if (!this.hasConfig()) return null;
-      return JSON.parse(readFileSync(this.configPath, "utf8"));
-    } catch (error) {
-      console.error("Failed to load config:", error);
-      return null;
+      config = JSON.parse(readFileSync(this.configPath, "utf8"));
+    } catch {
+      // JSON parser errors can contain fragments of credentials.
+      throw new Error(`Unable to read valid JSON config at ${this.configPath}`);
     }
+    if (
+      config === null ||
+      typeof config !== "object" ||
+      Array.isArray(config)
+    ) {
+      throw new Error(
+        `Config at ${this.configPath} must contain a JSON object`,
+      );
+    }
+    return config as Record<string, unknown>;
   }
 
   hasConfig(): boolean {
@@ -114,125 +221,27 @@ export class ConfigManager {
   }
 
   loadConfig(): Config | null {
-    const fileConfig = this.loadFileConfig();
-
-    // Deployment credentials: environment wins over the file, and env
-    // values are never written back to disk (see saveConfig).
-    const apiKey =
-      envOverride("MYCCUSAGE_API_KEY") ??
-      (typeof fileConfig?.apiKey === "string" ? fileConfig.apiKey : undefined);
-    const endpoint =
-      envOverride("MYCCUSAGE_ENDPOINT") ??
-      (typeof fileConfig?.endpoint === "string"
-        ? fileConfig.endpoint
-        : undefined);
-
-    // Validate required fields
-    if (!apiKey || !endpoint) {
-      return null;
-    }
-
-    const agentTypes = Array.isArray(fileConfig?.agentTypes)
-      ? (fileConfig.agentTypes as AgentType[])
-      : typeof fileConfig?.agentType === "string"
-        ? [fileConfig.agentType as AgentType]
-        : ["claude-code" as AgentType];
-
-    return {
-      apiKey,
-      endpoint,
-      schedule:
-        typeof fileConfig?.schedule === "string"
-          ? fileConfig.schedule
-          : "0 */4 * * *",
-      scheduleLabel:
-        typeof fileConfig?.scheduleLabel === "string"
-          ? fileConfig.scheduleLabel
-          : "Every 4 hours",
-      maxRetries:
-        typeof fileConfig?.maxRetries === "number" ? fileConfig.maxRetries : 3,
-      retryDelay:
-        typeof fileConfig?.retryDelay === "number" ? fileConfig.retryDelay : 1000,
-      deviceId:
-        typeof fileConfig?.deviceId === "string" ? fileConfig.deviceId : undefined,
-      deviceName:
-        typeof fileConfig?.deviceName === "string"
-          ? fileConfig.deviceName
-          : undefined,
-      displayName:
-        typeof fileConfig?.displayName === "string"
-          ? fileConfig.displayName
-          : undefined,
-      // Migrate legacy single agentType to agentTypes array
-      agentTypes,
-    };
+    return resolveConfig(this.readFileConfig());
   }
 
+  /** Explicit persistence only: sync/start/test/status never call this. */
   saveConfig(config: Config): void {
-    try {
-      // Ensure config directory exists
-      if (!existsSync(this.configDir)) {
-        mkdirSync(this.configDir, { recursive: true });
-      }
-
-      // Environment-supplied credentials must never land on disk: strip
-      // them so a load -> save round-trip (e.g. updateDeviceInfo) cannot
-      // persist secrets that came from MYCCUSAGE_* variables.
-      const { apiKey, endpoint, ...fileFields } = config;
-      const toPersist: Record<string, unknown> = { ...fileFields };
-      if (envOverride("MYCCUSAGE_API_KEY") === undefined) {
-        toPersist.apiKey = apiKey;
-      }
-      if (envOverride("MYCCUSAGE_ENDPOINT") === undefined) {
-        toPersist.endpoint = endpoint;
-      }
-
-      // Write config file
-      writeFileSync(this.configPath, JSON.stringify(toPersist, null, 2));
-
-      // Set file permissions to 600 (user read/write only)
-      chmodSync(this.configPath, 0o600);
-
-      console.log("✅ Configuration saved successfully!");
-    } catch (error) {
-      console.error("Failed to save config:", error);
-      throw error;
+    const fileConfig = this.readFileConfig();
+    const toPersist: Record<string, unknown> = { ...config };
+    const environment = readEnvironmentConfig();
+    for (const field of Object.keys(environment)) {
+      if (Object.hasOwn(fileConfig, field))
+        toPersist[field] = fileConfig[field];
+      else delete toPersist[field];
     }
+    mkdirSync(this.configDir, { recursive: true });
+    writeFileSync(this.configPath, JSON.stringify(toPersist, null, 2), {
+      mode: 0o600,
+    });
+    chmodSync(this.configPath, 0o600);
   }
 
   getConfigPath(): string {
     return this.configPath;
-  }
-
-  updateDeviceInfo(deviceId: string, deviceName: string): void {
-    try {
-      const config = this.loadConfig();
-      if (!config) {
-        throw new Error("No configuration found");
-      }
-
-      const updatedConfig = {
-        ...config,
-        deviceId,
-        deviceName,
-      };
-
-      this.saveConfig(updatedConfig);
-    } catch (error) {
-      console.error("Failed to update device info:", error);
-      throw error;
-    }
-  }
-
-  showNoConfigMessage(): void {
-    console.log(`
-❌ Configuration not found!
-
-📋 Please run the following command to configure first:
-   ccusage-collector config
-
-💡 Then start with PM2:
-   pm2 start ccusage-collector -- start
-`);
   }
 }

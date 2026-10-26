@@ -1,10 +1,10 @@
 # ccusage-collector
 
-A command-line tool for collecting Claude Code usage statistics and syncing them to your self-hosted My Claude Code Usage Dashboard.
+A command-line tool for collecting coding agent usage statistics and syncing them to your self-hosted My Claude Code Usage Dashboard.
 
 ## Overview
 
-This package automatically collects your local Claude Code usage data and syncs it to your dashboard, giving you insights into your AI-assisted development workflow.
+Collect usage from selected coding agents, attach device identity, and sync daily records to your dashboard. Configure the collector through environment variables or an optional JSON file.
 
 ## Installation
 
@@ -32,7 +32,7 @@ bunx ccusage-collector sync
 ## Prerequisites
 
 - Bun ≥1.0 or Node.js ≥20
-- PM2 process manager (for reliable background execution)
+- PM2 process manager (optional, for background execution with `start`)
 - `ccusage` CLI installed and available in PATH (Claude Code, OpenCode, Codex, Antigravity)
 - `amp` CLI installed and logged in (AMP)
 - At least one supported coding agent installed and configured
@@ -48,7 +48,7 @@ ccusage-collector config
 
 This will prompt you for:
 - **API Key** (hidden input)
-- **Dashboard URL** (domain only, e.g., https://your-app.com)
+- **Sync Endpoint URL** (e.g., https://your-app.com/api/usage-sync)
 - **Device Display Name** (optional, custom name for this device)
 - **Sync Schedule** (user-friendly options like "Every 4 hours")
 
@@ -70,7 +70,7 @@ pm2 status
 | Command | Description |
 |---------|-------------|
 | `ccusage-collector config` | Interactive configuration wizard |
-| `ccusage-collector start` | Start scheduled sync (requires configuration) |
+| `ccusage-collector start` | Start scheduled sync |
 | `ccusage-collector sync` | Run single sync operation |
 | `ccusage-collector sync --dry-run` | Test data collection without syncing |
 | `ccusage-collector status` | Check configuration status |
@@ -79,20 +79,50 @@ pm2 status
 
 ## Configuration
 
-Configuration is stored in `~/.ccusage-collector/config.json` with user-only file permissions.
+Configuration resolves in this order: **nonblank environment variables → JSON configuration → defaults**. The optional JSON file is `~/.ccusage-collector/config.json`, written with user-only file permissions by the `config` wizard.
 
-### Environment Variable Overrides
+`sync`, `start`, `test`, and `status` never create or modify this configuration file. Agent-specific data caches (such as AMP exports and pricing) are separate and may still be written.
 
-Deployment credentials can be supplied via the environment instead of the config file. Environment values win over the file and are never written back to disk:
+The JSON object accepts `apiKey`, `endpoint`, `agentTypes`, `deviceId`, `deviceName`, `displayName`, `schedule`, `maxRetries`, and `retryDelay`. Unknown fields are rejected. Schedule labels are derived for display and are not stored.
 
-| Variable | Overrides | Example |
+### Environment Variables
+
+Credentials, agent selection, and device identity can all be supplied through the environment:
+
+| Variable | JSON field | Default when not configured |
 |---|---|---|
-| `MYCCUSAGE_API_KEY` | `apiKey` | `export MYCCUSAGE_API_KEY=your-secret-api-key` |
-| `MYCCUSAGE_ENDPOINT` | `endpoint` | `export MYCCUSAGE_ENDPOINT=https://your-app.com/api/usage-sync` |
+| `MYCCUSAGE_API_KEY` | `apiKey` | Required |
+| `MYCCUSAGE_ENDPOINT` | `endpoint` | Required; full HTTP(S) URL including `/api/usage-sync` |
+| `MYCCUSAGE_AGENT_TYPES` | `agentTypes` | `claude-code` |
+| `MYCCUSAGE_DEVICE_ID` | `deviceId` | Fingerprint derived from hostname and MAC addresses |
+| `MYCCUSAGE_DEVICE_NAME` | `deviceName` | Hostname |
+| `MYCCUSAGE_DISPLAY_NAME` | `displayName` | Unset; the dashboard uses the device name |
 
-Blank values count as unset, so an empty export can never shadow a valid file entry. When both are set, no config file is needed at all — only behavioral settings (`agentTypes`, `schedule`, device names) are read from the file.
+`MYCCUSAGE_AGENT_TYPES` is a comma-separated list. Supported values are `claude-code`, `amp`, `opencode`, `codex`, `dimagent`, `cursor`, and `antigravity`. Whitespace is trimmed and duplicates are removed. Unknown agents and empty list entries are rejected with a configuration error before collection begins.
 
-The `config` wizard skips questions whose values already come from the environment, and `status` shows each credential's source (`via MYCCUSAGE_API_KEY` vs `via config file`) without printing the secret.
+Blank environment values count as unset, so an empty export never shadows a valid file entry. Device fields resolve independently: setting only `MYCCUSAGE_DEVICE_ID` still defaults the device name to the hostname. Agent selection uses the JSON `agentTypes` array or the environment list. Schedule and retry settings use JSON values or their defaults (every four hours, three attempts, 1000 ms retry delay).
+
+### Cloud / Sandbox VM: No JSON Required
+
+Inject these variables into the process environment, then run:
+
+```bash
+export MYCCUSAGE_API_KEY='your-secret-api-key'
+export MYCCUSAGE_ENDPOINT='https://your-app.com/api/usage-sync'
+export MYCCUSAGE_AGENT_TYPES='claude-code,codex'
+export MYCCUSAGE_DEVICE_ID='cloud-dev-01'
+export MYCCUSAGE_DEVICE_NAME='cloud-dev-01'
+export MYCCUSAGE_DISPLAY_NAME='Cloud development'
+
+ccusage-collector status
+ccusage-collector sync
+```
+
+No interactive setup or configuration file is needed. A platform scheduler can invoke `sync` periodically; use `start` if you want the collector's built-in scheduler. The collector must have access to the selected agents' usage data and required CLIs in that environment. `.env` files are not loaded automatically; `.env.example` is a reference for your platform's environment injection.
+
+Use a distinct device ID for each independent usage dataset. Reuse an ID across VM rebuilds only when the VM continues the same dataset: the dashboard upserts by device ID, date, and agent type, so independent VMs sharing an ID overwrite each other's daily totals rather than adding them. Changing the display name does not change device identity.
+
+The `config` wizard skips credential, agent-selection, and display-name questions supplied by the environment. When explicitly saving JSON, environment overrides are not persisted; existing file values for those fields are preserved. `status` shows resolved settings without printing the API key.
 
 Production example with PM2 (`ecosystem.config.js`):
 
@@ -105,6 +135,9 @@ module.exports = {
     env: {
       MYCCUSAGE_API_KEY: "your-secret-api-key",
       MYCCUSAGE_ENDPOINT: "https://your-app.com/api/usage-sync",
+      MYCCUSAGE_AGENT_TYPES: "claude-code,codex",
+      MYCCUSAGE_DEVICE_ID: "cloud-dev-01",
+      MYCCUSAGE_DISPLAY_NAME: "Cloud development",
     },
   }],
 };
@@ -121,18 +154,32 @@ ccusage-collector config
 🔧 ccusage-collector Configuration Wizard
 =========================================
 
+? Select the coding agents to track: Claude Code
 ? Enter your API Key: ********** (hidden input)
-? Enter your dashboard URL (domain only): https://myccusage.example.com
-? Enter a custom device name (optional, leave empty to use system name): My MacBook Pro
+? Enter the sync endpoint URL (including /api/usage-sync): https://myccusage.example.com/api/usage-sync
+? Enter a device display name (optional): My MacBook Pro
 ? Select sync frequency: Every 4 hours
 
-🧪 Testing configuration...
-✅ Configuration test passed!
+🧪 Testing data collection...
 ✅ Configuration saved successfully!
 
-💡 Start with PM2:
-   pm2 start ccusage-collector -- start
+Run once: ccusage-collector sync
+Start background sync: pm2 start ccusage-collector -- start
 ```
+
+### Programmatic Configuration
+
+`UsageCollector` consumes the options passed to its constructor. It does not implicitly load JSON or deployment environment variables. Use the same configuration boundary as the CLI when needed:
+
+```ts
+import { ConfigManager, UsageCollector } from "ccusage-collector";
+
+const config = new ConfigManager().loadConfig();
+if (!config) throw new Error("API key and endpoint are required");
+await new UsageCollector(config).run();
+```
+
+Alternatively, `resolveConfig(rawSettings, env)` resolves an explicit settings object and environment without reading a file. `resolveDeviceIdentity(options)` fills missing device fields from the host without reading or writing configuration. `UsageCollector` requires complete runtime options; configuration defaults and validation belong to `resolveConfig`.
 
 ### Available Schedule Options
 

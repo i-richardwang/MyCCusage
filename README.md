@@ -97,6 +97,8 @@ ccusage-collector config
 pm2 start ccusage-collector -- start
 ```
 
+For cloud or sandbox environments, inject `MYCCUSAGE_API_KEY`, `MYCCUSAGE_ENDPOINT`, `MYCCUSAGE_AGENT_TYPES`, and optional device variables, then run `ccusage-collector sync` directly. No JSON configuration is required; see the [environment-only setup](packages/ccusage-collector/README.md#cloud--sandbox-vm-no-json-required).
+
 ## Data Collection
 
 The `ccusage-collector` package automatically:
