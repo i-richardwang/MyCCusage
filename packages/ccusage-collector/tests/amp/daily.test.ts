@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { aggregateAmpDaily } from "../../src/amp/daily";
-import type { AmpDayReport } from "../../src/amp/report";
-import { DAY, NOON, cachedThread, usageEntry } from "./fixtures";
+import {
+  DAY,
+  NOON,
+  UNPRICED,
+  DEEPSEEK_REPORT,
+  cachedThread,
+  usageEntry,
+} from "./fixtures";
 
 describe("aggregateAmpDaily", () => {
   it("sums export usage per local day and model, falling back to thread creation", () => {
@@ -11,26 +17,29 @@ describe("aggregateAmpDaily", () => {
       cacheCreationTokens: n,
       cacheReadTokens: n,
     });
-    const daily = aggregateAmpDaily([
-      cachedThread({
-        id: "T-1",
-        created: new Date(2026, 9, 20, 12).getTime(),
-        usage: [
-          usageEntry("claude-a", tokens(1)),
-          usageEntry("claude-a", tokens(2)),
-          { ...usageEntry("claude-b", tokens(5)), timestamp: null },
-        ],
-      }),
-      cachedThread({
-        id: "T-2",
-        usage: [
-          {
-            ...usageEntry("claude-b", tokens(3)),
-            timestamp: new Date(2026, 9, 22, 10).toISOString(),
-          },
-        ],
-      }),
-    ]);
+    const daily = aggregateAmpDaily(
+      [
+        cachedThread({
+          id: "T-1",
+          created: new Date(2026, 9, 20, 12).getTime(),
+          usage: [
+            usageEntry("claude-a", tokens(1)),
+            usageEntry("claude-a", tokens(2)),
+            { ...usageEntry("claude-b", tokens(5)), timestamp: null },
+          ],
+        }),
+        cachedThread({
+          id: "T-2",
+          usage: [
+            {
+              ...usageEntry("claude-b", tokens(3)),
+              timestamp: new Date(2026, 9, 22, 10).toISOString(),
+            },
+          ],
+        }),
+      ],
+      { pricing: UNPRICED },
+    );
 
     expect(daily.map((d) => d.date)).toEqual(["2026-10-20", DAY, "2026-10-22"]);
     const oct21 = daily[1]!;
@@ -41,13 +50,23 @@ describe("aggregateAmpDaily", () => {
   });
 
   it("treats cache creation as uncached input for non-Anthropic models", () => {
-    const tokens = { outputTokens: 1, cacheCreationTokens: 100, cacheReadTokens: 10 };
-    const [day] = aggregateAmpDaily([
-      cachedThread({
-        id: "T-1",
-        usage: [usageEntry("gpt-6.1-sol", tokens), usageEntry("claude-opus-5-5", tokens)],
-      }),
-    ]);
+    const tokens = {
+      outputTokens: 1,
+      cacheCreationTokens: 100,
+      cacheReadTokens: 10,
+    };
+    const [day] = aggregateAmpDaily(
+      [
+        cachedThread({
+          id: "T-1",
+          usage: [
+            usageEntry("gpt-6.1-sol", tokens),
+            usageEntry("claude-opus-5-5", tokens),
+          ],
+        }),
+      ],
+      { pricing: UNPRICED },
+    );
     const byModel = Object.fromEntries(
       day!.modelBreakdowns.map((m) => [m.modelName, m]),
     );
@@ -63,12 +82,15 @@ describe("aggregateAmpDaily", () => {
   });
 
   it("names export models without their provider prefix", () => {
-    const [day] = aggregateAmpDaily([
-      cachedThread({
-        id: "T-1",
-        usage: [usageEntry("meta/muse-spark-1.3", { outputTokens: 1 })],
-      }),
-    ]);
+    const [day] = aggregateAmpDaily(
+      [
+        cachedThread({
+          id: "T-1",
+          usage: [usageEntry("meta/muse-spark-1.3", { outputTokens: 1 })],
+        }),
+      ],
+      { pricing: UNPRICED },
+    );
     expect(day!.modelsUsed).toEqual(["muse-spark-1.3"]);
   });
 
@@ -78,28 +100,21 @@ describe("aggregateAmpDaily", () => {
       cacheCreationTokens: 20,
       cacheReadTokens: 80,
     });
-    const report: AmpDayReport = {
-      inputTokens: 150,
-      cacheReadTokens: 120,
-      outputTokens: 15,
-      models: [{ name: "DeepSeek V4.1 Flash", requests: 2, inputTokens: 150, outputTokens: 15 }],
-      routing: [
-        { modelId: "deepseek/deepseek-v4.1-flash", purpose: "Agent", requests: 1 },
-        { modelId: "deepseek/deepseek-v4.1-flash", purpose: "Read Thread", requests: 1 },
-      ],
-    };
     const unreconciled: string[] = [];
     const daily = aggregateAmpDaily(
       [
         cachedThread({
           id: "T-1",
           usage: [agent],
-          reports: { [DAY]: { fetchedAt: NOON, report } },
+          reports: { [DAY]: { fetchedAt: NOON, report: DEEPSEEK_REPORT } },
         }),
         // No report yet: main agent only, under the learned report name
         cachedThread({ id: "T-2", usage: [agent] }),
       ],
-      (threadId) => unreconciled.push(threadId),
+      {
+        pricing: UNPRICED,
+        onUnreconciled: (threadId) => unreconciled.push(threadId),
+      },
     );
 
     expect(unreconciled).toEqual([]);
@@ -127,9 +142,119 @@ describe("aggregateAmpDaily", () => {
           reports: { [DAY]: { fetchedAt: NOON, report: null } },
         }),
       ],
-      (threadId, date) => unreconciled.push(`${threadId} ${date}`),
+      {
+        pricing: UNPRICED,
+        onUnreconciled: (threadId, date) =>
+          unreconciled.push(`${threadId} ${date}`),
+      },
     );
     expect(unreconciled).toEqual([`T-1 ${DAY}`]);
     expect(daily[0]!.totalTokens).toBe(5);
+  });
+
+  it("prices reconciled agent/subagent usage once, sums across threads, and marks incomplete costs", () => {
+    const agent = usageEntry("deepseek-flash", {
+      outputTokens: 10,
+      cacheCreationTokens: 20,
+      cacheReadTokens: 80,
+    });
+    const thread = cachedThread({
+      id: "T-1",
+      usage: [agent],
+      reports: {
+        [DAY]: {
+          fetchedAt: NOON,
+          report: DEEPSEEK_REPORT,
+        },
+      },
+    });
+    const unknown = cachedThread({
+      id: "T-3",
+      usage: [usageEntry("unknown", { outputTokens: 7 })],
+    });
+    const threads = [
+      thread,
+      cachedThread({ id: "T-2", usage: [agent] }),
+      unknown,
+    ];
+    const pricing = {
+      asOf: NOON,
+      models: {
+        "deepseek-v4.1-flash": { input: 1, output: 2, cacheRead: 0.1 },
+      },
+    };
+    const [day] = aggregateAmpDaily(threads, { pricing });
+    // Combined main + subagent: input 50, output 25, reads 200; no duplicate main usage.
+    expect(day!.totalCost).toBe(120);
+    expect(day!.modelBreakdowns.map((m) => m.cost)).toEqual([120, 0]);
+    expect(day!.rawData.costEstimate).toEqual({
+      source: "litellm",
+      asOf: NOON,
+      basis: "base-token-rates",
+      unpricedModels: ["unknown"],
+      pricingAliases: {},
+    });
+    expect(day!.totalTokens).toBe(282);
+    // Pricing and repeated aggregation do not mutate the cached thread data.
+    expect(aggregateAmpDaily(threads, { pricing })).toEqual([day]);
+    expect(
+      aggregateAmpDaily(threads, { pricing: UNPRICED })[0]!.totalCost,
+    ).toBe(0);
+    // The reconciled export name is a safe fallback when only that name has
+    // a price; a different model version is never inferred from its spelling.
+    const [aliased] = aggregateAmpDaily(threads, {
+      pricing: {
+        ...pricing,
+        models: { "deepseek-flash": pricing.models["deepseek-v4.1-flash"] },
+      },
+    });
+    expect(aliased!.totalCost).toBe(120);
+    expect(aliased!.rawData.costEstimate.pricingAliases).toEqual({
+      "deepseek-v4.1-flash": "deepseek-flash",
+    });
+  });
+
+  it("prices normalized cache counters and reprices history without changing token totals", () => {
+    const threads = [
+      cachedThread({
+        id: "T-1",
+        usage: [
+          usageEntry("gpt-test", {
+            cacheCreationTokens: 100,
+            cacheReadTokens: 200,
+            outputTokens: 10,
+          }),
+          usageEntry("claude-test", {
+            cacheCreationTokens: 100,
+            cacheReadTokens: 200,
+            outputTokens: 10,
+          }),
+        ],
+      }),
+    ];
+    const prices = { input: 1, output: 2, cacheCreation: 3, cacheRead: 0.1 };
+    const pricing = {
+      asOf: NOON,
+      models: { "gpt-test": prices, "claude-test": prices },
+    };
+    const [day] = aggregateAmpDaily(threads, { pricing });
+    expect(day!.modelBreakdowns.map((m) => m.cost)).toEqual([140, 340]);
+    expect(day!.totalCost).toBe(480);
+    expect(day!.rawData.costEstimate.unpricedModels).toEqual([]);
+    const doubled = {
+      ...pricing,
+      models: {
+        "gpt-test": { input: 2, output: 4, cacheCreation: 6, cacheRead: 0.2 },
+        "claude-test": {
+          input: 2,
+          output: 4,
+          cacheCreation: 6,
+          cacheRead: 0.2,
+        },
+      },
+    };
+    const [repriced] = aggregateAmpDaily(threads, { pricing: doubled });
+    expect(repriced!.totalCost).toBe(960);
+    expect(repriced!.totalTokens).toBe(day!.totalTokens);
   });
 });

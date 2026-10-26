@@ -1,5 +1,10 @@
 import type { DailyUsageRecord, UsageData } from "../types.js";
-import { createAmpRunner, findAmpBinary, readAmpInstallationId } from "./cli.js";
+import { loadPricing } from "../pricing/index.js";
+import {
+  createAmpRunner,
+  findAmpBinary,
+  readAmpInstallationId,
+} from "./cli.js";
 import { aggregateAmpDaily } from "./daily.js";
 import { loadCachedThreads, REPORTS_PER_HOUR, syncAmpCache } from "./sync.js";
 
@@ -40,9 +45,22 @@ export async function collectAmpUsage(): Promise<
   );
 
   const unreconciled: string[] = [];
-  const daily = aggregateAmpDaily(loadCachedThreads(), (threadId, date) =>
-    unreconciled.push(`${threadId} ${date}`),
+  const threads = loadCachedThreads();
+  if (threads.length === 0) return { daily: [], totals: sumTotals([]) };
+  const pricing = await loadPricing();
+  const daily = aggregateAmpDaily(threads, {
+    onUnreconciled: (threadId, date) =>
+      unreconciled.push(`${threadId} ${date}`),
+    pricing,
+  });
+  const unpriced = new Set(
+    daily.flatMap((day) => day.rawData.costEstimate.unpricedModels),
   );
+  if (unpriced.size > 0) {
+    console.warn(
+      `Amp API-equivalent cost is incomplete: no usable token pricing for ${[...unpriced].sort().join(", ")}. Their tokens are included, with cost 0.`,
+    );
+  }
   if (unreconciled.length > 0) {
     console.warn(
       `${unreconciled.length} Amp thread-day(s) could not be reconciled with their usage report and count the main agent only (first: ${unreconciled[0]})`,

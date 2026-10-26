@@ -1,8 +1,10 @@
+import type { AmpDayReport } from "../../src/amp/report";
 import type { AmpCachedThread, AmpUsageEntry } from "../../src/amp/threads";
 
 // Local noon on 2026-10-21, so the local date is stable in any timezone
 export const DAY = "2026-10-21";
 export const NOON = new Date(2026, 9, 21, 12).toISOString();
+export const UNPRICED = { asOf: NOON, models: {} };
 
 export function exportJson(
   id: string,
@@ -116,3 +118,29 @@ Requests: 2
 | openai/gpt-6.1-sol | Agent | Via Amp | 1 | $0 |
 | openai/gpt-6.1-sol | Task | Via Amp | 1 | $0 |
 `;
+
+export const DEEPSEEK_REPORT: AmpDayReport = {
+  inputTokens: 150,
+  cacheReadTokens: 120,
+  outputTokens: 15,
+  models: [
+    {
+      name: "DeepSeek V4.1 Flash",
+      requests: 2,
+      inputTokens: 150,
+      outputTokens: 15,
+    },
+  ],
+  routing: [
+    {
+      modelId: "deepseek/deepseek-v4.1-flash",
+      purpose: "Agent",
+      requests: 1,
+    },
+    {
+      modelId: "deepseek/deepseek-v4.1-flash",
+      purpose: "Read Thread",
+      requests: 1,
+    },
+  ],
+};
