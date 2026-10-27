@@ -10,7 +10,7 @@ import { homedir } from "os";
 import type { AgentType, CollectorConfig } from "./types.js";
 import { resolveDeviceIdentity } from "./utils/device-info.js";
 import { AGENT_OPTIONS } from "./agents.js";
-import { validate as validateSchedule } from "node-cron";
+import { parseSchedule } from "./schedule.js";
 
 export interface Config extends CollectorConfig {
   schedule: string;
@@ -157,9 +157,7 @@ export function resolveConfig(
   const schedule =
     stringSetting(config.schedule, "schedule in config") ??
     CONFIG_DEFAULTS.schedule;
-  if (!validateSchedule(schedule)) {
-    throw new Error("schedule in config must be a valid cron expression");
-  }
+  parseSchedule(schedule);
 
   return {
     apiKey,
@@ -224,7 +222,7 @@ export class ConfigManager {
     return resolveConfig(this.readFileConfig());
   }
 
-  /** Explicit persistence only: sync/start/test/status never call this. */
+  /** Explicit persistence only: sync/test/status never call this. */
   saveConfig(config: Config): void {
     const fileConfig = this.readFileConfig();
     const toPersist: Record<string, unknown> = { ...config };
@@ -244,4 +242,15 @@ export class ConfigManager {
   getConfigPath(): string {
     return this.configPath;
   }
+}
+
+/** Required configuration for command-line and scheduled collection. */
+export function requireConfig(): Config {
+  const config = new ConfigManager().loadConfig();
+  if (!config) {
+    throw new Error(
+      "Set MYCCUSAGE_API_KEY and MYCCUSAGE_ENDPOINT in the environment, or run ccusage-collector config.",
+    );
+  }
+  return config;
 }

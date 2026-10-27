@@ -2,24 +2,16 @@
 
 import { createRequire } from "module";
 import { program } from "commander";
-import * as cron from "node-cron";
 import { UsageCollector } from "./collector.js";
-import { ConfigManager, formatSchedule } from "./config.js";
+import { ConfigManager, formatSchedule, requireConfig } from "./config.js";
 import { formatAgentList } from "./agents.js";
 import { InteractiveConfig } from "./interactive-config.js";
+import { CollectorService } from "./service.js";
+import { acquireLock } from "./runtime-state.js";
+import { runSync } from "./sync.js";
 
 const { version } = createRequire(import.meta.url)("../package.json");
 const configManager = new ConfigManager();
-
-function requireConfig() {
-  const config = configManager.loadConfig();
-  if (!config) {
-    throw new Error(
-      "Set MYCCUSAGE_API_KEY and MYCCUSAGE_ENDPOINT in the environment, or run ccusage-collector config.",
-    );
-  }
-  return config;
-}
 
 program
   .name("ccusage-collector")
@@ -32,65 +24,10 @@ program
   .action(() => new InteractiveConfig().runConfigurationWizard());
 
 program
-  .command("start")
-  .description("Start scheduled sync")
-  .action(async () => {
-    const config = requireConfig();
-    const collector = new UsageCollector(config);
-    console.log(
-      `🚀 Starting scheduled sync: ${formatSchedule(config.schedule)}`,
-    );
-    console.log(`📋 Schedule: ${config.schedule}`);
-    console.log(`🤖 Agents: ${formatAgentList(config.agentTypes)}`);
-
-    async function sync() {
-      console.log(
-        `\n[${new Date().toISOString()}] ⏳ Running scheduled sync...`,
-      );
-      try {
-        await collector.run();
-        console.log("✅ Scheduled sync completed");
-      } catch (error) {
-        console.error(
-          "❌ Scheduled sync failed:",
-          error instanceof Error ? error.message : error,
-        );
-      }
-    }
-    await sync();
-    const task = cron.schedule(config.schedule, sync, { noOverlap: true });
-    console.log("\n🔄 Scheduled sync is running. Press Ctrl+C to stop.");
-    for (const signal of ["SIGINT", "SIGTERM"] as const) {
-      process.once(signal, () => {
-        task.stop();
-        process.exit(0);
-      });
-    }
-  });
-
-program
   .command("sync")
   .description("Run a single sync operation")
   .option("--dry-run", "Collect data but don't sync to server")
-  .action(async (options: { dryRun?: boolean }) => {
-    const config = requireConfig();
-    const collector = new UsageCollector(config);
-    if (options.dryRun) {
-      console.log(
-        `🧪 Dry run mode: collecting data for ${formatAgentList(config.agentTypes)}`,
-      );
-      const data = await collector.collectAllUsageData();
-      if (data.length === 0)
-        throw new Error("No usage data collected for any agent");
-      console.log(JSON.stringify(data, null, 2));
-      return;
-    }
-    console.log(
-      `⏳ Running single sync for ${formatAgentList(config.agentTypes)}...`,
-    );
-    await collector.run();
-    console.log("✅ Sync completed successfully");
-  });
+  .action(async (options: { dryRun?: boolean }) => runSync(options));
 
 program
   .command("status")
@@ -122,12 +59,88 @@ program
   .description("Test data collection and endpoint connectivity")
   .action(async () => {
     const collector = new UsageCollector(requireConfig());
-    const data = await collector.collectAllUsageData();
-    if (data.length === 0)
-      throw new Error("No usage data collected for any agent");
-    for (const usage of data) await collector.syncData(usage);
-    console.log("✅ Test completed successfully!");
+    const release = await acquireLock("sync");
+    try {
+      const data = await collector.collectAllUsageData();
+      if (data.length === 0)
+        throw new Error("No usage data collected for any agent");
+      for (const usage of data) await collector.syncData(usage);
+      console.log("✅ Test completed successfully!");
+    } finally {
+      await release();
+    }
   });
+
+const service = program
+  .command("service")
+  .description("Manage native scheduled sync (macOS / Linux)");
+
+service
+  .command("install")
+  .description("Install or update the user-level scheduled task")
+  .action(async () => {
+    await new CollectorService().install(requireConfig());
+    console.log(
+      "✅ Scheduled sync installed. Check ccusage-collector service status and service logs.",
+    );
+    if (process.platform === "linux") {
+      console.log(
+        "To keep the user timer running after logout, enable lingering with: loginctl enable-linger",
+      );
+    }
+  });
+
+service
+  .command("uninstall")
+  .description("Remove the scheduled task and saved service environment")
+  .action(async () => {
+    await new CollectorService().uninstall();
+    console.log(
+      "✅ Scheduled sync uninstalled. Configuration and sync history preserved.",
+    );
+  });
+
+service
+  .command("status")
+  .description("Inspect OS registration and the latest sync result")
+  .option("--json", "Print machine-readable status")
+  .action(async (options: { json?: boolean }) => {
+    const status = await new CollectorService().status();
+    if (options.json) {
+      console.log(JSON.stringify(status, null, 2));
+      return;
+    }
+    console.log(`Scheduler: ${status.backend}`);
+    console.log(`Installed: ${status.installed ? "yes" : "no"}`);
+    console.log(`Active: ${status.active ? "yes" : "no"}`);
+    console.log(`Enabled: ${status.enabled ? "yes" : "no"}`);
+    if (status.schedule) console.log(`Installed schedule: ${status.schedule}`);
+    if (status.installed && !status.pathsValid)
+      console.log(
+        "⚠️ Service files or runtime paths are missing. Reinstall the service.",
+      );
+    if (status.lastSync) {
+      console.log(
+        `Last sync: ${status.lastSync.result} (${status.lastSync.finishedAt ?? status.lastSync.startedAt})`,
+      );
+      if (status.lastSync.lastSuccessAt)
+        console.log(`Last full success: ${status.lastSync.lastSuccessAt}`);
+      if (status.lastSync.failedAgents?.length)
+        console.log(
+          `Failed agents: ${status.lastSync.failedAgents.join(", ")}`,
+        );
+      if (status.lastSync.error)
+        console.log(`Last error: ${status.lastSync.error}`);
+    }
+  });
+
+service
+  .command("logs")
+  .description("Show the latest 100 scheduled-sync log lines")
+  .option("-f, --follow", "Follow new log output")
+  .action(async (options: { follow?: boolean }) =>
+    new CollectorService().logs(Boolean(options.follow)),
+  );
 
 program.action(() => program.outputHelp());
 

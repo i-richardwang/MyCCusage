@@ -7,7 +7,7 @@ import { delimiter, join } from "path";
 export type AmpRunner = (args: string[], timeoutMs: number) => Promise<string>;
 
 // Resolve the Amp CLI: PATH first, then the standalone installer locations
-// (PM2/cron often run with a PATH that lacks ~/.local/bin).
+// (System schedulers often run with a PATH that lacks ~/.local/bin).
 export function findAmpBinary(): string | null {
   const names = process.platform === "win32" ? ["amp.exe", "amp.cmd"] : ["amp"];
   // eslint-disable-next-line turbo/no-undeclared-env-vars

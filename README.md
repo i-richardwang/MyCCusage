@@ -70,14 +70,12 @@ Install globally with Bun (recommended):
 
 ```bash
 bun add -g ccusage-collector
-bun add -g pm2
 ```
 
 Or with npm:
 
 ```bash
 npm install -g ccusage-collector
-npm install -g pm2
 ```
 
 Or run one-off commands without installing:
@@ -93,9 +91,11 @@ bunx ccusage-collector sync
 # Interactive configuration
 ccusage-collector config
 
-# Start background sync with PM2
-pm2 start ccusage-collector -- start
+# Install native background sync (macOS / Linux)
+ccusage-collector service install
 ```
+
+Native scheduling uses a macOS LaunchAgent or Linux systemd user timer, with no resident collector process. Inspect it with `ccusage-collector service status` and `ccusage-collector service logs`; remove it with `ccusage-collector service uninstall`.
 
 For cloud or sandbox environments, inject `MYCCUSAGE_API_KEY`, `MYCCUSAGE_ENDPOINT`, `MYCCUSAGE_AGENT_TYPES`, and optional device variables, then run `ccusage-collector sync` directly. No JSON configuration is required; see the [environment-only setup](packages/ccusage-collector/README.md#cloud--sandbox-vm-no-json-required).
 
@@ -179,7 +179,7 @@ ccusage-collector status
 ccusage-collector test
 
 # Start scheduled sync
-pm2 start ccusage-collector -- start
+ccusage-collector service install
 ```
 
 ## Contributing

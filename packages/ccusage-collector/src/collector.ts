@@ -1,4 +1,4 @@
-import { exec } from "child_process";
+import { execFile } from "child_process";
 import { promisify } from "util";
 import axios from "axios";
 import type {
@@ -14,17 +14,14 @@ import { collectAmpUsage } from "./amp/index.js";
 import { collectDimagentUsage } from "./dimagent.js";
 import { collectCursorUsage } from "./cursor.js";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
-// User's login shell for alias support (runtime-only lookup, not a build input)
-// eslint-disable-next-line turbo/no-undeclared-env-vars
-const USER_SHELL = process.env.SHELL || "/bin/bash";
-
-// Execute a command in the user's interactive shell (loads aliases from rc files)
+// An interactive shell supports the user's configured agent aliases.
 async function execInShell(
   command: string,
 ): Promise<{ stdout: string; stderr: string }> {
-  return execAsync(`${USER_SHELL} -ic ${JSON.stringify(command)}`);
+  const shell = process.env.SHELL || "/bin/bash";
+  return execFileAsync(shell, ["-ic", command]);
 }
 
 // Extract JSON from stdout (interactive shells may prepend noise from rc files)
@@ -392,9 +389,10 @@ export class UsageCollector {
     throw new Error("Sync failed after all retries");
   }
 
-  async run(): Promise<void> {
+  async run(): Promise<{ failedAgents: AgentType[] }> {
     const agentTypes = this.config.agentTypes;
     let successCount = 0;
+    const failedAgents: AgentType[] = [];
 
     for (const agentType of agentTypes) {
       try {
@@ -404,6 +402,7 @@ export class UsageCollector {
         console.log(`${agentType} sync completed successfully`);
         successCount++;
       } catch (error) {
+        failedAgents.push(agentType);
         console.error(
           `${agentType} sync failed:`,
           error instanceof Error ? error.message : error,
@@ -416,5 +415,6 @@ export class UsageCollector {
     if (successCount === 0) {
       throw new Error("No agents synced successfully");
     }
+    return { failedAgents };
   }
 }
