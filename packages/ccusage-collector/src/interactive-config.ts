@@ -10,6 +10,7 @@ import {
 } from "./config.js";
 import { AGENT_OPTIONS, formatAgentList } from "./agents.js";
 import { UsageCollector } from "./collector.js";
+import { acquireLock } from "./runtime-state.js";
 
 export class InteractiveConfig {
   private readonly configManager = new ConfigManager();
@@ -98,7 +99,13 @@ export class InteractiveConfig {
     const config = resolveConfig({ ...settings, ...existing, ...answers });
     if (!config) throw new Error("API key and endpoint are required");
     console.log("\n🧪 Testing data collection...");
-    const collectionError = await this.testCollection(config);
+    const release = await acquireLock("sync");
+    let collectionError: string | undefined;
+    try {
+      collectionError = await this.testCollection(config);
+    } finally {
+      await release();
+    }
     if (collectionError) {
       console.log("❌ Data collection failed:", collectionError);
       const { shouldSaveAnyway } = await inquirer.prompt({
@@ -120,7 +127,7 @@ export class InteractiveConfig {
     console.log(`   Sync Schedule: ${formatSchedule(config.schedule)}`);
     console.log(`   Config saved to: ${this.configManager.getConfigPath()}`);
     console.log("\nRun once: ccusage-collector sync");
-    console.log("Start background sync: pm2 start ccusage-collector -- start");
+    console.log("Install/update background sync: ccusage-collector service install");
   }
 
   private async testCollection(config: Config): Promise<string | undefined> {

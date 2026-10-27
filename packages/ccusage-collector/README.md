@@ -12,14 +12,12 @@ Install globally with Bun (recommended):
 
 ```bash
 bun add -g ccusage-collector
-bun add -g pm2
 ```
 
 Or with npm:
 
 ```bash
 npm install -g ccusage-collector
-npm install -g pm2
 ```
 
 Or run one-off commands without installing:
@@ -31,8 +29,10 @@ bunx ccusage-collector sync
 
 ## Prerequisites
 
-- Bun ≥1.0 or Node.js ≥20
-- PM2 process manager (optional, for background execution with `start`)
+Deploy the [MyCCusage dashboard](../../README.md) and use its `API_KEY` when configuring the collector.
+
+- Node.js ≥20 (Bun may be used to install the package)
+- macOS with a logged-in graphical user session, or Linux with a running systemd user manager, for native scheduling
 - `ccusage` CLI installed and available in PATH (Claude Code, OpenCode, Codex, Antigravity)
 - `amp` CLI installed and logged in (AMP)
 - At least one supported coding agent installed and configured
@@ -55,14 +55,14 @@ This will prompt you for:
 ### 2. Start Background Sync
 
 ```bash
-pm2 start ccusage-collector -- start
+ccusage-collector service install
 ```
 
 ### 3. Check Status
 
 ```bash
 ccusage-collector status
-pm2 status
+ccusage-collector service status
 ```
 
 ## Available Commands
@@ -70,7 +70,10 @@ pm2 status
 | Command | Description |
 |---------|-------------|
 | `ccusage-collector config` | Interactive configuration wizard |
-| `ccusage-collector start` | Start scheduled sync |
+| `ccusage-collector service install` | Install or update native scheduled sync |
+| `ccusage-collector service uninstall` | Remove scheduled sync and its saved environment |
+| `ccusage-collector service status [--json]` | Inspect registration and the latest sync result |
+| `ccusage-collector service logs [-f]` | Show the latest 100 log lines; optionally follow |
 | `ccusage-collector sync` | Run single sync operation |
 | `ccusage-collector sync --dry-run` | Test data collection without syncing |
 | `ccusage-collector status` | Check configuration status |
@@ -81,7 +84,7 @@ pm2 status
 
 Configuration resolves in this order: **nonblank environment variables → JSON configuration → defaults**. The optional JSON file is `~/.ccusage-collector/config.json`, written with user-only file permissions by the `config` wizard.
 
-`sync`, `start`, `test`, and `status` never create or modify this configuration file. Agent-specific data caches (such as AMP exports and pricing) are separate and may still be written.
+`sync`, `test`, `status`, and service management never create or modify this configuration file. Collection commands use a shared lock; sync records its outcome in `~/.ccusage-collector/sync-state.json`. Agent-specific caches (such as AMP exports and pricing) are separate.
 
 The JSON object accepts `apiKey`, `endpoint`, `agentTypes`, `deviceId`, `deviceName`, `displayName`, `schedule`, `maxRetries`, and `retryDelay`. Unknown fields are rejected. Schedule labels are derived for display and are not stored.
 
@@ -118,30 +121,11 @@ ccusage-collector status
 ccusage-collector sync
 ```
 
-No interactive setup or configuration file is needed. A platform scheduler can invoke `sync` periodically; use `start` if you want the collector's built-in scheduler. The collector must have access to the selected agents' usage data and required CLIs in that environment. `.env` files are not loaded automatically; `.env.example` is a reference for your platform's environment injection.
+No interactive setup or configuration file is needed. A platform scheduler can invoke `sync` periodically. On macOS or a Linux host with a systemd user manager, `service install` registers a native task and saves the supported environment overrides for future runs. The collector must have access to the selected agents' usage data and required CLIs in that environment. `.env` files are not loaded automatically; `.env.example` is a reference for your platform's environment injection.
 
 Use a distinct device ID for each independent usage dataset. Reuse an ID across VM rebuilds only when the VM continues the same dataset: the dashboard upserts by device ID, date, and agent type, so independent VMs sharing an ID overwrite each other's daily totals rather than adding them. Changing the display name does not change device identity.
 
 The `config` wizard skips credential, agent-selection, and display-name questions supplied by the environment. When explicitly saving JSON, environment overrides are not persisted; existing file values for those fields are preserved. `status` shows resolved settings without printing the API key.
-
-Production example with PM2 (`ecosystem.config.js`):
-
-```js
-module.exports = {
-  apps: [{
-    name: "ccusage-collector",
-    script: "ccusage-collector",
-    args: "start",
-    env: {
-      MYCCUSAGE_API_KEY: "your-secret-api-key",
-      MYCCUSAGE_ENDPOINT: "https://your-app.com/api/usage-sync",
-      MYCCUSAGE_AGENT_TYPES: "claude-code,codex",
-      MYCCUSAGE_DEVICE_ID: "cloud-dev-01",
-      MYCCUSAGE_DISPLAY_NAME: "Cloud development",
-    },
-  }],
-};
-```
 
 ### Interactive Configuration
 
@@ -164,7 +148,7 @@ ccusage-collector config
 ✅ Configuration saved successfully!
 
 Run once: ccusage-collector sync
-Start background sync: pm2 start ccusage-collector -- start
+Install/update background sync: ccusage-collector service install
 ```
 
 ### Programmatic Configuration
@@ -189,72 +173,6 @@ Alternatively, `resolveConfig(rawSettings, env)` resolves an explicit settings o
 - Every 4 hours (recommended)
 - Every 8 hours
 - Once daily
-
-## Usage Examples
-
-### Complete Setup Flow
-
-```bash
-# 1. Configure credentials
-ccusage-collector config
-
-# 2. Test the configuration
-ccusage-collector test
-
-# 3. Start background sync
-pm2 start ccusage-collector -- start
-
-# 4. Check status
-ccusage-collector status
-pm2 status
-```
-
-### Maintenance Commands
-
-```bash
-# View sync logs
-pm2 logs ccusage-collector
-
-# Restart sync process
-pm2 restart ccusage-collector
-
-# Stop sync process
-pm2 stop ccusage-collector
-
-# Run one-time sync
-ccusage-collector sync
-
-# Test without syncing
-ccusage-collector sync --dry-run
-```
-
-## Setup Guide
-
-### 1. Deploy the Dashboard
-First, deploy your own instance of My Claude Code Usage Dashboard:
-- Clone the repository
-- Set up PostgreSQL database
-- Configure environment variables
-- Deploy to your preferred platform
-
-### 2. Get API Key
-Set the `API_KEY` environment variable in your dashboard deployment:
-```env
-API_KEY=your-secret-api-key-here
-```
-
-### 3. Install and Configure Collector
-```bash
-# Install globally (or use npm install -g)
-bun add -g ccusage-collector
-bun add -g pm2
-
-# Configure
-ccusage-collector config
-
-# Start background sync
-pm2 start ccusage-collector -- start
-```
 
 ## Data Collection
 
@@ -305,36 +223,33 @@ The collector syncs:
 - **Configuration errors**: Clear guidance on resolution
 - **Detailed logging**: Clear error messages and debugging info
 
-## Process Management with PM2
-
-### Why PM2?
-- **Automatic restart** if process crashes
-- **Background execution** - no need to keep terminal open
-- **Process monitoring** and logging
-- **Prevents duplicate instances** - safe to run multiple times
-- **Cross-platform** - works on Windows, Linux, and macOS
-
-### PM2 Commands
+## Native Scheduled Sync
 
 ```bash
-# Start background sync
-pm2 start ccusage-collector -- start
-
-# Check status
-pm2 list                    # Show all processes
-pm2 show ccusage-collector  # Show detailed info
-pm2 logs ccusage-collector  # View logs
-pm2 monit                   # Real-time monitoring
-
-# Control process
-pm2 stop ccusage-collector     # Stop process
-pm2 restart ccusage-collector  # Restart process
-pm2 delete ccusage-collector   # Remove process
-
-# Auto-start on boot
-pm2 startup                    # Generate startup script
-pm2 save                       # Save current process list
+ccusage-collector config
+ccusage-collector sync                 # Verify collection and upload
+ccusage-collector service install      # Install or update one user-level task
+ccusage-collector service status
+ccusage-collector service logs -f
+ccusage-collector service uninstall
 ```
+
+The operating system starts a single sync and the process exits when it finishes. Installation is idempotent and verifies the scheduler is active and enabled; a failed update restores the previous files and registration. No administrator access is needed for task registration.
+
+- **macOS:** `~/Library/LaunchAgents/io.myccusage.collector.plist`, loaded in the current user's graphical login domain. Runs when loaded and on the calendar schedule. Missed calendar events during sleep coalesce into one run on wake. Logging out stops the user agent; it loads again at the next graphical login.
+- **Linux:** `ccusage-collector.service` and `ccusage-collector.timer` under `${XDG_CONFIG_HOME:-~/.config}/systemd/user/`. A oneshot service runs shortly after timer activation and on the calendar schedule. `Persistent=true` catches up missed calendar events when the timer activates. To run at boot and after logout, enable lingering for your account with `loginctl enable-linger` (subject to your system's permissions). Containers without a systemd user manager should use their platform's scheduler to invoke `sync`.
+
+The saved `schedule` uses local wall-clock time. Custom schedules support five numeric cron fields, with wildcards, lists, ranges, and steps. For example, `15 2 * * *` runs at 02:15, and `0 */4 * * *` runs at 00:00, 04:00, and so on. Weekday constraints cannot be combined with day-of-month or month constraints because the native schedulers interpret these combinations differently. Seconds, named months/weekdays, parser extensions, and schedules expanding beyond 4096 calendar entries are rejected by configuration validation. DST transitions follow the native scheduler's calendar behavior.
+
+Installation saves an allowlisted environment to `~/.ccusage-collector/service/environment.json` (file mode `0600`, service directory `0700`): collector configuration variables, PATH/SHELL, agent data-location overrides, proxy variables, and certificate paths. It does not copy unrelated environment variables. JSON configuration remains the source for fields without a saved environment override. Avoid scheduling from a temporary `bunx`/`npx` installation: install the collector globally so the task has a stable runtime and entry point.
+
+**Re-run `service install` after changing the schedule, captured environment variables, Node installation, or collector installation path.** File-based credentials and agent settings are read on each sync. Installed schedule and registration are visible separately from configuration via `service status`; `service status --json` is suitable for scripts. `active` describes scheduler registration; `running` describes an ongoing collection operation. Status includes the latest manual or scheduled sync result, last complete success, and any failed agents. Partial failures exit nonzero while retaining successful uploads. An interrupted run is detected after its heartbeat lock expires (up to one minute).
+
+All CLI collection operations share a heartbeat lock, including manual sync, dry-run, connection tests, and the configuration wizard's collection check. A concurrent manual operation reports that the collector is busy; an overlapping scheduled invocation skips successfully. Locks abandoned after a crash are recoverable. Configuration and sync history remain after uninstall; the saved service environment, including captured credentials, is removed.
+
+`service logs` reads the macOS log at `~/.ccusage-collector/service/sync.log` or the Linux user journal. Manual sync logs remain in the terminal. The macOS log is append-only; manage its retention with your host's log rotation policy. Linux log retention follows journald settings.
+
+For development, build the package and manage the task through `node packages/ccusage-collector/dist/cli.js service ...`. Native tasks always execute the built entry point, never a TypeScript development loader.
 
 ## Troubleshooting
 
@@ -371,7 +286,7 @@ ccusage-collector test
 ccusage-collector sync --dry-run
 
 # View detailed logs
-pm2 logs ccusage-collector
+ccusage-collector service logs
 ```
 
 ## Contributing

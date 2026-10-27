@@ -1,4 +1,4 @@
-import { execFile, spawn } from "child_process";
+import { execFile } from "child_process";
 import {
   existsSync,
   mkdtempSync,
@@ -12,7 +12,8 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { promisify } from "util";
 import { fileURLToPath } from "url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { captureServiceEnvironment } from "../src/service-environment";
 import { CONFIG_ENV_VARS } from "../src/config";
 import type { UsageData } from "../src/types";
 
@@ -114,7 +115,9 @@ printf '%s\\n' '{"daily":[{"date":"2026-10-26","inputTokens":10,"outputTokens":5
           data.daily[0]?.totalTokens === 15 && apiKey === "test-api-key",
       ),
     ).toBe(true);
-    expect(existsSync(join(home, ".ccusage-collector"))).toBe(false);
+    expect(existsSync(join(home, ".ccusage-collector/config.json"))).toBe(
+      false,
+    );
   });
 
   it("generates device defaults without creating a config file", async () => {
@@ -127,7 +130,9 @@ printf '%s\\n' '{"daily":[{"date":"2026-10-26","inputTokens":10,"outputTokens":5
     expect(uploads[1]?.data.device.deviceId).toBe(
       uploads[0]?.data.device.deviceId,
     );
-    expect(existsSync(join(home, ".ccusage-collector"))).toBe(false);
+    expect(existsSync(join(home, ".ccusage-collector/config.json"))).toBe(
+      false,
+    );
   });
 
   it("keeps an existing config byte-for-byte unchanged after sync", async () => {
@@ -167,7 +172,9 @@ printf '%s\\n' '{"daily":[{"date":"2026-10-26","inputTokens":10,"outputTokens":5
       );
     }
     expect(uploads).toHaveLength(0);
-    expect(existsSync(join(home, ".ccusage-collector"))).toBe(false);
+    expect(existsSync(join(home, ".ccusage-collector/config.json"))).toBe(
+      false,
+    );
   });
 
   it("returns a nonzero status when no agents can sync", async () => {
@@ -184,7 +191,9 @@ printf '%s\\n' '{"daily":[{"date":"2026-10-26","inputTokens":10,"outputTokens":5
     expect(stdout).toContain('"deviceId": "cloud-dev-01"');
     expect(stdout).toContain('"agentType": "codex"');
     expect(uploads).toHaveLength(0);
-    expect(existsSync(join(home, ".ccusage-collector"))).toBe(false);
+    expect(existsSync(join(home, ".ccusage-collector/config.json"))).toBe(
+      false,
+    );
   });
 
   it("shows the resolved device and accurately reports that no JSON file exists", async () => {
@@ -194,53 +203,90 @@ printf '%s\\n' '{"daily":[{"date":"2026-10-26","inputTokens":10,"outputTokens":5
     expect(stdout).toContain("Device name: cloud-host");
     expect(stdout).toContain("Display name: Cloud development");
     expect(stdout).not.toContain("test-api-key");
-    expect(existsSync(join(home, ".ccusage-collector"))).toBe(false);
+    expect(existsSync(join(home, ".ccusage-collector/config.json"))).toBe(
+      false,
+    );
   });
 
-  it.each([false, true])(
-    "runs the scheduler after initial collection (fails: %s)",
-    async (fails) => {
-      if (fails)
-        writeFileSync(join(home, "bin/ccusage"), "#!/bin/sh\nexit 1\n");
-      const child = spawn(process.execPath, ["--import", "tsx", cli, "start"], {
+  it("runs scheduled collection with its saved environment", async () => {
+    const path = join(home, "environment.json");
+    writeFileSync(path, JSON.stringify(captureServiceEnvironment(home, env)));
+    const entry = fileURLToPath(
+      new URL("../src/service-entry.ts", import.meta.url),
+    );
+    const childEnv = { ...process.env, SHELL: "/missing-manager-shell" };
+    for (const name of Object.values(CONFIG_ENV_VARS)) delete childEnv[name];
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      ["--import", "tsx", entry, path],
+      {
         cwd: packageDir,
-        env,
-        stdio: ["ignore", "pipe", "pipe"],
+        env: childEnv,
+        timeout: 10_000,
+      },
+    );
+    expect(stdout).toContain("Sync completed successfully");
+    expect(uploads).toHaveLength(2);
+    expect(uploads[0]?.apiKey).toBe("test-api-key");
+  });
+
+  it("reports native service status without credentials or installing tasks", async () => {
+    delete env.MYCCUSAGE_API_KEY;
+    const { stdout } = await runCLI("service", "status", "--json");
+    expect(JSON.parse(stdout)).toMatchObject({
+      installed: false,
+      active: false,
+    });
+    expect(stdout).not.toContain("test-api-key");
+  });
+
+  it("refuses a second manual sync and skips overlapping scheduled syncs", async () => {
+    let unblock!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      unblock = resolve;
+    });
+    server.removeAllListeners("request");
+    server.on("request", async (req, res) => {
+      let body = "";
+      for await (const chunk of req) body += chunk;
+      uploads.push({
+        data: JSON.parse(body),
+        apiKey: req.headers["x-api-key"],
       });
-      const exited = new Promise<number | null>((resolve) =>
-        child.once("exit", resolve),
+      await blocked;
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success: true, processed: 1, results: [] }));
+    });
+    const first = runCLI("sync");
+    try {
+      await vi.waitFor(() => expect(uploads).toHaveLength(1));
+      await expect(runCLI("sync")).rejects.toMatchObject({
+        code: 1,
+        stderr: expect.stringContaining("Another collector sync"),
+      });
+      const environmentPath = join(home, "environment.json");
+      writeFileSync(
+        environmentPath,
+        JSON.stringify(captureServiceEnvironment(home, env)),
       );
-      let stdout = "";
-      let stderr = "";
-      try {
-        await new Promise<void>((resolve, reject) => {
-          const timer = setTimeout(
-            () => reject(new Error(`CLI did not start: ${stdout}\n${stderr}`)),
-            10_000,
-          );
-          function finish(error?: Error) {
-            clearTimeout(timer);
-            if (error) reject(error);
-            else resolve();
-          }
-          child.once("error", (error) => finish(error));
-          child.once("exit", (code) =>
-            finish(new Error(`CLI exited early (${code}): ${stderr}`)),
-          );
-          child.stderr.on("data", (chunk) => {
-            stderr += chunk;
-          });
-          child.stdout.on("data", (chunk) => {
-            stdout += chunk;
-            if (stdout.includes("Scheduled sync is running")) finish();
-          });
-        });
-        expect(uploads).toHaveLength(fails ? 0 : 2);
-        expect(existsSync(join(home, ".ccusage-collector"))).toBe(false);
-      } finally {
-        child.kill("SIGTERM");
-        await exited;
-      }
-    },
-  );
+      const entry = fileURLToPath(
+        new URL("../src/service-entry.ts", import.meta.url),
+      );
+      const skipped = await execFileAsync(
+        process.execPath,
+        ["--import", "tsx", entry, environmentPath],
+        { cwd: packageDir, env, timeout: 10_000 },
+      );
+      expect(skipped.stdout).toContain("skipped");
+      expect(uploads).toHaveLength(1);
+    } finally {
+      unblock();
+      await first;
+    }
+    expect(
+      JSON.parse(
+        readFileSync(join(home, ".ccusage-collector/sync-state.json"), "utf8"),
+      ),
+    ).toMatchObject({ result: "success" });
+  });
 });
