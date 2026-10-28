@@ -41,6 +41,10 @@ program
         : "📁 No config file (using environment and defaults)",
     );
     console.log(`🤖 Agents: ${formatAgentList(config.agentTypes)}`);
+    if (config.claudeConfigDirs)
+      console.log(
+        `📂 Claude config dirs: ${config.claudeConfigDirs.join(", ")}`,
+      );
     console.log(`📱 Device ID: ${config.deviceId}`);
     console.log(`📱 Device name: ${config.deviceName}`);
     if (config.displayName)

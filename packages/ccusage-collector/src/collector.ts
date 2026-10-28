@@ -1,4 +1,6 @@
 import { execFile } from "child_process";
+import { homedir } from "os";
+import { join } from "path";
 import { promisify } from "util";
 import axios from "axios";
 import type {
@@ -19,9 +21,34 @@ const execFileAsync = promisify(execFile);
 // An interactive shell supports the user's configured agent aliases.
 async function execInShell(
   command: string,
+  env?: NodeJS.ProcessEnv,
 ): Promise<{ stdout: string; stderr: string }> {
   const shell = process.env.SHELL || "/bin/bash";
-  return execFileAsync(shell, ["-ic", command]);
+  return execFileAsync(shell, ["-ic", command], { env });
+}
+
+const CLAUDE_CONFIG_DIR_HANDOFF = "MYCCUSAGE_RESOLVED_CLAUDE_CONFIG_DIR";
+
+function expandHome(dir: string): string {
+  return dir.startsWith("~/") ? join(homedir(), dir.slice(2)) : dir;
+}
+
+// Claude Code itself reads CLAUDE_CONFIG_DIR, so it is scoped to one ccusage
+// call instead of the user's environment. The value travels through a private
+// variable and is assigned on the command line, after rc files have loaded,
+// so neither shell profiles nor quoting can alter it.
+export function scopeClaudeConfigDirs(
+  command: string,
+  dirs: readonly string[] | undefined,
+): { command: string; env?: NodeJS.ProcessEnv } {
+  if (!dirs?.length) return { command };
+  return {
+    command: `CLAUDE_CONFIG_DIR="$${CLAUDE_CONFIG_DIR_HANDOFF}" ${command}`,
+    env: {
+      ...process.env,
+      [CLAUDE_CONFIG_DIR_HANDOFF]: dirs.map(expandHome).join(","),
+    },
+  };
 }
 
 // Extract JSON from stdout (interactive shells may prepend noise from rc files)
@@ -187,10 +214,17 @@ type CollectedUsage = Pick<UsageData, "daily" | "totals">;
 
 async function collectCcusage(
   agent: CcusageAgentType,
+  claudeConfigDirs?: readonly string[],
 ): Promise<CollectedUsage> {
-  const command = await resolveCommand(agent);
+  const { command, env } = scopeClaudeConfigDirs(
+    await resolveCommand(agent),
+    claudeConfigDirs,
+  );
   console.log(`Collecting ${agent} usage data via: ${command}`);
-  const { stdout } = await execInShell(command);
+  if (env) {
+    console.log(`Claude config directories: ${env[CLAUDE_CONFIG_DIR_HANDOFF]}`);
+  }
+  const { stdout } = await execInShell(command, env);
 
   const rawData = JSON.parse(extractJSON(stdout));
 
@@ -235,7 +269,10 @@ async function collectCursor(): Promise<CollectedUsage> {
   };
 }
 
-async function collectFromSource(agent: AgentType): Promise<CollectedUsage> {
+async function collectFromSource(
+  agent: AgentType,
+  config: CollectorConfig,
+): Promise<CollectedUsage> {
   switch (agent) {
     // AMP threads live server-side; they are read through the `amp` CLI
     case "amp":
@@ -244,6 +281,8 @@ async function collectFromSource(agent: AgentType): Promise<CollectedUsage> {
       return collectDimagent();
     case "cursor":
       return collectCursor();
+    case "claude-code":
+      return collectCcusage(agent, config.claudeConfigDirs);
     default:
       return collectCcusage(agent);
   }
@@ -253,12 +292,16 @@ export class UsageCollector {
   private readonly config: CollectorConfig;
 
   constructor(config: CollectorConfig) {
-    this.config = { ...config, agentTypes: [...config.agentTypes] };
+    this.config = {
+      ...config,
+      agentTypes: [...config.agentTypes],
+      claudeConfigDirs: config.claudeConfigDirs && [...config.claudeConfigDirs],
+    };
   }
 
   async collectUsageData(agent: AgentType): Promise<UsageData> {
     try {
-      const { daily, totals } = await collectFromSource(agent);
+      const { daily, totals } = await collectFromSource(agent, this.config);
 
       // Copy the resolved identity so each agent keeps its own metadata.
       const deviceInfo: DeviceInfo = {

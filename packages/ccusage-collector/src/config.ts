@@ -5,7 +5,7 @@ import {
   mkdirSync,
   chmodSync,
 } from "fs";
-import { join } from "path";
+import { isAbsolute, join } from "path";
 import { homedir } from "os";
 import type { AgentType, CollectorConfig } from "./types.js";
 import { resolveDeviceIdentity } from "./utils/device-info.js";
@@ -40,6 +40,7 @@ export const CONFIG_ENV_VARS = {
   deviceId: "MYCCUSAGE_DEVICE_ID",
   deviceName: "MYCCUSAGE_DEVICE_NAME",
   displayName: "MYCCUSAGE_DISPLAY_NAME",
+  claudeConfigDirs: "MYCCUSAGE_CLAUDE_CONFIG_DIRS",
 } as const;
 
 type EnvironmentConfig = Partial<Record<keyof typeof CONFIG_ENV_VARS, string>>;
@@ -89,6 +90,29 @@ function parseAgentTypes(value: unknown, source: string): AgentType[] {
   return agents;
 }
 
+// ccusage splits CLAUDE_CONFIG_DIR on commas, so a path cannot contain one.
+function parseClaudeConfigDirs(value: unknown, source: string): string[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`${source} must contain at least one directory`);
+  }
+  const dirs: string[] = [];
+  for (const item of value) {
+    const dir = typeof item === "string" ? item.trim() : "";
+    if (
+      !dir ||
+      dir.includes(",") ||
+      !(isAbsolute(dir) || dir.startsWith("~/"))
+    ) {
+      // Do not echo arbitrary input: a misplaced secret must stay out of logs.
+      throw new Error(
+        `${source} must contain only absolute or ~/ paths without commas`,
+      );
+    }
+    if (!dirs.includes(dir)) dirs.push(dir);
+  }
+  return dirs;
+}
+
 function numberSetting(
   value: unknown,
   fallback: number,
@@ -123,7 +147,12 @@ export function resolveConfig(
       `Config supports only these fields: ${[...fields].join(", ")}`,
     );
   }
-  function setting(field: Exclude<keyof typeof CONFIG_ENV_VARS, "agentTypes">) {
+  function setting(
+    field: Exclude<
+      keyof typeof CONFIG_ENV_VARS,
+      "agentTypes" | "claudeConfigDirs"
+    >,
+  ) {
     return (
       environment[field] ?? stringSetting(config[field], `${field} in config`)
     );
@@ -154,6 +183,19 @@ export function resolveConfig(
             : config.agentTypes,
           "agentTypes in config",
         );
+  const envClaudeDirs = environment.claudeConfigDirs;
+  const claudeConfigDirs =
+    envClaudeDirs !== undefined
+      ? parseClaudeConfigDirs(
+          envClaudeDirs.split(","),
+          CONFIG_ENV_VARS.claudeConfigDirs,
+        )
+      : config.claudeConfigDirs === undefined
+        ? undefined
+        : parseClaudeConfigDirs(
+            config.claudeConfigDirs,
+            "claudeConfigDirs in config",
+          );
   const schedule =
     stringSetting(config.schedule, "schedule in config") ??
     CONFIG_DEFAULTS.schedule;
@@ -176,6 +218,7 @@ export function resolveConfig(
       0,
       "retryDelay in config",
     ),
+    ...(claudeConfigDirs && { claudeConfigDirs }),
     ...resolveDeviceIdentity({
       deviceId: setting("deviceId"),
       deviceName: setting("deviceName"),

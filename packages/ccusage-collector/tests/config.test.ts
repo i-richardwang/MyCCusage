@@ -266,12 +266,14 @@ describe("ConfigManager", () => {
       deviceId: "file-id",
       deviceName: "file-host",
       displayName: "File display",
+      claudeConfigDirs: ["/file/claude"],
     };
     writeFileConfig(fileConfig);
     for (const name of Object.values(CONFIG_ENV_VARS))
       vi.stubEnv(name, "temporary-env-value");
     vi.stubEnv("MYCCUSAGE_ENDPOINT", "https://env.example.com/api/usage-sync");
     vi.stubEnv("MYCCUSAGE_AGENT_TYPES", "codex");
+    vi.stubEnv("MYCCUSAGE_CLAUDE_CONFIG_DIRS", "/temporary-env-value");
     const manager = new ConfigManager();
     manager.saveConfig({ ...manager.loadConfig()!, retryDelay: 2000 });
 
@@ -291,12 +293,72 @@ describe("ConfigManager", () => {
     vi.stubEnv("MYCCUSAGE_DEVICE_ID", "env-id");
     vi.stubEnv("MYCCUSAGE_DEVICE_NAME", "env-host");
     vi.stubEnv("MYCCUSAGE_DISPLAY_NAME", "Env display");
+    vi.stubEnv("MYCCUSAGE_CLAUDE_CONFIG_DIRS", "~/.claude");
     const manager = new ConfigManager();
     manager.saveConfig(manager.loadConfig()!);
     for (const field of Object.keys(CONFIG_ENV_VARS)) {
       expect(readFileConfig()).not.toHaveProperty(field);
     }
   });
+
+  it("leaves claudeConfigDirs unset when not configured", () => {
+    writeFileConfig(credentials);
+    expect(new ConfigManager().loadConfig()).not.toHaveProperty(
+      "claudeConfigDirs",
+    );
+  });
+
+  it("loads claudeConfigDirs from JSON, trimming and deduplicating", () => {
+    writeFileConfig({
+      ...credentials,
+      claudeConfigDirs: [" ~/.claude ", "/data/claude", "~/.claude"],
+    });
+    expect(new ConfigManager().loadConfig()?.claudeConfigDirs).toEqual([
+      "~/.claude",
+      "/data/claude",
+    ]);
+  });
+
+  it("lets MYCCUSAGE_CLAUDE_CONFIG_DIRS override the JSON directories", () => {
+    writeFileConfig({ ...credentials, claudeConfigDirs: ["/file/claude"] });
+    vi.stubEnv("MYCCUSAGE_CLAUDE_CONFIG_DIRS", " ~/.claude, /env/claude ");
+    expect(new ConfigManager().loadConfig()?.claudeConfigDirs).toEqual([
+      "~/.claude",
+      "/env/claude",
+    ]);
+  });
+
+  it.each([
+    [],
+    "~/.claude",
+    [""],
+    [42],
+    ["relative/claude"],
+    ["/a,/b"],
+    ["~"],
+    ["~user/x"],
+  ])("rejects invalid claudeConfigDirs in JSON: %j", (value) => {
+    writeFileConfig({ ...credentials, claudeConfigDirs: value });
+    expect(() => new ConfigManager().loadConfig()).toThrow(
+      "claudeConfigDirs in config",
+    );
+  });
+
+  it.each(["relative/claude", "/a,,/b", "/a, "])(
+    "rejects invalid MYCCUSAGE_CLAUDE_CONFIG_DIRS without echoing input: %s",
+    (value) => {
+      writeFileConfig(credentials);
+      vi.stubEnv("MYCCUSAGE_CLAUDE_CONFIG_DIRS", value);
+      expect(() => new ConfigManager().loadConfig()).toThrow(
+        "MYCCUSAGE_CLAUDE_CONFIG_DIRS",
+      );
+      try {
+        new ConfigManager().loadConfig();
+      } catch (error) {
+        expect((error as Error).message).not.toContain(value);
+      }
+    },
+  );
 
   it("rejects unknown settings instead of silently ignoring them", () => {
     writeFileConfig({ ...credentials, extraSetting: true });
