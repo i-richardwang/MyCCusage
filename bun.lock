@@ -43,7 +43,7 @@
     },
     "packages/ccusage-collector": {
       "name": "ccusage-collector",
-      "version": "0.5.11",
+      "version": "0.5.12",
       "bin": {
         "ccusage-collector": "dist/cli.js",
       },

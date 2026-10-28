@@ -86,11 +86,11 @@ Configuration resolves in this order: **nonblank environment variables → JSON 
 
 `sync`, `test`, `status`, and service management never create or modify this configuration file. Collection commands use a shared lock; sync records its outcome in `~/.ccusage-collector/sync-state.json`. Agent-specific caches (such as AMP exports and pricing) are separate.
 
-The JSON object accepts `apiKey`, `endpoint`, `agentTypes`, `deviceId`, `deviceName`, `displayName`, `schedule`, `maxRetries`, and `retryDelay`. Unknown fields are rejected. Schedule labels are derived for display and are not stored.
+The JSON object accepts `apiKey`, `endpoint`, `agentTypes`, `deviceId`, `deviceName`, `displayName`, `claudeConfigDirs`, `schedule`, `maxRetries`, and `retryDelay`. Unknown fields are rejected. Schedule labels are derived for display and are not stored.
 
 ### Environment Variables
 
-Credentials, agent selection, and device identity can all be supplied through the environment:
+Credentials, agent selection, device identity, and Claude Code data directories can all be supplied through the environment:
 
 | Variable | JSON field | Default when not configured |
 |---|---|---|
@@ -100,10 +100,25 @@ Credentials, agent selection, and device identity can all be supplied through th
 | `MYCCUSAGE_DEVICE_ID` | `deviceId` | Fingerprint derived from hostname and MAC addresses |
 | `MYCCUSAGE_DEVICE_NAME` | `deviceName` | Hostname |
 | `MYCCUSAGE_DISPLAY_NAME` | `displayName` | Unset; the dashboard uses the device name |
+| `MYCCUSAGE_CLAUDE_CONFIG_DIRS` | `claudeConfigDirs` | Unset; ccusage locates Claude Code data itself |
 
 `MYCCUSAGE_AGENT_TYPES` is a comma-separated list. Supported values are `claude-code`, `amp`, `opencode`, `codex`, `dimagent`, `cursor`, and `antigravity`. Whitespace is trimmed and duplicates are removed. Unknown agents and empty list entries are rejected with a configuration error before collection begins.
 
 Blank environment values count as unset, so an empty export never shadows a valid file entry. Device fields resolve independently: setting only `MYCCUSAGE_DEVICE_ID` still defaults the device name to the hostname. Agent selection uses the JSON `agentTypes` array or the environment list. Schedule and retry settings use JSON values or their defaults (every four hours, three attempts, 1000 ms retry delay).
+
+### Claude Code Data Directories
+
+By default ccusage reads Claude Code logs from `~/.config/claude` and `~/.claude`. When Claude Code runs with other config directories (for example, separate accounts), list every directory to collect:
+
+```json
+{
+  "claudeConfigDirs": ["~/.claude", "/path/to/another/claude/config"]
+}
+```
+
+or `MYCCUSAGE_CLAUDE_CONFIG_DIRS='~/.claude,/path/to/another/claude/config'`. Each entry is an absolute path or starts with `~/`, and may be a Claude config directory or its `projects/` directory. The list replaces the default lookup, so include `~/.claude` when it should still be collected. ccusage skips directories without a `projects/` folder and merges the rest; usage entries present in several directories are counted once.
+
+The collector passes the list to ccusage as `CLAUDE_CONFIG_DIR` for the `claude-code` collection only. Claude Code itself reads `CLAUDE_CONFIG_DIR` to decide where it stores its configuration, so avoid exporting a comma-separated value globally in shell profiles. When `claudeConfigDirs` is set it takes precedence over any `CLAUDE_CONFIG_DIR` in the environment or shell profiles; when unset, ccusage uses an inherited `CLAUDE_CONFIG_DIR` or its default lookup.
 
 ### Cloud / Sandbox VM: No JSON Required
 

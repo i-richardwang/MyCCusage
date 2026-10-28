@@ -1,9 +1,37 @@
+import { execFileSync } from "child_process";
+import { homedir } from "os";
 import { describe, expect, it } from "vitest";
 import {
   extractJSON,
   getDailyRecordDate,
   mapCcusageRecord,
+  scopeClaudeConfigDirs,
 } from "../src/collector";
+
+describe("scopeClaudeConfigDirs", () => {
+  it("leaves the command and environment untouched without directories", () => {
+    const command = "ccusage claude daily --json";
+    expect(scopeClaudeConfigDirs(command, undefined)).toEqual({ command });
+    expect(scopeClaudeConfigDirs(command, [])).toEqual({ command });
+  });
+
+  it("sets CLAUDE_CONFIG_DIR only for the command, overriding the shell", () => {
+    const dirs = ["~/.claude", "/data/it's $HOME `x`"];
+    const { command, env } = scopeClaudeConfigDirs(
+      'printenv CLAUDE_CONFIG_DIR; echo "after=${CLAUDE_CONFIG_DIR-unset}"',
+      dirs,
+    );
+    // Simulates an rc file exporting a conflicting value before the command.
+    const stdout = execFileSync(
+      "/bin/sh",
+      ["-c", `export CLAUDE_CONFIG_DIR=/from/rc; ${command}`],
+      { env, encoding: "utf8" },
+    );
+    expect(stdout).toBe(
+      `${homedir()}/.claude,/data/it's $HOME \`x\`\nafter=/from/rc\n`,
+    );
+  });
+});
 
 describe("extractJSON", () => {
   it("returns a clean JSON object untouched", () => {

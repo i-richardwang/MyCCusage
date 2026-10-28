@@ -62,4 +62,6 @@ export interface CollectorConfig extends DeviceIdentity {
   agentTypes: AgentType[];
   maxRetries: number;
   retryDelay: number;
+  /** Claude Code config directories for the claude-code collection; unset leaves lookup to ccusage. */
+  claudeConfigDirs?: string[];
 }
