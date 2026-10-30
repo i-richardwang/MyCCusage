@@ -164,6 +164,8 @@ This places components in `packages/ui/src/components/` for shared use.
 ```env
 DATABASE_URL=postgresql://username:password@localhost:5432/myccusage
 API_KEY=your-secret-api-key-here
+# Optional: account time zone for daily buckets (default Asia/Shanghai)
+USAGE_TIMEZONE=Asia/Shanghai
 ```
 
 ### Collector Configuration

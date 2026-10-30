@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { useUsageStats } from "@/hooks/use-usage-stats";
 import { StatsCards } from "@/components/stats-cards";
 import { PlanComparison } from "@/components/plan-comparison";
@@ -9,136 +9,95 @@ import { RecentActivity } from "@/components/recent-activity";
 import { GlobalFilterBar } from "@/components/global-filter-bar";
 import { ModeToggle } from "@/components/mode-toggle";
 import { Footer } from "@/components/footer";
-import { DailyRecord, TimeRange, AgentType } from "@/types/chart-types";
+import { AgentType, PresetRange } from "@/types/chart-types";
+import type { UsageStatsResponse } from "@/types/api-types";
 import { type DateRange } from "react-day-picker";
-import { filterByTimeRange, filterByAgent } from "@/hooks/use-chart-data";
-import type { AggregatedMetrics } from "@/types/api-types";
+import { formatLocalDate, parseLocalDate } from "@/lib/date-utils";
+import { todayIn } from "@/lib/day-range";
+import { getSubscriptionPeriod } from "@/lib/cumulative-metrics";
+import { periodRange, selectUsage, type Period } from "@/lib/usage-view";
 import { Loader2 } from "lucide-react";
 
-// Aggregate DailyRecord[] into AggregatedMetrics
-function aggregateFromDaily(data: DailyRecord[]): AggregatedMetrics {
-  if (data.length === 0) {
-    return {
-      totalCost: 0,
-      totalTokens: 0,
-      totalInputTokens: 0,
-      totalOutputTokens: 0,
-      totalCacheCreationTokens: 0,
-      totalCacheReadTokens: 0,
-      activeDays: 0,
-      avgDailyCost: 0,
-    };
-  }
-  const totalCost = data.reduce((sum, r) => sum + r.totalCost, 0);
-  const totalTokens = data.reduce((sum, r) => sum + r.totalTokens, 0);
-  const totalInputTokens = data.reduce((sum, r) => sum + r.inputTokens, 0);
-  const totalOutputTokens = data.reduce((sum, r) => sum + r.outputTokens, 0);
-  const totalCacheCreationTokens = data.reduce(
-    (sum, r) => sum + r.cacheCreationTokens,
-    0,
+function Dashboard({ stats }: { stats: UsageStatsResponse }) {
+  const [period, setPeriod] = useState<Period>("30d");
+  // The calendar's selection while it is still incomplete
+  const [draft, setDraft] = useState<DateRange | undefined>(undefined);
+  const [agentFilter, setAgentFilter] = useState<AgentType | "all">("all");
+
+  // "Today" in the account calendar, the zone the collectors bucket days in
+  const today = useMemo(() => todayIn(stats.timezone), [stats.timezone]);
+
+  const range = useMemo(
+    () => periodRange(period, today, stats.records),
+    [period, today, stats.records],
   );
-  const totalCacheReadTokens = data.reduce(
-    (sum, r) => sum + r.cacheReadTokens,
-    0,
+
+  // Every card, chart and table shows this view
+  const view = useMemo(
+    () => selectUsage(stats.records, agentFilter, range),
+    [stats.records, agentFilter, range],
   );
-  const activeDays = data.filter((r) => r.totalTokens > 0).length;
-  const avgDailyCost = activeDays > 0 ? totalCost / activeDays : 0;
-  return {
-    totalCost,
-    totalTokens,
-    totalInputTokens,
-    totalOutputTokens,
-    totalCacheCreationTokens,
-    totalCacheReadTokens,
-    activeDays,
-    avgDailyCost,
+
+  const subscriptionPeriod = useMemo(
+    () => getSubscriptionPeriod(stats.billingStartDate, today),
+    [stats.billingStartDate, today],
+  );
+
+  const isAllTime = period === "all";
+
+  // The calendar works in browser-local dates; only their calendar day counts
+  const calendarRange: DateRange | undefined =
+    draft ??
+    (isAllTime
+      ? undefined
+      : { from: parseLocalDate(range.from), to: parseLocalDate(range.to) });
+
+  const handlePresetChange = (preset: PresetRange) => {
+    setPeriod(preset);
+    setDraft(undefined);
   };
+
+  const handleCalendarChange = (selection: DateRange | undefined) => {
+    if (selection?.from && selection.to) {
+      setPeriod({
+        from: formatLocalDate(selection.from),
+        to: formatLocalDate(selection.to),
+      });
+      setDraft(undefined);
+    } else {
+      setDraft(selection);
+    }
+  };
+
+  return (
+    <>
+      <GlobalFilterBar
+        timeRange={typeof period === "string" ? period : "custom"}
+        onTimeRangeChange={handlePresetChange}
+        dateRange={calendarRange}
+        onDateRangeChange={handleCalendarChange}
+        agentFilter={agentFilter}
+        onAgentFilterChange={setAgentFilter}
+      />
+
+      <PlanComparison
+        summary={view.summary}
+        subscriptionPeriod={subscriptionPeriod}
+        isAllTime={isAllTime}
+        agentFilter={agentFilter}
+      />
+
+      <StatsCards summary={view.summary} />
+
+      <Charts view={view} devices={stats.devices} agentFilter={agentFilter} />
+
+      <RecentActivity daily={view.daily} />
+    </>
+  );
 }
 
 export default function Page() {
   const { stats, loading, error } = useUsageStats();
-
-  const [timeRange, setTimeRange] = useState<TimeRange>("30d");
-  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
-  const [agentFilter, setAgentFilter] = useState<AgentType | "all">("all");
-
-  const getDateRangeFromTimeRange = useCallback(
-    (range: TimeRange): DateRange | undefined => {
-      if (range === "all" || range === "custom") return undefined;
-
-      const today = new Date();
-      const days = range === "7d" ? 7 : range === "14d" ? 14 : 30;
-      const from = new Date(today);
-      from.setDate(from.getDate() - days);
-
-      return { from, to: today };
-    },
-    [],
-  );
-
-  const handleTimeRangeChange = useCallback(
-    (newTimeRange: TimeRange) => {
-      setTimeRange(newTimeRange);
-      const correspondingDateRange = getDateRangeFromTimeRange(newTimeRange);
-      setDateRange(correspondingDateRange);
-    },
-    [getDateRangeFromTimeRange],
-  );
-
-  const handleDateRangeChange = useCallback(
-    (newDateRange: DateRange | undefined) => {
-      setDateRange(newDateRange);
-      if (newDateRange?.from && newDateRange?.to) {
-        setTimeRange("custom");
-      }
-    },
-    [],
-  );
-
-  const handleAgentFilterChange = useCallback((agent: AgentType | "all") => {
-    setAgentFilter(agent);
-  }, []);
-
-  const customDateRange = useMemo(() => {
-    return dateRange?.from && dateRange?.to
-      ? { from: dateRange.from, to: dateRange.to }
-      : undefined;
-  }, [dateRange?.from, dateRange?.to]);
-
-  // Filter data by agent type
-  // Note: stats.daily has NO agentType field (aggregated by date only),
-  // so we use stats.agentData (grouped by date+agentType) for per-agent filtering
-  const filteredDailyByAgent = useMemo((): DailyRecord[] => {
-    if (!stats) return [];
-    if (agentFilter === "all") {
-      return stats.daily || [];
-    }
-    return (stats.agentData || []).filter((r) => r.agentType === agentFilter);
-  }, [stats, agentFilter]);
-
-  const filteredDeviceDataByAgent = useMemo(() => {
-    if (!stats?.deviceData) return [];
-    return filterByAgent(stats.deviceData, agentFilter);
-  }, [stats?.deviceData, agentFilter]);
-
-  const filteredMetrics = useMemo((): AggregatedMetrics | undefined => {
-    if (!filteredDailyByAgent || filteredDailyByAgent.length === 0)
-      return undefined;
-
-    // For 'all' agent filter, use API pre-computed metrics when available
-    if (agentFilter === "all") {
-      if (timeRange === "all" && stats?.totals) return stats.totals;
-      if (timeRange === "30d" && stats?.last30Days) return stats.last30Days;
-    }
-
-    // Calculate from filtered data for all other cases
-    const dataToAggregate = filterByTimeRange(
-      filteredDailyByAgent,
-      timeRange,
-      customDateRange,
-    );
-    return aggregateFromDaily(dataToAggregate);
-  }, [stats, filteredDailyByAgent, timeRange, customDateRange, agentFilter]);
 
   const renderMainContent = () => {
     if (loading) {
@@ -165,51 +124,7 @@ export default function Page() {
       );
     }
 
-    return (
-      <>
-        <GlobalFilterBar
-          timeRange={timeRange}
-          onTimeRangeChange={handleTimeRangeChange}
-          dateRange={dateRange}
-          onDateRangeChange={handleDateRangeChange}
-          agentFilter={agentFilter}
-          onAgentFilterChange={handleAgentFilterChange}
-        />
-
-        <PlanComparison
-          billingStartDate={stats.billingStartDate}
-          filteredMetrics={filteredMetrics}
-          isAllTime={timeRange === "all"}
-          agentFilter={agentFilter}
-        />
-
-        <StatsCards
-          dailyData={filteredDailyByAgent}
-          timeRange={timeRange}
-          customDateRange={customDateRange}
-          totals={agentFilter === "all" ? stats.totals : undefined}
-          last30Days={agentFilter === "all" ? stats.last30Days : undefined}
-        />
-
-        <Charts
-          dailyData={filteredDailyByAgent}
-          devices={stats.devices}
-          deviceData={filteredDeviceDataByAgent}
-          agentData={stats.agentData}
-          timeRange={timeRange}
-          customDateRange={customDateRange}
-          totals={agentFilter === "all" ? stats.totals : undefined}
-          last30Days={agentFilter === "all" ? stats.last30Days : undefined}
-          agentFilter={agentFilter}
-        />
-
-        <RecentActivity
-          dailyData={filteredDailyByAgent}
-          timeRange={timeRange}
-          customDateRange={customDateRange}
-        />
-      </>
-    );
+    return <Dashboard stats={stats} />;
   };
 
   return (

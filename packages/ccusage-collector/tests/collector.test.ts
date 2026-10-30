@@ -5,30 +5,38 @@ import {
   extractJSON,
   getDailyRecordDate,
   mapCcusageRecord,
-  scopeClaudeConfigDirs,
+  scopeCcusageCommand,
 } from "../src/collector";
 
-describe("scopeClaudeConfigDirs", () => {
-  it("leaves the command and environment untouched without directories", () => {
-    const command = "ccusage claude daily --json";
-    expect(scopeClaudeConfigDirs(command, undefined)).toEqual({ command });
-    expect(scopeClaudeConfigDirs(command, [])).toEqual({ command });
+describe("scopeCcusageCommand", () => {
+  const run = ({ command, env }: ReturnType<typeof scopeCcusageCommand>) =>
+    execFileSync(
+      "/bin/sh",
+      // Simulates an rc file exporting a conflicting value before the command.
+      ["-c", `export CLAUDE_CONFIG_DIR=/from/rc; ${command}`],
+      { env, encoding: "utf8" },
+    );
+
+  it("passes the time zone and leaves CLAUDE_CONFIG_DIR alone", () => {
+    const scoped = scopeCcusageCommand(
+      'echo "dir=$CLAUDE_CONFIG_DIR"',
+      "Asia/Shanghai",
+    );
+    expect(run(scoped)).toBe("dir=/from/rc --timezone Asia/Shanghai\n");
+    expect(scopeCcusageCommand("ccusage", "UTC", [])).toEqual(
+      scopeCcusageCommand("ccusage", "UTC"),
+    );
   });
 
   it("sets CLAUDE_CONFIG_DIR only for the command, overriding the shell", () => {
     const dirs = ["~/.claude", "/data/it's $HOME `x`"];
-    const { command, env } = scopeClaudeConfigDirs(
+    const scoped = scopeCcusageCommand(
       'printenv CLAUDE_CONFIG_DIR; echo "after=${CLAUDE_CONFIG_DIR-unset}"',
+      "Asia/Shanghai",
       dirs,
     );
-    // Simulates an rc file exporting a conflicting value before the command.
-    const stdout = execFileSync(
-      "/bin/sh",
-      ["-c", `export CLAUDE_CONFIG_DIR=/from/rc; ${command}`],
-      { env, encoding: "utf8" },
-    );
-    expect(stdout).toBe(
-      `${homedir()}/.claude,/data/it's $HOME \`x\`\nafter=/from/rc\n`,
+    expect(run(scoped)).toBe(
+      `${homedir()}/.claude,/data/it's $HOME \`x\`\nafter=/from/rc --timezone Asia/Shanghai\n`,
     );
   });
 });

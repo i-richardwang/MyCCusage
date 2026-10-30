@@ -1,10 +1,21 @@
+import { createCalendar } from "../../src/calendar";
+import { reportKey } from "../../src/amp/threads";
 import type { AmpDayReport } from "../../src/amp/report";
 import type { AmpCachedThread, AmpUsageEntry } from "../../src/amp/threads";
 
-// Local noon on 2026-10-21, so the local date is stable in any timezone
+// Fixtures are wall-clock times in one fixed calendar, independent of the
+// process time zone
+export const CALENDAR = createCalendar("Asia/Shanghai");
+export function at(day: string, hour = 0): string {
+  const hh = String(hour).padStart(2, "0");
+  return new Date(`${day}T${hh}:00:00+08:00`).toISOString();
+}
+
 export const DAY = "2026-10-21";
-export const NOON = new Date(2026, 9, 21, 12).toISOString();
+export const NOON = at(DAY, 12);
 export const UNPRICED = { asOf: NOON, models: {} };
+// Cache key of DAY's report
+export const DAY_KEY = reportKey(CALENDAR.rangeOf(DAY));
 
 export function exportJson(
   id: string,
@@ -13,7 +24,7 @@ export function exportJson(
 ): string {
   return JSON.stringify({
     id,
-    created: new Date(2026, 9, 20, 12).getTime(),
+    created: Date.parse(at("2026-10-20", 12)),
     messages: [
       {
         role: "user",

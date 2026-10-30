@@ -35,6 +35,9 @@ export interface DailyUsageRecord {
 
 export interface UsageData {
   device: DeviceInfo;
+  // IANA zone the daily dates were bucketed in; the dashboard rejects any
+  // other zone than its own
+  timezone: string;
   daily: DailyUsageRecord[];
   totals: {
     inputTokens: number;

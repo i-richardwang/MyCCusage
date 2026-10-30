@@ -6,6 +6,7 @@ import { CalendarIcon } from "lucide-react";
 import { type DateRange } from "react-day-picker";
 import {
   TimeRange,
+  PresetRange,
   AgentType,
   AGENT_TYPE_LABELS,
   AGENT_TYPE_ORDER,
@@ -29,7 +30,8 @@ import {
 
 interface GlobalFilterBarProps {
   timeRange: TimeRange;
-  onTimeRangeChange: (timeRange: TimeRange) => void;
+  // Only presets are selectable; a custom range comes from the calendar
+  onTimeRangeChange: (preset: PresetRange) => void;
   dateRange: DateRange | undefined;
   onDateRangeChange: (dateRange: DateRange | undefined) => void;
   agentFilter: AgentType | "all";
@@ -103,7 +105,7 @@ export function GlobalFilterBar({
 
         <Select
           value={timeRange}
-          onValueChange={(value) => onTimeRangeChange(value as TimeRange)}
+          onValueChange={(value) => onTimeRangeChange(value as PresetRange)}
         >
           <SelectTrigger className="w-[160px] rounded-lg">
             <SelectValue />

@@ -8,14 +8,14 @@ import {
   CardTitle,
 } from "@workspace/ui/components/card";
 import {
-  getSubscriptionPeriod,
   formatCurrency,
   formatSavings,
   getUserStatusByAmount,
   getSubscriptionPlan,
   getPlanPricing,
+  type SubscriptionPeriod,
 } from "@/lib/cumulative-metrics";
-import type { AggregatedMetrics } from "@/types/api-types";
+import type { UsageSummary } from "@/lib/usage-view";
 import type { UserStatus, UserTier } from "@/constants/business-config";
 import type { AgentType } from "@/types/chart-types";
 import {
@@ -38,49 +38,37 @@ const STATUS_ICONS: Record<UserTier, LucideIcon> = {
 };
 
 interface PlanComparisonProps {
-  filteredMetrics?: AggregatedMetrics;
-  billingStartDate?: string;
-  isAllTime?: boolean;
-  agentFilter?: AgentType | "all";
+  summary: UsageSummary;
+  subscriptionPeriod: SubscriptionPeriod;
+  isAllTime: boolean;
+  agentFilter: AgentType | "all";
 }
 
 export function PlanComparison({
-  filteredMetrics,
-  billingStartDate,
-  isAllTime = false,
-  agentFilter = "all",
+  summary,
+  subscriptionPeriod,
+  isAllTime,
+  agentFilter,
 }: PlanComparisonProps) {
   const subscriptionPlan = getSubscriptionPlan();
   const planPrice = getPlanPricing(subscriptionPlan);
 
-  const subscriptionPeriod = billingStartDate
-    ? getSubscriptionPeriod(billingStartDate)
-    : null;
+  // All time compares against the whole subscription, by its monthly average;
+  // any other period against one month of the plan
+  const avgMonthlyCost = summary.totalCost / subscriptionPeriod.totalMonths;
 
-  const activeCost = filteredMetrics?.totalCost || 0;
-  const activeActiveDays = filteredMetrics?.activeDays || 0;
-  const activeAvgDailyCost = filteredMetrics?.avgDailyCost || 0;
+  const vsPlan = isAllTime
+    ? summary.totalCost - planPrice * subscriptionPeriod.totalMonths
+    : summary.totalCost - planPrice;
 
-  // In "All Time" mode, calculate monthly average and vs Plan over full subscription
-  const avgMonthlyCost =
-    isAllTime && subscriptionPeriod
-      ? activeCost / subscriptionPeriod.totalMonths
-      : 0;
-
-  const vsPlan =
-    isAllTime && subscriptionPeriod
-      ? activeCost - planPrice * subscriptionPeriod.totalMonths
-      : activeCost - planPrice;
-
-  const userStatus: UserStatus =
-    isAllTime && subscriptionPeriod
-      ? getUserStatusByAmount(avgMonthlyCost)
-      : getUserStatusByAmount(activeCost);
+  const userStatus: UserStatus = getUserStatusByAmount(
+    isAllTime ? avgMonthlyCost : summary.totalCost,
+  );
 
   const IconComponent = STATUS_ICONS[userStatus.tier];
 
   const getVsPlanValue = () => {
-    if (isAllTime && subscriptionPeriod) {
+    if (isAllTime) {
       return formatSavings(vsPlan).text;
     }
     return vsPlan > 0
@@ -89,14 +77,14 @@ export function PlanComparison({
   };
 
   const getVsPlanColor = () => {
-    if (isAllTime && subscriptionPeriod) {
+    if (isAllTime) {
       return formatSavings(vsPlan).colorClass;
     }
     return vsPlan > 0 ? "text-primary" : "text-muted-foreground";
   };
 
   const getDaysDisplay = () => {
-    if (isAllTime && subscriptionPeriod) {
+    if (isAllTime) {
       return (
         <>
           {subscriptionPeriod.totalDays}{" "}
@@ -106,14 +94,14 @@ export function PlanComparison({
     }
     return (
       <>
-        {activeActiveDays}{" "}
+        {summary.activeDays}{" "}
         <span className="text-sm font-normal">active days</span>
       </>
     );
   };
 
   const getDaysSubtitle = () => {
-    if (isAllTime && subscriptionPeriod) {
+    if (isAllTime) {
       return `Since ${subscriptionPeriod.startDate.toLocaleDateString()}`;
     }
     return "In selected period";
@@ -124,7 +112,7 @@ export function PlanComparison({
 
   // Calculate Tokens per Dollar (for PAYG agents)
   const tokensPerDollar =
-    activeCost > 0 ? (filteredMetrics?.totalTokens || 0) / activeCost : 0;
+    summary.totalCost > 0 ? summary.totalTokens / summary.totalCost : 0;
 
   const formatTokensPerDollar = (tokens: number): string => {
     if (tokens >= 1_000_000) {
@@ -175,12 +163,12 @@ export function PlanComparison({
                 <div className="space-y-1">
                   <CardDescription>API Value Consumed</CardDescription>
                   <CardTitle className="text-3xl">
-                    {formatCurrency(activeCost)}
+                    {formatCurrency(summary.totalCost)}
                   </CardTitle>
                   <CardDescription>
-                    {isAllTime && subscriptionPeriod
+                    {isAllTime
                       ? `Avg: ${formatCurrency(avgMonthlyCost)}/month`
-                      : `Avg: ${formatCurrency(activeAvgDailyCost)}/day`}
+                      : `Avg: ${formatCurrency(summary.avgDailyCost)}/day`}
                   </CardDescription>
                 </div>
                 <TrendingUp className="h-6 w-6 text-muted-foreground" />
@@ -227,7 +215,7 @@ export function PlanComparison({
                 <div className="space-y-1">
                   <CardDescription>Average Daily Cost</CardDescription>
                   <CardTitle className="text-3xl">
-                    {formatCurrency(activeAvgDailyCost)}
+                    {formatCurrency(summary.avgDailyCost)}
                   </CardTitle>
                   <CardDescription>Daily average analysis</CardDescription>
                 </div>

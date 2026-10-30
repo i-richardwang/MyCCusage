@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { hostname } from "os";
 import { ConfigManager, resolveConfig } from "../src/config";
 import { UsageCollector } from "../src/collector";
+import { createCalendar } from "../src/calendar";
 import { resolveDeviceIdentity } from "../src/utils/device-info";
 
 vi.mock("../src/amp/index.js", () => ({
@@ -47,8 +48,9 @@ describe("device identity", () => {
     const config = resolveConfig(options, {})!;
     const collector = new UsageCollector(config);
     config.deviceId = "changed-after-construction";
-    const amp = await collector.collectUsageData("amp");
-    const dimagent = await collector.collectUsageData("dimagent");
+    const calendar = createCalendar("UTC");
+    const amp = await collector.collectUsageData("amp", calendar);
+    const dimagent = await collector.collectUsageData("dimagent", calendar);
     expect(amp.device).toEqual({
       deviceId: "library-id",
       deviceName: "library-name",
@@ -66,6 +68,9 @@ describe("device identity", () => {
       {},
     )!;
     const collector = new UsageCollector(config);
+    vi.spyOn(collector, "fetchCalendar").mockResolvedValue(
+      createCalendar("UTC"),
+    );
     vi.spyOn(collector, "collectUsageData").mockRejectedValue(
       new Error("Source unavailable"),
     );

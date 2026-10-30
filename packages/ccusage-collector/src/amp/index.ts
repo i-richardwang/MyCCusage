@@ -1,3 +1,4 @@
+import type { Calendar } from "../calendar.js";
 import type { DailyUsageRecord, UsageData } from "../types.js";
 import { loadPricing } from "../pricing/index.js";
 import {
@@ -14,9 +15,9 @@ import { loadCachedThreads, REPORTS_PER_HOUR, syncAmpCache } from "./sync.js";
 // reports add subagents (see report.ts). Both are cached locally (sync.ts)
 // and rebuilt into daily totals on every run, because the dashboard upserts
 // whole days.
-export async function collectAmpUsage(): Promise<
-  Pick<UsageData, "daily" | "totals">
-> {
+export async function collectAmpUsage(
+  calendar: Calendar,
+): Promise<Pick<UsageData, "daily" | "totals">> {
   const binary = findAmpBinary();
   if (!binary) {
     throw new Error(
@@ -31,7 +32,11 @@ export async function collectAmpUsage(): Promise<
   }
 
   console.log(`Collecting amp usage data via: ${binary} threads export/usage`);
-  const result = await syncAmpCache(createAmpRunner(binary), installationId);
+  const result = await syncAmpCache(
+    createAmpRunner(binary),
+    installationId,
+    calendar,
+  );
   console.log(
     `Amp threads: ${result.listed} listed, ${result.exported} exported, ${result.unchanged} unchanged` +
       (result.failed ? `, ${result.failed} failed` : "") +
@@ -49,6 +54,7 @@ export async function collectAmpUsage(): Promise<
   if (threads.length === 0) return { daily: [], totals: sumTotals([]) };
   const pricing = await loadPricing();
   const daily = aggregateAmpDaily(threads, {
+    calendar,
     onUnreconciled: (threadId, date) =>
       unreconciled.push(`${threadId} ${date}`),
     pricing,

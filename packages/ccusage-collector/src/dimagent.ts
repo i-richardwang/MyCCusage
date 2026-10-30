@@ -2,7 +2,7 @@ import { existsSync } from "fs";
 import { homedir } from "os";
 import { join, resolve } from "path";
 import { queryRows } from "./sqlite.js";
-import { toLocalDate } from "./utils/local-date.js";
+import type { Calendar } from "./calendar.js";
 
 // ---------------------------------------------------------------------------
 // DimAgent usage parser
@@ -167,6 +167,7 @@ function newAcc(): DayModelAcc {
 }
 
 export function collectDimagentUsage(
+  calendar: Calendar,
   dbPath: string = getDimAgentDbPath(),
 ): DimagentUsageResult {
   if (!existsSync(dbPath)) {
@@ -236,7 +237,7 @@ export function collectDimagentUsage(
 
     const timestamp = new Date(row.createdAt);
     if (Number.isNaN(timestamp.getTime())) continue;
-    const date = toLocalDate(timestamp);
+    const date = calendar.dayOf(timestamp);
 
     const promptTokens = toCount(usage.promptTokens);
     const cacheReadTokens = toCount(usage.cacheReadTokens);

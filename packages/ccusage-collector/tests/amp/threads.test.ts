@@ -5,7 +5,15 @@ import {
   reportIsCurrent,
   threadActiveDays,
 } from "../../src/amp/threads";
-import { DAY, NOON, cachedThread, exportJson } from "./fixtures";
+import {
+  CALENDAR,
+  DAY,
+  DAY_KEY,
+  NOON,
+  at,
+  cachedThread,
+  exportJson,
+} from "./fixtures";
 
 describe("projectThreadExport", () => {
   it("keeps only assistant usage and message times, dropping content", () => {
@@ -54,35 +62,35 @@ describe("threadActiveDays", () => {
   it("covers message days and usage days", () => {
     const thread = projectThreadExport(
       exportJson("T-1", [
-        { model: "m", timestamp: new Date(2026, 9, 22, 1).toISOString() },
+        { model: "m", timestamp: at("2026-10-22", 1) },
       ]),
       "T-1",
     );
-    expect(threadActiveDays(thread)).toEqual([DAY, "2026-10-22"]);
+    expect(threadActiveDays(thread, CALENDAR)).toEqual([DAY, "2026-10-22"]);
   });
 });
 
 describe("reportIsCurrent", () => {
   it("needs a report that is missing or older than the thread's update", () => {
     const thread = cachedThread({ id: "T-1" });
-    expect(reportIsCurrent(thread, DAY)).toBe(false);
+    expect(reportIsCurrent(thread, DAY, CALENDAR)).toBe(false);
 
-    const earlier = new Date(2026, 9, 21, 11).toISOString();
-    thread.reports[DAY] = { fetchedAt: earlier, report: null };
-    expect(reportIsCurrent(thread, DAY)).toBe(false);
+    const earlier = at(DAY, 11);
+    thread.reports[DAY_KEY] = { fetchedAt: earlier, report: null };
+    expect(reportIsCurrent(thread, DAY, CALENDAR)).toBe(false);
 
-    thread.reports[DAY] = { fetchedAt: NOON, report: null };
-    expect(reportIsCurrent(thread, DAY)).toBe(true);
+    thread.reports[DAY_KEY] = { fetchedAt: NOON, report: null };
+    expect(reportIsCurrent(thread, DAY, CALENDAR)).toBe(true);
   });
 
   it("treats a report fetched after the day ended as final", () => {
     const thread = cachedThread({
       id: "T-1",
-      updated: new Date(2026, 9, 23).toISOString(),
+      updated: at("2026-10-23"),
       reports: {
-        [DAY]: { fetchedAt: new Date(2026, 9, 22, 2).toISOString(), report: null },
+        [DAY_KEY]: { fetchedAt: at("2026-10-22", 2), report: null },
       },
     });
-    expect(reportIsCurrent(thread, DAY)).toBe(true);
+    expect(reportIsCurrent(thread, DAY, CALENDAR)).toBe(true);
   });
 });
