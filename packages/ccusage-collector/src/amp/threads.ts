@@ -1,4 +1,4 @@
-import { toLocalDate } from "../utils/local-date.js";
+import type { Calendar } from "../calendar.js";
 import type { AmpDayReport } from "./report.js";
 
 // A day's report fetched this long after the day ended is final
@@ -33,7 +33,9 @@ export interface AmpReportEntry {
 export interface AmpCachedThread extends AmpThreadExport {
   // `updated` from `amp threads list` when the thread was exported
   updated: string;
-  // Local date -> usage report for that day
+  // Usage reports by the absolute range they cover (see reportKey). A day
+  // only uses the report of its exact range in the account calendar, so a
+  // time zone change refetches instead of merging mismatched days.
   reports: Record<string, AmpReportEntry>;
 }
 
@@ -92,29 +94,40 @@ export function projectThreadExport(
 export function usageDate(
   entry: AmpUsageEntry,
   created: number | null,
+  calendar: Calendar,
 ): string | null {
   const parsed = entry.timestamp ? new Date(entry.timestamp) : null;
-  if (parsed && !Number.isNaN(parsed.getTime())) return toLocalDate(parsed);
-  return created ? toLocalDate(new Date(created)) : null;
+  if (parsed && !Number.isNaN(parsed.getTime())) return calendar.dayOf(parsed);
+  return created ? calendar.dayOf(new Date(created)) : null;
 }
 
-// Local days with any thread activity: every day subagents may have run
-export function threadActiveDays(thread: AmpThreadExport): string[] {
+// Days with any thread activity: every day subagents may have run
+export function threadActiveDays(
+  thread: AmpThreadExport,
+  calendar: Calendar,
+): string[] {
   const days = new Set<string>();
   for (const timestamp of thread.activity) {
-    days.add(toLocalDate(new Date(timestamp)));
+    days.add(calendar.dayOf(new Date(timestamp)));
   }
   for (const entry of thread.usage) {
-    const date = usageDate(entry, thread.created);
+    const date = usageDate(entry, thread.created, calendar);
     if (date) days.add(date);
   }
   return [...days].sort();
 }
 
-// [start, end) of a local day
-export function localDayRange(date: string): [Date, Date] {
-  const [y, m, d] = date.split("-").map(Number) as [number, number, number];
-  return [new Date(y, m - 1, d), new Date(y, m - 1, d + 1)];
+// "<start ISO>/<end ISO>", the ISO 8601 interval a report was fetched for
+export function reportKey([start, end]: [Date, Date]): string {
+  return `${start.toISOString()}/${end.toISOString()}`;
+}
+
+export function dayReport(
+  thread: AmpCachedThread,
+  date: string,
+  calendar: Calendar,
+): AmpReportEntry | undefined {
+  return thread.reports[reportKey(calendar.rangeOf(date))];
 }
 
 // A day's report is current when it was fetched after the thread's last
@@ -122,11 +135,12 @@ export function localDayRange(date: string): [Date, Date] {
 export function reportIsCurrent(
   thread: AmpCachedThread,
   date: string,
+  calendar: Calendar,
 ): boolean {
-  const entry = thread.reports[date];
+  const entry = dayReport(thread, date, calendar);
   if (!entry) return false;
   const fetchedAt = new Date(entry.fetchedAt).getTime();
-  const dayEnd = localDayRange(date)[1].getTime();
+  const dayEnd = calendar.rangeOf(date)[1].getTime();
   return (
     fetchedAt >= dayEnd + REPORT_FINAL_AFTER_MS ||
     fetchedAt >= new Date(thread.updated).getTime()

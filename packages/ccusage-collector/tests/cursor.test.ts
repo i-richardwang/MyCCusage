@@ -8,6 +8,9 @@ import {
   parseCursorCsv,
   resolveCursorFetchTimeout,
 } from "../src/cursor";
+import { createCalendar } from "../src/calendar";
+
+const SHANGHAI = createCalendar("Asia/Shanghai");
 
 const TOKEN =
   `header.` +
@@ -48,7 +51,7 @@ describe("parseCursorCsv", () => {
       ].join("\n"),
     );
 
-    const { daily, totals } = aggregateCursorUsage(rows);
+    const { daily, totals } = aggregateCursorUsage(rows, SHANGHAI);
     expect(daily).toHaveLength(2);
     const day1 = daily[0];
     // input = w/o count; creation = w/ minus w/o; Cost preferred over Cost to you.
@@ -125,21 +128,29 @@ describe("parseCursorCsv", () => {
     ).toThrow(/header unrecognized/);
   });
 
-  it("groups by system-local day like ccusage, not UTC", () => {
+  it("groups instants by the account calendar, not the process zone", () => {
     // 2026-09-07T16:30Z is 2026-09-08 00:30 in Asia/Shanghai (UTC+8).
-    vi.stubEnv("TZ", "Asia/Shanghai");
-    try {
-      const rows = parseCursorCsv(
-        [
-          CSV_HEADER,
-          "2026-09-07T16:30:00Z,test-model,100,100,0,10,110,$0.1,$0.1",
-        ].join("\n"),
-      );
-      const { daily } = aggregateCursorUsage(rows);
-      expect(daily).toHaveLength(1);
-      expect(daily[0]?.date).toBe("2026-09-08");
-    } finally {
-      vi.unstubAllEnvs();
+    const rows = parseCursorCsv(
+      [
+        CSV_HEADER,
+        "2026-09-07T16:30:00Z,test-model,100,100,0,10,110,$0.1,$0.1",
+      ].join("\n"),
+    );
+    const day = (zone: string) =>
+      aggregateCursorUsage(rows, createCalendar(zone)).daily.map((d) => d.date);
+    expect(day("Asia/Shanghai")).toEqual(["2026-09-08"]);
+    expect(day("America/New_York")).toEqual(["2026-09-07"]);
+  });
+
+  it("keeps date-only rows on their day in any calendar", () => {
+    const rows = parseCursorCsv(
+      [CSV_HEADER, "2026-09-07,test-model,100,100,0,10,110,$0.1,$0.1"].join(
+        "\n",
+      ),
+    );
+    for (const zone of ["Asia/Shanghai", "America/Los_Angeles", "UTC"]) {
+      const { daily } = aggregateCursorUsage(rows, createCalendar(zone));
+      expect(daily.map((d) => d.date)).toEqual(["2026-09-07"]);
     }
   });
 });
@@ -168,7 +179,7 @@ describe("collectCursorUsage", () => {
 
   it("skips quietly when the state DB is missing", async () => {
     vi.stubEnv("MYCCUSAGE_CURSOR_DB", join(dir, "missing.vscdb"));
-    const result = await collectCursorUsage();
+    const result = await collectCursorUsage(SHANGHAI);
     expect(result.skipped).toBe(true);
     expect(result.daily).toEqual([]);
     expect(result.warnings).toHaveLength(1);
@@ -183,7 +194,7 @@ describe("collectCursorUsage", () => {
       db.close();
     }
     vi.stubEnv("MYCCUSAGE_CURSOR_DB", dbPath);
-    const result = await collectCursorUsage();
+    const result = await collectCursorUsage(SHANGHAI);
     expect(result.skipped).toBe(true);
     expect(result.warnings[0]).toMatch(/session token/);
   });
@@ -207,7 +218,7 @@ describe("collectCursorUsage", () => {
       }),
     );
 
-    const result = await collectCursorUsage();
+    const result = await collectCursorUsage(SHANGHAI);
     expect(result.skipped).toBe(false);
     expect(result.warnings).toEqual([]);
     expect(cookies[0]).toBe(
@@ -237,7 +248,7 @@ describe("collectCursorUsage", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(collectCursorUsage()).rejects.toThrow(/sign in again/);
+    await expect(collectCursorUsage(SHANGHAI)).rejects.toThrow(/sign in again/);
     // sub cookie + userId cookie + bare token + bearer.
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
@@ -250,7 +261,7 @@ describe("collectCursorUsage", () => {
     const fetchMock = vi.fn(async () => new Response("", { status: 503 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await collectCursorUsage();
+    const result = await collectCursorUsage(SHANGHAI);
     expect(result.skipped).toBe(true);
     expect(result.daily).toEqual([]);
     expect(result.warnings[0]).toMatch(/HTTP 503/);
@@ -271,7 +282,7 @@ describe("collectCursorUsage", () => {
       }),
     );
 
-    const result = await collectCursorUsage();
+    const result = await collectCursorUsage(SHANGHAI);
     expect(result.skipped).toBe(true);
     expect(result.warnings[0]).toMatch(/ENOTFOUND/);
     expect(result.warnings[0]).not.toMatch(new RegExp(TOKEN));
@@ -287,7 +298,7 @@ describe("collectCursorUsage", () => {
       vi.fn(async () => new Response(`${CSV_HEADER}\n`)),
     );
 
-    const result = await collectCursorUsage();
+    const result = await collectCursorUsage(SHANGHAI);
     expect(result.skipped).toBe(true);
     expect(result.daily).toEqual([]);
   });

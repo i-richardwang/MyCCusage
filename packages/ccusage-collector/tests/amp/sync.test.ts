@@ -5,7 +5,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AmpRunner } from "../../src/amp/cli";
 import { aggregateAmpDaily } from "../../src/amp/daily";
 import { loadCachedThreads, syncAmpCache } from "../../src/amp/sync";
-import { SINGLE_MODEL_REPORT, UNPRICED, exportJson } from "./fixtures";
+import {
+  CALENDAR,
+  SINGLE_MODEL_REPORT,
+  UNPRICED,
+  exportJson,
+} from "./fixtures";
 
 const RATE_LIMITED =
   "Usage information is limited to 60 requests per hour. Wait an hour before trying again.";
@@ -52,7 +57,7 @@ describe("syncAmpCache", () => {
       { id: "T-1", updated: now },
       { id: "T-2", updated: now },
     ]);
-    const r1 = await syncAmpCache(first.run, "inst", cacheDir);
+    const r1 = await syncAmpCache(first.run, "inst", CALENDAR, cacheDir);
     expect(r1).toMatchObject({
       listed: 2,
       exported: 2,
@@ -65,13 +70,14 @@ describe("syncAmpCache", () => {
       { id: "T-2", updated: afterNow },
       { id: "T-3", updated: now },
     ]);
-    const r2 = await syncAmpCache(second.run, "inst", cacheDir);
+    const r2 = await syncAmpCache(second.run, "inst", CALENDAR, cacheDir);
     expect(r2).toMatchObject({ listed: 3, exported: 2, unchanged: 1 });
     expect(second.exports().sort()).toEqual(["T-2", "T-3"]);
     // T-1's report was fetched after its last update, so it is kept
     expect(second.reports().sort()).toEqual(["T-2", "T-3"]);
 
     const daily = aggregateAmpDaily(loadCachedThreads(cacheDir), {
+      calendar: CALENDAR,
       pricing: UNPRICED,
     });
     expect(daily[0]!.totalTokens).toBe(3 * 165);
@@ -85,7 +91,7 @@ describe("syncAmpCache", () => {
     const limited = fakeAmp(threads, () => {
       throw new Error(RATE_LIMITED);
     });
-    const r1 = await syncAmpCache(limited.run, "inst", cacheDir);
+    const r1 = await syncAmpCache(limited.run, "inst", CALENDAR, cacheDir);
     expect(r1).toMatchObject({
       exported: 2,
       failed: 0,
@@ -97,12 +103,13 @@ describe("syncAmpCache", () => {
 
     // Still blocked on the next run: no report requests at all
     const again = fakeAmp(threads);
-    const r2 = await syncAmpCache(again.run, "inst", cacheDir);
+    const r2 = await syncAmpCache(again.run, "inst", CALENDAR, cacheDir);
     expect(r2).toMatchObject({ exported: 0, reportsPending: 2 });
     expect(again.reports()).toEqual([]);
 
     // Main-agent usage is still collected
     const daily = aggregateAmpDaily(loadCachedThreads(cacheDir), {
+      calendar: CALENDAR,
       pricing: UNPRICED,
     });
     expect(daily[0]!.outputTokens).toBe(2);
@@ -115,11 +122,12 @@ describe("syncAmpCache", () => {
         throw new Error(RATE_LIMITED);
       }).run,
       "inst-a",
+      CALENDAR,
       cacheDir,
     );
 
     const other = fakeAmp(threads);
-    const result = await syncAmpCache(other.run, "inst-b", cacheDir);
+    const result = await syncAmpCache(other.run, "inst-b", CALENDAR, cacheDir);
     expect(other.exports()).toEqual(["T-1"]);
     expect(other.reports()).toEqual([]);
     expect(result.reportsPending).toBe(1);
@@ -137,10 +145,15 @@ describe("syncAmpCache", () => {
       if (args[1] === "list") return JSON.stringify(threads);
       throw new Error("boom");
     };
-    const r1 = await syncAmpCache(failing, "inst", cacheDir);
+    const r1 = await syncAmpCache(failing, "inst", CALENDAR, cacheDir);
     expect(r1).toMatchObject({ exported: 0, failed: 1 });
 
-    const r2 = await syncAmpCache(fakeAmp(threads).run, "inst", cacheDir);
+    const r2 = await syncAmpCache(
+      fakeAmp(threads).run,
+      "inst",
+      CALENDAR,
+      cacheDir,
+    );
     expect(r2).toMatchObject({ exported: 1, failed: 0 });
   });
 });

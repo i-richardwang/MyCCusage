@@ -4,6 +4,7 @@ import { db } from '@/src/db'
 import { devices, usageRecords, AGENT_TYPES, type AgentType } from '@/src/db/schema'
 import { sql } from 'drizzle-orm'
 import type { UsageSyncRequest, UsageSyncResponse, UsageSyncResult } from '@/types/api-types'
+import { getAccountTimeZone } from '@/lib/account-timezone'
 
 // Constant-time secret comparison; hashing first makes it length-independent
 function safeKeyCompare(a: string, b: string): boolean {
@@ -12,25 +13,47 @@ function safeKeyCompare(a: string, b: string): boolean {
   return timingSafeEqual(hashA, hashB)
 }
 
+// API key validation; returns an error response, or null when authorized
+function authorize(request: NextRequest): NextResponse | null {
+  const apiKey = request.headers.get('x-api-key')
+  const expectedApiKey = process.env.API_KEY
+
+  if (!expectedApiKey) {
+    return NextResponse.json(
+      { error: 'API key not configured on server' },
+      { status: 500 }
+    )
+  }
+
+  if (!apiKey || !safeKeyCompare(apiKey, expectedApiKey)) {
+    return NextResponse.json(
+      { error: 'Invalid API key' },
+      { status: 401 }
+    )
+  }
+  return null
+}
+
+// Collectors read the account time zone before collecting, so every device
+// buckets days in the same calendar
+export async function GET(request: NextRequest) {
+  const unauthorized = authorize(request)
+  if (unauthorized) return unauthorized
+  try {
+    return NextResponse.json({ timezone: getAccountTimeZone() })
+  } catch (error) {
+    console.error('Account time zone error:', error)
+    return NextResponse.json(
+      { error: 'Account time zone is misconfigured on server' },
+      { status: 500 }
+    )
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
-    // API Key validation
-    const apiKey = request.headers.get('x-api-key')
-    const expectedApiKey = process.env.API_KEY
-
-    if (!expectedApiKey) {
-      return NextResponse.json(
-        { error: 'API key not configured on server' },
-        { status: 500 }
-      )
-    }
-
-    if (!apiKey || !safeKeyCompare(apiKey, expectedApiKey)) {
-      return NextResponse.json(
-        { error: 'Invalid API key' },
-        { status: 401 }
-      )
-    }
+    const unauthorized = authorize(request)
+    if (unauthorized) return unauthorized
 
     const body: UsageSyncRequest = await request.json()
 
@@ -45,6 +68,15 @@ export async function POST(request: NextRequest) {
     if (!Array.isArray(body.daily)) {
       return NextResponse.json(
         { error: 'Invalid request format: daily array is required' },
+        { status: 400 }
+      )
+    }
+
+    // Dates are only comparable across devices bucketed in one calendar
+    const timeZone = getAccountTimeZone()
+    if (body.timezone !== timeZone) {
+      return NextResponse.json(
+        { error: `Usage must be bucketed in the account time zone ${timeZone}, got ${body.timezone || 'none'}` },
         { status: 400 }
       )
     }

@@ -90,12 +90,24 @@ pnpm db:studio               # Open Drizzle Studio to view/edit data
 
 **Chart System Structure:**
 ```
+/api/usage-stats/route.ts      # Usage records at their stored grain
+/lib/usage-view.ts             # Selected agent and day range, and every metric
 /types/chart-types.ts          # Unified type definitions
-/constants/chart-config.ts     # Configuration constants  
-/hooks/use-chart-data.ts       # Data processing hooks
+/constants/chart-config.ts     # Configuration constants
+/hooks/use-chart-data.ts       # Shapes the view into chart series
 /components/[chart-name].tsx   # UI rendering components
-/api/[endpoint]/route.ts       # Backend queries
 ```
+
+**Data Flow:**
+- `/api/usage-stats` returns every usage record (one device, one agent, one
+  day) plus devices, the account time zone and the billing start date. It does
+  not aggregate.
+- The page resolves the selected period to a concrete `DayRange` (all time
+  starts on the first recorded day) and calls `selectUsage` once. The resulting
+  `UsageView` holds the selected records, one zero-filled entry per day of the
+  range, and the `summary` with every metric.
+- Components and hooks read the view. They never filter by agent or date, and
+  never compute a metric the summary already defines.
 
 ### Adding New Charts - Standard Process
 
@@ -129,43 +141,27 @@ export const NEW_CHART_CONFIG = {
 
 **3. Create Data Hook (hooks/use-chart-data.ts)**
 ```tsx
-export function useNewChartData(
-  rawData: RawDataType[],
-  timeRange: TimeRange
-): NewChartData {
+export function useNewChartData(view: UsageView): NewChartData {
   return useMemo(() => {
-    // Data transformation logic
-    const processedData = rawData.map(record => ({
-      date: record.date,
+    // view.daily covers every day of the range; view.records is the selection
+    const chartData = view.daily.map(day => ({
+      date: day.date,
       // Transform fields
     }))
-    
-    // Apply time filtering
-    const filteredData = filterByTimeRange(processedData, timeRange)
-    
+
     return {
-      chartData: filteredData,
+      chartData,
       chartConfig: NEW_CHART_CONFIG
     }
-  }, [rawData, timeRange])
+  }, [view])
 }
 ```
 
-**4. API Query Optimization**
-```tsx
-// In /api/[endpoint]/route.ts
-const newChartData = await db
-  .select({
-    // Select only needed fields
-    date: table.date,
-    value: sql<number>`SUM(${table.value})::numeric`,
-    // Use aggregation when possible
-  })
-  .from(table)
-  .groupBy(table.date)
-  .orderBy(desc(table.date))
-  .limit(appropriate_limit)
-```
+**4. New Metrics**
+- A metric shown for the selected period belongs in `UsageSummary`
+  (`lib/usage-view.ts`), so every card and chart shares one definition
+- A new dimension of usage records is added to the `/api/usage-stats` select
+  and `UsageRecord`, not as a separate aggregated query
 
 ### Adding New API Queries - Standards
 
@@ -186,7 +182,6 @@ const results = await db
 
 **2. Performance Considerations**
 - Use `sql<Type>` for aggregations with proper PostgreSQL casting
-- Limit results appropriately (30 for daily, 300 for device-specific)
 - Add database indexes for frequently queried fields
 - Use LEFT JOIN instead of multiple queries when possible
 

@@ -1,4 +1,6 @@
 // Chart configuration constants
+import type { PresetRange } from "@/types/chart-types";
+
 export const CHART_COLORS = [
   "var(--chart-1)",
   "var(--chart-2)",
@@ -89,10 +91,9 @@ export const CACHE_EFFICIENCY_CHART_CONFIG = {
   },
 } as const;
 
+// Length of each preset time range, which ends today
 export const TIME_RANGE_DAYS = {
-  all: Infinity,
   "7d": 7,
   "14d": 14,
   "30d": 30,
-  custom: 0, // Custom range handled separately
-} as const;
+} as const satisfies Record<Exclude<PresetRange, "all">, number>;

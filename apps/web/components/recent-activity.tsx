@@ -3,39 +3,33 @@
 import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@workspace/ui/components/card"
 import { DataTablePagination } from "@/components/data-table-pagination"
-import { DailyRecord, TimeRange } from "@/types/chart-types"
-import { filterByTimeRange } from "@/hooks/use-chart-data"
 import { formatChartDate } from "@/lib/date-utils"
+import { isActive, type DailyUsage } from "@/lib/usage-view"
 
 interface RecentActivityProps {
-  dailyData: DailyRecord[]
-  timeRange: TimeRange
-  customDateRange?: { from: Date; to: Date }
+  daily: DailyUsage[]
 }
 
-export function RecentActivity({
-  dailyData,
-  timeRange,
-  customDateRange
-}: RecentActivityProps) {
+export function RecentActivity({ daily }: RecentActivityProps) {
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage, setItemsPerPage] = useState(10)
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [timeRange, customDateRange, itemsPerPage])
+  }, [daily])
 
   const formatCurrency = (amount: number) => `$${amount.toFixed(2)}`
   const formatTokens = (tokens: number) => `${(tokens / 1000000).toFixed(1)}M`
   const formatTokensK = (tokens: number) => `${(tokens / 1000).toFixed(1)}K`
 
-  const filteredData = filterByTimeRange(dailyData, timeRange, customDateRange)
+  // Days with usage, latest first
+  const rows = daily.filter(isActive).reverse()
 
-  const totalItems = filteredData.length
+  const totalItems = rows.length
   const totalPages = Math.ceil(totalItems / itemsPerPage)
   const startIndex = (currentPage - 1) * itemsPerPage
   const endIndex = startIndex + itemsPerPage
-  const paginatedData = filteredData.slice(startIndex, endIndex)
+  const paginatedData = rows.slice(startIndex, endIndex)
 
   const handlePageChange = (page: number) => setCurrentPage(page)
   const handleItemsPerPageChange = (newItemsPerPage: number) => {

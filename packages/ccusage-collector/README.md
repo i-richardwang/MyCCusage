@@ -191,6 +191,8 @@ Alternatively, `resolveConfig(rawSettings, env)` resolves an explicit settings o
 
 ## Data Collection
 
+Days follow the dashboard's account time zone (`USAGE_TIMEZONE` on the dashboard), not the collector machine's. Each run reads it from the endpoint before collecting, buckets every agent's usage in it (ccusage receives `--timezone`), and sends it with the upload; the dashboard rejects uploads bucketed in another zone. A date therefore means the same day on every device, wherever and however the collector runs.
+
 The collector:
 - Uses explicit ccusage agent commands such as `ccusage claude daily --json`, `ccusage opencode daily --json`, `ccusage codex daily --json`, and `ccusage antigravity daily --json` (Antigravity reads its local SQLite conversation databases; set `ANTIGRAVITY_DATA_DIR` when they live outside the default `~/.gemini/*` roots)
 - Collects AMP through the `amp` CLI (see below)
@@ -208,7 +210,7 @@ AMP stores threads server-side, so the collector reads them through the `amp` CL
 
 - Lists this machine's threads with `amp threads list --json --installation-id <id>` (the id comes from `~/.local/share/amp/device-id.json`), so each device reports only its own threads
 - Exports new or changed threads with `amp threads export`, keeping only per-message usage in `~/.ccusage-collector/amp-cache/`. Exports hold the main agent's usage only
-- Fetches `amp threads usage <id> --details` for each active day to add subagent and side-call usage (Task, Read Thread, View Media, Finder, Librarian, compaction, Thread Title) per model
+- Fetches `amp threads usage <id> --details` for each active day to add subagent and side-call usage (Task, Read Thread, View Media, Finder, Librarian, compaction, Thread Title) per model. Reports are cached by the exact time range they cover, so a day only uses a report fetched for its range in the account time zone; after a time zone change, reports are fetched again
 - Rebuilds daily totals from the cache on every run
 
 Notes:

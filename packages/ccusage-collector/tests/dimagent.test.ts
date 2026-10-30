@@ -2,7 +2,10 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createCalendar } from "../src/calendar";
 import { collectDimagentUsage, getDimAgentDbPath } from "../src/dimagent";
+
+const SHANGHAI = createCalendar("Asia/Shanghai");
 
 function openDb(dbPath: string) {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -66,7 +69,7 @@ describe("collectDimagentUsage", () => {
   });
 
   it("returns empty result when the database does not exist", () => {
-    const result = collectDimagentUsage(join(dir, "missing.sqlite"));
+    const result = collectDimagentUsage(SHANGHAI, join(dir, "missing.sqlite"));
     expect(result.daily).toEqual([]);
     expect(result.totals.totalTokens).toBe(0);
   });
@@ -101,7 +104,7 @@ describe("collectDimagentUsage", () => {
       `,
     );
 
-    const result = collectDimagentUsage(dbPath);
+    const result = collectDimagentUsage(SHANGHAI, dbPath);
 
     expect(result.daily).toHaveLength(2);
     const day1 = result.daily[0];
@@ -182,7 +185,7 @@ describe("collectDimagentUsage", () => {
       `,
     );
 
-    const result = collectDimagentUsage(dbPath);
+    const result = collectDimagentUsage(SHANGHAI, dbPath);
 
     expect(result.daily).toHaveLength(1);
     const day = result.daily[0];
@@ -221,7 +224,7 @@ describe("collectDimagentUsage", () => {
       `,
     );
 
-    const result = collectDimagentUsage(dbPath);
+    const result = collectDimagentUsage(SHANGHAI, dbPath);
     expect(result.daily).toHaveLength(1);
     // Exact 1.1 + estimated 1.1 at the same rate; tokens counted once each.
     expect(result.daily[0].costUSD).toBeCloseTo(2.2, 10);
@@ -232,34 +235,25 @@ describe("collectDimagentUsage", () => {
     });
   });
 
-  it("groups by system-local day like ccusage, not UTC", () => {
-    // Test-only TZ override (runtime-only lookup, not a build input)
-    // eslint-disable-next-line turbo/no-undeclared-env-vars
-    const previousTz = process.env.TZ;
+  it("groups by the account calendar, not UTC or the process zone", () => {
     // 2026-07-01T16:30Z is 2026-07-02 00:30 in Asia/Shanghai (UTC+8).
-    // toISOString().slice(0, 10) would group it under 2026-07-01.
-    // eslint-disable-next-line turbo/no-undeclared-env-vars
-    process.env.TZ = "Asia/Shanghai";
-    try {
-      seedDb(
-        dbPath,
-        `
-        INSERT INTO usage_ledger VALUES
-          ('usage_late', 'sess-1', 'run-late', 'dim', 'model-a',
-           '{"promptTokens":100,"completionTokens":10,"totalTokens":110}',
-           NULL, '2026-07-01T16:30:00.000Z');
-        `,
-      );
+    seedDb(
+      dbPath,
+      `
+      INSERT INTO usage_ledger VALUES
+        ('usage_late', 'sess-1', 'run-late', 'dim', 'model-a',
+         '{"promptTokens":100,"completionTokens":10,"totalTokens":110}',
+         NULL, '2026-07-01T16:30:00.000Z');
+      `,
+    );
 
-      const result = collectDimagentUsage(dbPath);
-      expect(result.daily).toHaveLength(1);
-      expect(result.daily[0].date).toBe("2026-07-02");
-    } finally {
-      // eslint-disable-next-line turbo/no-undeclared-env-vars
-      if (previousTz === undefined) delete process.env.TZ;
-      // eslint-disable-next-line turbo/no-undeclared-env-vars
-      else process.env.TZ = previousTz;
-    }
+    const result = collectDimagentUsage(SHANGHAI, dbPath);
+    expect(result.daily).toHaveLength(1);
+    expect(result.daily[0].date).toBe("2026-07-02");
+    expect(
+      collectDimagentUsage(createCalendar("America/New_York"), dbPath).daily[0]
+        .date,
+    ).toBe("2026-07-01");
   });
 
   it("keeps modelsUsed in the same cost-descending order as breakdowns", () => {
@@ -285,7 +279,7 @@ describe("collectDimagentUsage", () => {
       `,
     );
 
-    const result = collectDimagentUsage(dbPath);
+    const result = collectDimagentUsage(SHANGHAI, dbPath);
     expect(result.daily).toHaveLength(1);
     expect(result.daily[0].modelsUsed).toEqual([
       "pricey-model",

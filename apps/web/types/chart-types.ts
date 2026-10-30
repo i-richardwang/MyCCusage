@@ -31,69 +31,27 @@ export const AGENT_TYPE_LABELS: Record<AgentType, string> = {
   antigravity: "Antigravity",
 };
 
-export interface DailyRecord {
-  date: string;
+// The usage metrics every record, day and summary carries
+export interface UsageMetrics {
   totalCost: number;
   totalTokens: number;
   inputTokens: number;
   outputTokens: number;
   cacheCreationTokens: number;
   cacheReadTokens: number;
-  credits?: number;
-  agentType?: AgentType;
-  modelsUsed?: string[];
-  createdAt?: Date;
 }
 
-export interface DeviceRecord {
+// One device's usage of one agent on one day, the grain usage is stored at
+export interface UsageRecord extends UsageMetrics {
   date: string;
   deviceId: string;
-  totalCost: number;
-  totalTokens: number;
-  inputTokens: number;
-  outputTokens: number;
-  cacheCreationTokens: number;
-  cacheReadTokens: number;
-  credits?: number;
-  agentType?: AgentType;
-}
-
-export interface AgentRecord {
-  date: string;
   agentType: AgentType;
-  totalCost: number;
-  totalTokens: number;
-  inputTokens: number;
-  outputTokens: number;
-  cacheCreationTokens: number;
-  cacheReadTokens: number;
-  credits?: number;
 }
 
 export interface Device {
   deviceId: string;
   deviceName: string;
-  displayName?: string | null;
-  recordCount: number;
-  totalCost?: number;
-  lastActiveDate?: string;
-  agentTypes?: AgentType[];
-  createdAt?: Date;
-  updatedAt?: Date;
-}
-
-export interface MultiDeviceChartRecord {
-  date: string;
-  [deviceId: string]: string | number;
-}
-
-export interface ChartRecord {
-  date: string;
-  cost: number;
-  tokens: number;
-  inputTokens: number;
-  outputTokens: number;
-  cacheTokens: number;
+  displayName: string | null;
 }
 
 export interface RatioChartRecord {
@@ -107,7 +65,9 @@ export interface RatioChartData {
   chartConfig: Record<string, { label: string; color: string }>;
 }
 
-export type TimeRange = "all" | "7d" | "14d" | "30d" | "custom";
+// Preset time ranges; "custom" is a range picked in the calendar
+export type PresetRange = "all" | "7d" | "14d" | "30d";
+export type TimeRange = PresetRange | "custom";
 
 export interface ChartConfig {
   [key: string]: {

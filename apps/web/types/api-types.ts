@@ -3,39 +3,16 @@
  * Used by both API routes and frontend hooks
  */
 
-import {
-  DailyRecord,
-  DeviceRecord,
-  Device,
-  AgentType,
-  AgentRecord,
-} from "./chart-types";
+import { AgentType, Device, UsageRecord } from "./chart-types";
 
-// Aggregated metrics (used for totals, last30Days)
-export interface AggregatedMetrics {
-  totalCost: number;
-  totalTokens: number;
-  totalInputTokens: number;
-  totalOutputTokens: number;
-  totalCacheCreationTokens: number;
-  totalCacheReadTokens: number;
-  totalCredits?: number;
-  activeDays: number;
-  avgDailyCost: number;
-}
-
-// Alias for semantic clarity
-export type Last30DaysMetrics = AggregatedMetrics;
-
-// Complete API response type
+// Complete API response type: the account's usage at its stored grain, from
+// which the dashboard derives every view
 export interface UsageStatsResponse {
-  totals: AggregatedMetrics;
-  last30Days: Last30DaysMetrics;
+  // Account time zone; the dashboard's "today" is in it
+  timezone: string;
   billingStartDate: string;
-  daily: DailyRecord[];
   devices: Device[];
-  deviceData: DeviceRecord[];
-  agentData?: AgentRecord[];
+  records: UsageRecord[];
 }
 
 // Usage sync request types
@@ -61,6 +38,8 @@ export interface UsageSyncRecord {
 
 export interface UsageSyncRequest {
   device: UsageSyncDevice;
+  // IANA zone the daily dates were bucketed in; must be the account zone
+  timezone: string;
   daily: UsageSyncRecord[];
 }
 

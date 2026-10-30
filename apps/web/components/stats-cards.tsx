@@ -1,61 +1,14 @@
 "use client"
 
-import { useMemo } from "react"
 import { Card, CardDescription, CardHeader, CardTitle } from "@workspace/ui/components/card"
 import { Cpu, Send, Activity, Database } from "lucide-react"
-import { DailyRecord, TimeRange } from "@/types/chart-types"
-import { filterByTimeRange } from "@/hooks/use-chart-data"
-import type { AggregatedMetrics } from "@/types/api-types"
+import type { UsageSummary } from "@/lib/usage-view"
 
 interface StatsCardsProps {
-  dailyData: DailyRecord[]
-  timeRange: TimeRange
-  customDateRange?: { from: Date; to: Date }
-  totals?: AggregatedMetrics
-  last30Days?: AggregatedMetrics
+  summary: UsageSummary
 }
 
-export function StatsCards({
-  dailyData,
-  timeRange,
-  customDateRange,
-  totals,
-  last30Days
-}: StatsCardsProps) {
-  const stats = useMemo(() => {
-    if (timeRange === "all" && totals) {
-      return {
-        totalTokens: totals.totalTokens,
-        cachedTokens: totals.totalCacheReadTokens,
-        outputTokens: totals.totalOutputTokens,
-        avgDailyTokens: totals.activeDays > 0 ? totals.totalTokens / totals.activeDays : 0
-      }
-    }
-
-    if (timeRange === "30d" && last30Days) {
-      return {
-        totalTokens: last30Days.totalTokens,
-        cachedTokens: last30Days.totalCacheReadTokens,
-        outputTokens: last30Days.totalOutputTokens,
-        avgDailyTokens: last30Days.activeDays > 0 ? last30Days.totalTokens / last30Days.activeDays : 0
-      }
-    }
-
-    const filteredData = filterByTimeRange(dailyData, timeRange, customDateRange)
-
-    if (filteredData.length === 0) {
-      return { totalTokens: 0, cachedTokens: 0, outputTokens: 0, avgDailyTokens: 0 }
-    }
-
-    const totalTokens = filteredData.reduce((sum, record) => sum + record.totalTokens, 0)
-    const cachedTokens = filteredData.reduce((sum, record) => sum + record.cacheReadTokens, 0)
-    const outputTokens = filteredData.reduce((sum, record) => sum + record.outputTokens, 0)
-    const activeDays = filteredData.length
-    const avgDailyTokens = activeDays > 0 ? totalTokens / activeDays : 0
-
-    return { totalTokens, cachedTokens, outputTokens, avgDailyTokens }
-  }, [dailyData, timeRange, customDateRange, totals, last30Days])
-
+export function StatsCards({ summary }: StatsCardsProps) {
   const formatTokens = (tokens: number) => `${(tokens / 1000000).toFixed(1)}M`
 
   return (
@@ -65,7 +18,7 @@ export function StatsCards({
           <div className="flex items-center justify-between w-full">
             <div className="space-y-1">
               <CardDescription>Total Tokens</CardDescription>
-              <CardTitle className="text-3xl">{formatTokens(stats.totalTokens)}</CardTitle>
+              <CardTitle className="text-3xl">{formatTokens(summary.totalTokens)}</CardTitle>
               <CardDescription>Total usage volume</CardDescription>
             </div>
             <Cpu className="h-6 w-6 text-muted-foreground" />
@@ -78,7 +31,7 @@ export function StatsCards({
           <div className="flex items-center justify-between w-full">
             <div className="space-y-1">
               <CardDescription>Cached Tokens</CardDescription>
-              <CardTitle className="text-3xl">{formatTokens(stats.cachedTokens)}</CardTitle>
+              <CardTitle className="text-3xl">{formatTokens(summary.cacheReadTokens)}</CardTitle>
               <CardDescription>Tokens served from cache</CardDescription>
             </div>
             <Database className="h-6 w-6 text-muted-foreground" />
@@ -91,7 +44,7 @@ export function StatsCards({
           <div className="flex items-center justify-between w-full">
             <div className="space-y-1">
               <CardDescription>Output Tokens</CardDescription>
-              <CardTitle className="text-3xl">{formatTokens(stats.outputTokens)}</CardTitle>
+              <CardTitle className="text-3xl">{formatTokens(summary.outputTokens)}</CardTitle>
               <CardDescription>Total output generated</CardDescription>
             </div>
             <Send className="h-6 w-6 text-muted-foreground" />
@@ -104,7 +57,7 @@ export function StatsCards({
           <div className="flex items-center justify-between w-full">
             <div className="space-y-1">
               <CardDescription>Average Daily Tokens</CardDescription>
-              <CardTitle className="text-3xl">{formatTokens(stats.avgDailyTokens)}</CardTitle>
+              <CardTitle className="text-3xl">{formatTokens(summary.avgDailyTokens)}</CardTitle>
               <CardDescription>Daily token processing rate</CardDescription>
             </div>
             <Activity className="h-6 w-6 text-muted-foreground" />

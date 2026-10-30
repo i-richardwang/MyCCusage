@@ -2,7 +2,7 @@ import { existsSync } from "fs";
 import { homedir } from "os";
 import { join, resolve } from "path";
 import { queryRows } from "./sqlite.js";
-import { toLocalDate } from "./utils/local-date.js";
+import type { Calendar } from "./calendar.js";
 
 // ---------------------------------------------------------------------------
 // Cursor usage parser
@@ -386,7 +386,8 @@ function parseCost(value: string | undefined): number {
 }
 
 interface CsvRow {
-  date: Date;
+  // An instant, or a day label when the export has no time of day
+  date: Date | string;
   model: string;
   inputTokens: number;
   outputTokens: number;
@@ -434,9 +435,9 @@ export function parseCursorCsv(text: string): CsvRow[] {
     const model = (row[modelIdx] ?? "").trim();
     if (!rawDate || !model) continue;
     const date = /^\d{4}-\d{2}-\d{2}$/.test(rawDate)
-      ? new Date(`${rawDate}T00:00:00Z`)
+      ? rawDate
       : new Date(rawDate);
-    if (Number.isNaN(date.getTime())) continue;
+    if (date instanceof Date && Number.isNaN(date.getTime())) continue;
 
     const withWrite = parseCount(row[withWriteIdx]);
     const withoutWrite = parseCount(row[withoutWriteIdx]);
@@ -484,13 +485,17 @@ interface DayModelAcc {
   cost: number;
 }
 
-export function aggregateCursorUsage(rows: CsvRow[]): {
+export function aggregateCursorUsage(
+  rows: CsvRow[],
+  calendar: Calendar,
+): {
   daily: CursorDailyRecord[];
   totals: CursorUsageResult["totals"];
 } {
   const days = new Map<string, Map<string, DayModelAcc>>();
   for (const row of rows) {
-    const date = toLocalDate(row.date);
+    const date =
+      typeof row.date === "string" ? row.date : calendar.dayOf(row.date);
     let models = days.get(date);
     if (!models) {
       models = new Map<string, DayModelAcc>();
@@ -587,7 +592,9 @@ export function aggregateCursorUsage(rows: CsvRow[]): {
   return { daily, totals };
 }
 
-export async function collectCursorUsage(): Promise<CursorUsageResult> {
+export async function collectCursorUsage(
+  calendar: Calendar,
+): Promise<CursorUsageResult> {
   // eslint-disable-next-line turbo/no-undeclared-env-vars
   const timeoutMs = resolveCursorFetchTimeout(process.env.MYCCUSAGE_CURSOR_FETCH_TIMEOUT_MS);
 
@@ -648,6 +655,6 @@ export async function collectCursorUsage(): Promise<CursorUsageResult> {
     return emptyResult(["Cursor export contained no usage rows."]);
   }
 
-  const { daily, totals } = aggregateCursorUsage(rows);
+  const { daily, totals } = aggregateCursorUsage(rows, calendar);
   return { daily, totals, skipped: false, warnings: [] };
 }

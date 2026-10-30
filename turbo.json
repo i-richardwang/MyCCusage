@@ -10,6 +10,7 @@
       "env": [
         "DATABASE_URL",
         "API_KEY",
+        "USAGE_TIMEZONE",
         "CLAUDE_BILLING_CYCLE_START_DATE",
         "NEXT_PUBLIC_APP_URL",
         "NEXT_PUBLIC_OWNER_NAME",

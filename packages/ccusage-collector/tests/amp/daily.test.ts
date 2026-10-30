@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { aggregateAmpDaily } from "../../src/amp/daily";
+import { createCalendar, type Calendar } from "../../src/calendar";
 import {
+  CALENDAR,
   DAY,
+  DAY_KEY,
   NOON,
+  at,
   UNPRICED,
   DEEPSEEK_REPORT,
   cachedThread,
@@ -10,7 +14,7 @@ import {
 } from "./fixtures";
 
 describe("aggregateAmpDaily", () => {
-  it("sums export usage per local day and model, falling back to thread creation", () => {
+  it("sums export usage per day and model, falling back to thread creation", () => {
     const tokens = (n: number) => ({
       inputTokens: n,
       outputTokens: n,
@@ -21,7 +25,7 @@ describe("aggregateAmpDaily", () => {
       [
         cachedThread({
           id: "T-1",
-          created: new Date(2026, 9, 20, 12).getTime(),
+          created: Date.parse(at("2026-10-20", 12)),
           usage: [
             usageEntry("claude-a", tokens(1)),
             usageEntry("claude-a", tokens(2)),
@@ -33,12 +37,12 @@ describe("aggregateAmpDaily", () => {
           usage: [
             {
               ...usageEntry("claude-b", tokens(3)),
-              timestamp: new Date(2026, 9, 22, 10).toISOString(),
+              timestamp: at("2026-10-22", 10),
             },
           ],
         }),
       ],
-      { pricing: UNPRICED },
+      { calendar: CALENDAR, pricing: UNPRICED },
     );
 
     expect(daily.map((d) => d.date)).toEqual(["2026-10-20", DAY, "2026-10-22"]);
@@ -65,7 +69,7 @@ describe("aggregateAmpDaily", () => {
           ],
         }),
       ],
-      { pricing: UNPRICED },
+      { calendar: CALENDAR, pricing: UNPRICED },
     );
     const byModel = Object.fromEntries(
       day!.modelBreakdowns.map((m) => [m.modelName, m]),
@@ -89,7 +93,7 @@ describe("aggregateAmpDaily", () => {
           usage: [usageEntry("meta/muse-spark-1.3", { outputTokens: 1 })],
         }),
       ],
-      { pricing: UNPRICED },
+      { calendar: CALENDAR, pricing: UNPRICED },
     );
     expect(day!.modelsUsed).toEqual(["muse-spark-1.3"]);
   });
@@ -106,12 +110,13 @@ describe("aggregateAmpDaily", () => {
         cachedThread({
           id: "T-1",
           usage: [agent],
-          reports: { [DAY]: { fetchedAt: NOON, report: DEEPSEEK_REPORT } },
+          reports: { [DAY_KEY]: { fetchedAt: NOON, report: DEEPSEEK_REPORT } },
         }),
         // No report yet: main agent only, under the learned report name
         cachedThread({ id: "T-2", usage: [agent] }),
       ],
       {
+        calendar: CALENDAR,
         pricing: UNPRICED,
         onUnreconciled: (threadId) => unreconciled.push(threadId),
       },
@@ -139,10 +144,11 @@ describe("aggregateAmpDaily", () => {
         cachedThread({
           id: "T-1",
           usage: [usageEntry("claude-a", { outputTokens: 5 })],
-          reports: { [DAY]: { fetchedAt: NOON, report: null } },
+          reports: { [DAY_KEY]: { fetchedAt: NOON, report: null } },
         }),
       ],
       {
+        calendar: CALENDAR,
         pricing: UNPRICED,
         onUnreconciled: (threadId, date) =>
           unreconciled.push(`${threadId} ${date}`),
@@ -162,7 +168,7 @@ describe("aggregateAmpDaily", () => {
       id: "T-1",
       usage: [agent],
       reports: {
-        [DAY]: {
+        [DAY_KEY]: {
           fetchedAt: NOON,
           report: DEEPSEEK_REPORT,
         },
@@ -183,7 +189,7 @@ describe("aggregateAmpDaily", () => {
         "deepseek-v4.1-flash": { input: 1, output: 2, cacheRead: 0.1 },
       },
     };
-    const [day] = aggregateAmpDaily(threads, { pricing });
+    const [day] = aggregateAmpDaily(threads, { calendar: CALENDAR, pricing });
     // Combined main + subagent: input 50, output 25, reads 200; no duplicate main usage.
     expect(day!.totalCost).toBe(120);
     expect(day!.modelBreakdowns.map((m) => m.cost)).toEqual([120, 0]);
@@ -196,13 +202,17 @@ describe("aggregateAmpDaily", () => {
     });
     expect(day!.totalTokens).toBe(282);
     // Pricing and repeated aggregation do not mutate the cached thread data.
-    expect(aggregateAmpDaily(threads, { pricing })).toEqual([day]);
+    expect(aggregateAmpDaily(threads, { calendar: CALENDAR, pricing })).toEqual(
+      [day],
+    );
     expect(
-      aggregateAmpDaily(threads, { pricing: UNPRICED })[0]!.totalCost,
+      aggregateAmpDaily(threads, { calendar: CALENDAR, pricing: UNPRICED })[0]!
+        .totalCost,
     ).toBe(0);
     // The reconciled export name is a safe fallback when only that name has
     // a price; a different model version is never inferred from its spelling.
     const [aliased] = aggregateAmpDaily(threads, {
+      calendar: CALENDAR,
       pricing: {
         ...pricing,
         models: { "deepseek-flash": pricing.models["deepseek-v4.1-flash"] },
@@ -237,7 +247,7 @@ describe("aggregateAmpDaily", () => {
       asOf: NOON,
       models: { "gpt-test": prices, "claude-test": prices },
     };
-    const [day] = aggregateAmpDaily(threads, { pricing });
+    const [day] = aggregateAmpDaily(threads, { calendar: CALENDAR, pricing });
     expect(day!.modelBreakdowns.map((m) => m.cost)).toEqual([140, 340]);
     expect(day!.totalCost).toBe(480);
     expect(day!.rawData.costEstimate.unpricedModels).toEqual([]);
@@ -253,8 +263,41 @@ describe("aggregateAmpDaily", () => {
         },
       },
     };
-    const [repriced] = aggregateAmpDaily(threads, { pricing: doubled });
+    const [repriced] = aggregateAmpDaily(threads, {
+      calendar: CALENDAR,
+      pricing: doubled,
+    });
     expect(repriced!.totalCost).toBe(960);
     expect(repriced!.totalTokens).toBe(day!.totalTokens);
+  });
+
+  it("uses a report only for the exact range it was fetched for", () => {
+    // NOON is 12:00 in Shanghai and 00:00 in New York: DAY in both
+    // calendars, but a different range
+    const newYork = createCalendar("America/New_York");
+    const thread = cachedThread({
+      id: "T-1",
+      usage: [
+        usageEntry("deepseek-flash", {
+          outputTokens: 10,
+          cacheCreationTokens: 20,
+          cacheReadTokens: 80,
+        }),
+      ],
+      reports: { [DAY_KEY]: { fetchedAt: NOON, report: DEEPSEEK_REPORT } },
+    });
+    const unreconciled: string[] = [];
+    const total = (calendar: Calendar) =>
+      aggregateAmpDaily([thread], {
+        calendar,
+        pricing: UNPRICED,
+        onUnreconciled: (id) => unreconciled.push(id),
+      }).map((d) => [d.date, d.totalTokens]);
+    // Main agent + subagents from the report
+    expect(total(CALENDAR)).toEqual([[DAY, 165]]);
+    // Another calendar's day has no report yet: main agent only, and not
+    // reported as unreconcilable
+    expect(total(newYork)).toEqual([[DAY, 110]]);
+    expect(unreconciled).toEqual([]);
   });
 });

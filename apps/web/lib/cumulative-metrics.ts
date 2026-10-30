@@ -10,6 +10,8 @@ import {
   getPlanPricing,
   type SubscriptionPlan
 } from '@/constants/business-config'
+import { parseLocalDate } from '@/lib/date-utils'
+import { daysBetween, isDay } from '@/lib/day-range'
 
 export interface SubscriptionPeriod {
   startDate: Date
@@ -18,33 +20,28 @@ export interface SubscriptionPeriod {
 }
 
 /**
- * Calculate subscription period metadata from billing start date
+ * Calculate subscription period metadata from the billing start day through
+ * today, both "YYYY-MM-DD" days in the account calendar
  */
-export function getSubscriptionPeriod(billingStartDate: string): SubscriptionPeriod {
-  const startDate = new Date(billingStartDate)
-
-  if (isNaN(startDate.getTime())) {
+export function getSubscriptionPeriod(billingStartDate: string, today: string): SubscriptionPeriod {
+  if (!isDay(billingStartDate)) {
     throw new Error(`Invalid subscription start date: ${billingStartDate}`)
   }
 
-  const today = new Date()
+  const [startYear, startMonth, startDay] = billingStartDate.split('-').map(Number)
+  const [year, month, day] = today.split('-').map(Number)
 
   // Calculate total months
-  const yearDiff = today.getFullYear() - startDate.getFullYear()
-  const monthDiff = today.getMonth() - startDate.getMonth()
-  const dayDiff = today.getDate() - startDate.getDate()
-
-  let totalMonths = yearDiff * 12 + monthDiff
-  if (dayDiff >= 0) {
+  let totalMonths = (year! - startYear!) * 12 + (month! - startMonth!)
+  if (day! >= startDay!) {
     totalMonths += 1
   }
   totalMonths = Math.max(totalMonths, 1)
 
   // Calculate total subscription days
-  const timeDiff = today.getTime() - startDate.getTime()
-  const totalDays = Math.floor(timeDiff / (1000 * 60 * 60 * 24)) + 1
+  const totalDays = daysBetween(billingStartDate, today) + 1
 
-  return { startDate, totalDays, totalMonths }
+  return { startDate: parseLocalDate(billingStartDate), totalDays, totalMonths }
 }
 
 /**

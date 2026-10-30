@@ -1,6 +1,5 @@
 "use client";
 
-import { useMemo } from "react";
 import {
   Card,
   CardContent,
@@ -37,175 +36,59 @@ import {
   useAgentCostPieData,
   useDeviceCostPieData,
   useCacheEfficiencyPieData,
-  filterByTimeRange,
 } from "@/hooks/use-chart-data";
-import {
-  DailyRecord,
-  DeviceRecord,
-  Device,
-  TimeRange,
-  AgentType,
-  AgentRecord,
-} from "@/types/chart-types";
+import { Device, AgentType } from "@/types/chart-types";
 import { CHART_COLORS } from "@/constants/chart-config";
 import { formatChartDate } from "@/lib/date-utils";
-import type { AggregatedMetrics } from "@/types/api-types";
+import type { UsageView } from "@/lib/usage-view";
 
 interface ChartsProps {
-  dailyData: DailyRecord[];
+  view: UsageView;
   devices: Device[];
-  deviceData: DeviceRecord[];
-  agentData?: AgentRecord[];
-  timeRange: TimeRange;
-  customDateRange?: { from: Date; to: Date };
-  totals?: AggregatedMetrics;
-  last30Days?: AggregatedMetrics;
-  agentFilter?: AgentType | "all";
+  agentFilter: AgentType | "all";
 }
 
-export function Charts({
-  dailyData,
-  devices,
-  deviceData,
-  agentData,
-  timeRange,
-  customDateRange,
-  totals,
-  last30Days,
-  agentFilter = "all",
-}: ChartsProps) {
+export function Charts({ view, devices, agentFilter }: ChartsProps) {
   const {
     chartData: multiDeviceChartData,
     chartConfig: multiDeviceChartConfig,
     activeDevices: activeCostDevices,
-  } = useMultiDeviceChartData(deviceData, devices, timeRange, customDateRange);
+  } = useMultiDeviceChartData(view, devices);
 
   const { chartData: ratioChartData, chartConfig: ratioChartConfig } =
-    useInputOutputRatioChartData(dailyData, timeRange, customDateRange);
+    useInputOutputRatioChartData(view);
 
   const {
     chartData: multiDeviceTokenData,
     chartConfig: multiDeviceTokenConfig,
     activeDevices: activeTokenDevices,
-  } = useMultiDeviceTokenData(deviceData, devices, timeRange, customDateRange);
+  } = useMultiDeviceTokenData(view, devices);
 
   // Multi-agent chart data (only when viewing all agents)
   const {
     chartData: multiAgentChartData,
     chartConfig: multiAgentChartConfig,
     activeAgents,
-  } = useMultiAgentChartData(agentData || [], timeRange, customDateRange);
+  } = useMultiAgentChartData(view);
 
   // Pie chart data (only when viewing all agents)
   const { chartData: agentTokenPieData, chartConfig: agentTokenPieConfig } =
-    useAgentTokenPieData(agentData || [], timeRange, customDateRange);
+    useAgentTokenPieData(view);
   const { chartData: agentCostPieData, chartConfig: agentCostPieConfig } =
-    useAgentCostPieData(agentData || [], timeRange, customDateRange);
+    useAgentCostPieData(view);
   const { chartData: deviceCostPieData, chartConfig: deviceCostPieConfig } =
-    useDeviceCostPieData(deviceData, devices, timeRange, customDateRange);
+    useDeviceCostPieData(view, devices);
   const {
     chartData: cacheEfficiencyPieData,
     chartConfig: cacheEfficiencyPieConfig,
-  } = useCacheEfficiencyPieData(dailyData, timeRange, customDateRange);
+  } = useCacheEfficiencyPieData(view);
 
   const showAgentChart = agentFilter === "all" && activeAgents.length > 1;
   const showPieCharts = agentFilter === "all" && agentTokenPieData.length > 0;
 
-  const { usageActivityRate, cacheHitRate, tokenUnitPrice } = useMemo(() => {
-    if (timeRange === "all" && totals) {
-      const cacheHit =
-        totals.totalCacheReadTokens > 0
-          ? (totals.totalCacheReadTokens /
-              (totals.totalCacheReadTokens + totals.totalCacheCreationTokens)) *
-            100
-          : 0;
-      const unitPrice =
-        totals.totalTokens > 0
-          ? (totals.totalCost / totals.totalTokens) * 1000000
-          : 0;
-      const filteredData = filterByTimeRange(
-        dailyData,
-        timeRange,
-        customDateRange,
-      );
-      const usageActivity =
-        filteredData.length > 0
-          ? (filteredData.filter((day) => day.totalTokens > 0).length /
-              filteredData.length) *
-            100
-          : 0;
-
-      return {
-        usageActivityRate: usageActivity,
-        cacheHitRate: cacheHit,
-        tokenUnitPrice: unitPrice,
-      };
-    }
-
-    if (timeRange === "30d" && last30Days) {
-      const cacheHit =
-        last30Days.totalCacheReadTokens > 0
-          ? (last30Days.totalCacheReadTokens /
-              (last30Days.totalCacheReadTokens +
-                last30Days.totalCacheCreationTokens)) *
-            100
-          : 0;
-      const unitPrice =
-        last30Days.totalTokens > 0
-          ? (last30Days.totalCost / last30Days.totalTokens) * 1000000
-          : 0;
-      const usageActivity = (last30Days.activeDays / 30) * 100;
-
-      return {
-        usageActivityRate: usageActivity,
-        cacheHitRate: cacheHit,
-        tokenUnitPrice: unitPrice,
-      };
-    }
-
-    const filteredData = filterByTimeRange(
-      dailyData,
-      timeRange,
-      customDateRange,
-    );
-
-    if (filteredData.length === 0) {
-      return { usageActivityRate: 0, cacheHitRate: 0, tokenUnitPrice: 0 };
-    }
-
-    const usageActivity =
-      (filteredData.filter((day) => day.totalTokens > 0).length /
-        filteredData.length) *
-      100;
-
-    const aggregated = filteredData.reduce(
-      (acc, day) => ({
-        cacheRead: acc.cacheRead + day.cacheReadTokens,
-        cacheCreation: acc.cacheCreation + day.cacheCreationTokens,
-        tokens: acc.tokens + day.totalTokens,
-        cost: acc.cost + day.totalCost,
-      }),
-      { cacheRead: 0, cacheCreation: 0, tokens: 0, cost: 0 },
-    );
-
-    const cacheHit =
-      aggregated.cacheRead > 0
-        ? (aggregated.cacheRead /
-            (aggregated.cacheRead + aggregated.cacheCreation)) *
-          100
-        : 0;
-
-    const unitPrice =
-      aggregated.tokens > 0
-        ? (aggregated.cost / aggregated.tokens) * 1000000
-        : 0;
-
-    return {
-      usageActivityRate: usageActivity,
-      cacheHitRate: cacheHit,
-      tokenUnitPrice: unitPrice,
-    };
-  }, [dailyData, timeRange, customDateRange, totals, last30Days]);
+  const { summary } = view;
+  const activityPercent = summary.activityRate * 100;
+  const cacheHitPercent = summary.cacheHitRate * 100;
 
   return (
     <div className="space-y-6">
@@ -614,10 +497,10 @@ export function Charts({
               <div className="flex justify-between items-center">
                 <span className="text-sm font-medium">Usage Activity</span>
                 <span className="text-sm font-bold">
-                  {usageActivityRate.toFixed(1)}%
+                  {activityPercent.toFixed(1)}%
                 </span>
               </div>
-              <Progress value={usageActivityRate} className="h-2" />
+              <Progress value={activityPercent} className="h-2" />
               <p className="text-xs text-muted-foreground">
                 Days with usage vs total days
               </p>
@@ -627,10 +510,10 @@ export function Charts({
               <div className="flex justify-between items-center">
                 <span className="text-sm font-medium">Cache Hit Rate</span>
                 <span className="text-sm font-bold">
-                  {cacheHitRate.toFixed(1)}%
+                  {cacheHitPercent.toFixed(1)}%
                 </span>
               </div>
-              <Progress value={cacheHitRate} className="h-2" />
+              <Progress value={cacheHitPercent} className="h-2" />
               <p className="text-xs text-muted-foreground">
                 Percentage of requests served from cache
               </p>
@@ -640,13 +523,13 @@ export function Charts({
               <div className="flex justify-between items-center">
                 <span className="text-sm font-medium">Token Unit Price</span>
                 <span className="text-sm font-bold">
-                  ${tokenUnitPrice.toFixed(2)}
+                  ${summary.costPerMillionTokens.toFixed(2)}
                 </span>
               </div>
               <Progress
                 value={
-                  tokenUnitPrice > 0
-                    ? Math.min(100, (6 / tokenUnitPrice) * 100)
+                  summary.costPerMillionTokens > 0
+                    ? Math.min(100, (6 / summary.costPerMillionTokens) * 100)
                     : 0
                 }
                 className="h-2"

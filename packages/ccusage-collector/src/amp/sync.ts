@@ -9,13 +9,14 @@ import {
 } from "fs";
 import { homedir } from "os";
 import { join } from "path";
+import type { Calendar } from "../calendar.js";
 import type { AmpRunner } from "./cli.js";
 import { parseThreadUsageReport, type AmpDayReport } from "./report.js";
 import {
   isValidThreadId,
-  localDayRange,
   projectThreadExport,
   reportIsCurrent,
+  reportKey,
   threadActiveDays,
   type AmpCachedThread,
 } from "./threads.js";
@@ -38,7 +39,7 @@ const HOUR_MS = 60 * 60 * 1000;
 // `amp usage` calls.
 export const REPORTS_PER_HOUR = 40;
 // Bump when the cache layout changes; a mismatch rebuilds the cache.
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 2;
 
 interface AmpSyncIndex {
   version: number;
@@ -229,6 +230,7 @@ async function syncReports(
   threadsDir: string,
   index: AmpSyncIndex,
   threadIds: string[],
+  calendar: Calendar,
   deadline: number,
   result: AmpSyncResult,
 ): Promise<void> {
@@ -236,8 +238,8 @@ async function syncReports(
   for (const id of threadIds) {
     const thread = readJson<AmpCachedThread>(join(threadsDir, `${id}.json`));
     if (!thread) continue;
-    for (const date of threadActiveDays(thread)) {
-      if (!reportIsCurrent(thread, date)) needed.push({ thread, date });
+    for (const date of threadActiveDays(thread, calendar)) {
+      if (!reportIsCurrent(thread, date, calendar)) needed.push({ thread, date });
     }
   }
   needed.sort((a, b) => b.date.localeCompare(a.date));
@@ -249,7 +251,8 @@ async function syncReports(
   await runPool(needed.slice(0, budget), MAX_CONCURRENT_REPORTS, async ({ thread, date }) => {
     const remaining = deadline - Date.now();
     if (remaining <= 0) return false;
-    const [start, end] = localDayRange(date);
+    const range = calendar.rangeOf(date);
+    const [start, end] = range;
     const fetchedAt = new Date().toISOString();
     index.reportRequests.push(fetchedAt);
 
@@ -289,7 +292,7 @@ async function syncReports(
       report = null;
       parseErrors.push(`${thread.id} ${date}: ${errorMessage(error)}`);
     }
-    thread.reports[date] = { fetchedAt, report };
+    thread.reports[reportKey(range)] = { fetchedAt, report };
     updated.add(thread);
     result.reportsFetched++;
   });
@@ -316,6 +319,7 @@ async function syncReports(
 export async function syncAmpCache(
   run: AmpRunner,
   installationId: string,
+  calendar: Calendar,
   cacheDir: string = defaultCacheDir(),
   timeoutMs: number = SYNC_TIMEOUT_MS,
 ): Promise<AmpSyncResult> {
@@ -349,6 +353,7 @@ export async function syncAmpCache(
       threadsDir,
       index,
       valid.map((t) => t.id),
+      calendar,
       deadline,
       result,
     );

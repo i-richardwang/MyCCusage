@@ -12,6 +12,7 @@ import type {
   DailyUsageRecord,
   ModelBreakdown,
 } from "./types.js";
+import { createCalendar, isTimeZone, type Calendar } from "./calendar.js";
 import { collectAmpUsage } from "./amp/index.js";
 import { collectDimagentUsage } from "./dimagent.js";
 import { collectCursorUsage } from "./cursor.js";
@@ -27,26 +28,31 @@ async function execInShell(
   return execFileAsync(shell, ["-ic", command], { env });
 }
 
+const TIMEZONE_HANDOFF = "MYCCUSAGE_RESOLVED_TIMEZONE";
 const CLAUDE_CONFIG_DIR_HANDOFF = "MYCCUSAGE_RESOLVED_CLAUDE_CONFIG_DIR";
 
 function expandHome(dir: string): string {
   return dir.startsWith("~/") ? join(homedir(), dir.slice(2)) : dir;
 }
 
-// Claude Code itself reads CLAUDE_CONFIG_DIR, so it is scoped to one ccusage
-// call instead of the user's environment. The value travels through a private
-// variable and is assigned on the command line, after rc files have loaded,
-// so neither shell profiles nor quoting can alter it.
-export function scopeClaudeConfigDirs(
+// Inputs of one ccusage call: the account time zone, and for Claude Code the
+// config directories. Claude Code itself reads CLAUDE_CONFIG_DIR, so it is
+// scoped to this call instead of the user's environment. Values travel through
+// private variables expanded on the command line, after rc files have loaded,
+// so neither shell profiles nor quoting can alter them.
+export function scopeCcusageCommand(
   command: string,
-  dirs: readonly string[] | undefined,
-): { command: string; env?: NodeJS.ProcessEnv } {
-  if (!dirs?.length) return { command };
+  timeZone: string,
+  claudeConfigDirs?: readonly string[],
+): { command: string; env: NodeJS.ProcessEnv } {
+  const scoped = `${command} --timezone "$${TIMEZONE_HANDOFF}"`;
+  const env = { ...process.env, [TIMEZONE_HANDOFF]: timeZone };
+  if (!claudeConfigDirs?.length) return { command: scoped, env };
   return {
-    command: `CLAUDE_CONFIG_DIR="$${CLAUDE_CONFIG_DIR_HANDOFF}" ${command}`,
+    command: `CLAUDE_CONFIG_DIR="$${CLAUDE_CONFIG_DIR_HANDOFF}" ${scoped}`,
     env: {
-      ...process.env,
-      [CLAUDE_CONFIG_DIR_HANDOFF]: dirs.map(expandHome).join(","),
+      ...env,
+      [CLAUDE_CONFIG_DIR_HANDOFF]: claudeConfigDirs.map(expandHome).join(","),
     },
   };
 }
@@ -214,14 +220,16 @@ type CollectedUsage = Pick<UsageData, "daily" | "totals">;
 
 async function collectCcusage(
   agent: CcusageAgentType,
+  calendar: Calendar,
   claudeConfigDirs?: readonly string[],
 ): Promise<CollectedUsage> {
-  const { command, env } = scopeClaudeConfigDirs(
+  const { command, env } = scopeCcusageCommand(
     await resolveCommand(agent),
+    calendar.timeZone,
     claudeConfigDirs,
   );
   console.log(`Collecting ${agent} usage data via: ${command}`);
-  if (env) {
+  if (claudeConfigDirs?.length) {
     console.log(`Claude config directories: ${env[CLAUDE_CONFIG_DIR_HANDOFF]}`);
   }
   const { stdout } = await execInShell(command, env);
@@ -242,9 +250,9 @@ async function collectCcusage(
 }
 
 // DimAgent's local SQLite store; the parser emits ccusage-shaped records.
-function collectDimagent(): CollectedUsage {
+function collectDimagent(calendar: Calendar): CollectedUsage {
   console.log("Collecting dimagent usage data from local SQLite store");
-  const { daily, totals } = collectDimagentUsage();
+  const { daily, totals } = collectDimagentUsage(calendar);
   return {
     daily: daily.map((record) =>
       mapCcusageRecord(record as unknown as Record<string, unknown>),
@@ -255,9 +263,9 @@ function collectDimagent(): CollectedUsage {
 
 // Cursor's cloud export; the parser emits ccusage-shaped records. Skipped
 // runs surface their warnings and sync nothing; dead credentials throw.
-async function collectCursor(): Promise<CollectedUsage> {
+async function collectCursor(calendar: Calendar): Promise<CollectedUsage> {
   console.log("Collecting cursor usage data from cloud export");
-  const { daily, totals, warnings } = await collectCursorUsage();
+  const { daily, totals, warnings } = await collectCursorUsage(calendar);
   for (const warning of warnings) {
     console.warn(warning);
   }
@@ -272,19 +280,20 @@ async function collectCursor(): Promise<CollectedUsage> {
 async function collectFromSource(
   agent: AgentType,
   config: CollectorConfig,
+  calendar: Calendar,
 ): Promise<CollectedUsage> {
   switch (agent) {
     // AMP threads live server-side; they are read through the `amp` CLI
     case "amp":
-      return collectAmpUsage();
+      return collectAmpUsage(calendar);
     case "dimagent":
-      return collectDimagent();
+      return collectDimagent(calendar);
     case "cursor":
-      return collectCursor();
+      return collectCursor(calendar);
     case "claude-code":
-      return collectCcusage(agent, config.claudeConfigDirs);
+      return collectCcusage(agent, calendar, config.claudeConfigDirs);
     default:
-      return collectCcusage(agent);
+      return collectCcusage(agent, calendar);
   }
 }
 
@@ -299,9 +308,39 @@ export class UsageCollector {
     };
   }
 
-  async collectUsageData(agent: AgentType): Promise<UsageData> {
+  // The dashboard owns the account time zone; every run buckets days in it
+  async fetchCalendar(): Promise<Calendar> {
+    const { endpoint, apiKey } = this.config;
+    let timeZone: unknown;
     try {
-      const { daily, totals } = await collectFromSource(agent, this.config);
+      const response = await axios.get(endpoint, {
+        headers: { "x-api-key": apiKey },
+        timeout: 30000,
+      });
+      timeZone = response.data?.timezone;
+    } catch (error) {
+      const message = axios.isAxiosError(error)
+        ? error.response?.data?.error || error.message
+        : String(error);
+      throw new Error(`Could not read the account time zone: ${message}`);
+    }
+    if (typeof timeZone !== "string" || !isTimeZone(timeZone)) {
+      throw new Error(`Invalid account time zone: ${String(timeZone)}`);
+    }
+    console.log(`Account time zone: ${timeZone}`);
+    return createCalendar(timeZone);
+  }
+
+  async collectUsageData(
+    agent: AgentType,
+    calendar: Calendar,
+  ): Promise<UsageData> {
+    try {
+      const { daily, totals } = await collectFromSource(
+        agent,
+        this.config,
+        calendar,
+      );
 
       // Copy the resolved identity so each agent keeps its own metadata.
       const deviceInfo: DeviceInfo = {
@@ -317,6 +356,7 @@ export class UsageCollector {
 
       const data: UsageData = {
         device: deviceInfo,
+        timezone: calendar.timeZone,
         daily,
         totals,
       };
@@ -336,11 +376,12 @@ export class UsageCollector {
   // Collect usage data for all configured agent types
   async collectAllUsageData(): Promise<UsageData[]> {
     const agentTypes = this.config.agentTypes;
+    const calendar = await this.fetchCalendar();
     const results: UsageData[] = [];
 
     for (const agentType of agentTypes) {
       try {
-        const data = await this.collectUsageData(agentType);
+        const data = await this.collectUsageData(agentType, calendar);
         results.push(data);
       } catch (error) {
         console.error(
@@ -434,13 +475,14 @@ export class UsageCollector {
 
   async run(): Promise<{ failedAgents: AgentType[] }> {
     const agentTypes = this.config.agentTypes;
+    const calendar = await this.fetchCalendar();
     let successCount = 0;
     const failedAgents: AgentType[] = [];
 
     for (const agentType of agentTypes) {
       try {
         console.log(`\n--- ${agentType} ---`);
-        const data = await this.collectUsageData(agentType);
+        const data = await this.collectUsageData(agentType, calendar);
         await this.syncData(data);
         console.log(`${agentType} sync completed successfully`);
         successCount++;

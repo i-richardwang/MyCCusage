@@ -1,7 +1,10 @@
+import type { Calendar } from "../calendar.js";
 import type { DailyUsageRecord, ModelBreakdown } from "../types.js";
 import { estimateTokenCost, type PricingTable } from "../pricing/rates.js";
 import { mergeDayUsage, stripProvider } from "./report.js";
 import {
+  dayReport,
+  threadActiveDays,
   usageDate,
   type AmpCachedThread,
   type AmpUsageEntry,
@@ -87,6 +90,7 @@ interface AmpDailyRecord extends DailyUsageRecord {
 }
 
 interface AggregateOptions {
+  calendar: Calendar;
   onUnreconciled?: (threadId: string, date: string) => void;
   pricing: PricingTable;
 }
@@ -97,7 +101,7 @@ interface AggregateOptions {
 // so the main agent's export and report are never valued twice.
 export function aggregateAmpDaily(
   threads: AmpCachedThread[],
-  { onUnreconciled = () => {}, pricing }: AggregateOptions,
+  { calendar, onUnreconciled = () => {}, pricing }: AggregateOptions,
 ): AmpDailyRecord[] {
   // Export and report name some models differently; learn the mapping from
   // reconciled days so the other days use the report names too.
@@ -107,20 +111,17 @@ export function aggregateAmpDaily(
   for (const thread of threads) {
     const entriesByDay = new Map<string, AmpUsageEntry[]>();
     for (const entry of thread.usage) {
-      const date = usageDate(entry, thread.created);
+      const date = usageDate(entry, thread.created, calendar);
       if (!date) continue;
       const entries = entriesByDay.get(date) ?? [];
       entries.push(normalizeEntry(entry));
       entriesByDay.set(date, entries);
     }
 
-    const dates = new Set([
-      ...entriesByDay.keys(),
-      ...Object.keys(thread.reports),
-    ]);
-    for (const date of dates) {
+    // Reports are fetched for active days, which include every usage day
+    for (const date of threadActiveDays(thread, calendar)) {
       const entries = entriesByDay.get(date) ?? [];
-      const reportEntry = thread.reports[date];
+      const reportEntry = dayReport(thread, date, calendar);
       const merged = reportEntry?.report
         ? mergeDayUsage(reportEntry.report, entries)
         : null;

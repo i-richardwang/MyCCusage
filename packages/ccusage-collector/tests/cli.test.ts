@@ -39,6 +39,8 @@ describe("environment-configured CLI", () => {
       join(bin, "ccusage"),
       `#!/bin/sh
 case "$1" in claude|codex) ;; *) exit 1 ;; esac
+# Days must be bucketed in the dashboard's account time zone
+case "$*" in *"--timezone Asia/Shanghai") ;; *) exit 1 ;; esac
 printf '%s\\n' '{"daily":[{"date":"2026-10-26","inputTokens":10,"outputTokens":5,"totalTokens":15,"costUSD":0.01}],"totals":{"inputTokens":10,"outputTokens":5,"cacheCreationTokens":0,"cacheReadTokens":0,"totalTokens":15,"totalCost":0.01}}'
 `,
       { mode: 0o700 },
@@ -46,6 +48,11 @@ printf '%s\\n' '{"daily":[{"date":"2026-10-26","inputTokens":10,"outputTokens":5
 
     uploads = [];
     server = createServer(async (req, res) => {
+      res.setHeader("Content-Type", "application/json");
+      if (req.method === "GET") {
+        res.end(JSON.stringify({ timezone: "Asia/Shanghai" }));
+        return;
+      }
       let body = "";
       for await (const chunk of req) body += chunk;
       uploads.push({
@@ -112,7 +119,9 @@ printf '%s\\n' '{"daily":[{"date":"2026-10-26","inputTokens":10,"outputTokens":5
     expect(
       uploads.every(
         ({ data, apiKey }) =>
-          data.daily[0]?.totalTokens === 15 && apiKey === "test-api-key",
+          data.daily[0]?.totalTokens === 15 &&
+          data.timezone === "Asia/Shanghai" &&
+          apiKey === "test-api-key",
       ),
     ).toBe(true);
     expect(existsSync(join(home, ".ccusage-collector/config.json"))).toBe(
@@ -247,6 +256,10 @@ printf '%s\\n' '{"daily":[{"date":"2026-10-26","inputTokens":10,"outputTokens":5
     });
     server.removeAllListeners("request");
     server.on("request", async (req, res) => {
+      if (req.method === "GET") {
+        res.end(JSON.stringify({ timezone: "Asia/Shanghai" }));
+        return;
+      }
       let body = "";
       for await (const chunk of req) body += chunk;
       uploads.push({
