@@ -1,7 +1,3 @@
-import { execFile } from "child_process";
-import { homedir } from "os";
-import { join } from "path";
-import { promisify } from "util";
 import axios from "axios";
 import type {
   UsageData,
@@ -9,298 +5,116 @@ import type {
   SyncResult,
   CollectorConfig,
   AgentType,
-  DailyUsageRecord,
-  ModelBreakdown,
+  UsageBucket,
 } from "./types.js";
 import { createCalendar, isTimeZone, type Calendar } from "./calendar.js";
 import { collectAmpUsage } from "./amp/index.js";
 import { collectDimagentUsage } from "./dimagent.js";
 import { collectCursorUsage } from "./cursor.js";
+import { collectCcusage } from "./ccusage.js";
+import { dailyBuckets } from "./buckets.js";
+import { loadPricing } from "./pricing/index.js";
+import type { PricingTable } from "./pricing/rates.js";
+import {
+  collectTranscriptUsage,
+  type TranscriptAgent,
+} from "./transcripts/index.js";
 
-const execFileAsync = promisify(execFile);
+// Version of the upload format. The dashboard reports the one it accepts, and
+// the collector uploads only to a dashboard that speaks its own.
+export const SYNC_PROTOCOL = 3;
 
-// An interactive shell supports the user's configured agent aliases.
-async function execInShell(
-  command: string,
-  env?: NodeJS.ProcessEnv,
-): Promise<{ stdout: string; stderr: string }> {
-  const shell = process.env.SHELL || "/bin/bash";
-  return execFileAsync(shell, ["-ic", command], { env });
-}
-
-const TIMEZONE_HANDOFF = "MYCCUSAGE_RESOLVED_TIMEZONE";
-const CLAUDE_CONFIG_DIR_HANDOFF = "MYCCUSAGE_RESOLVED_CLAUDE_CONFIG_DIR";
-
-function expandHome(dir: string): string {
-  return dir.startsWith("~/") ? join(homedir(), dir.slice(2)) : dir;
-}
-
-// Inputs of one ccusage call: the account time zone, and for Claude Code the
-// config directories. Claude Code itself reads CLAUDE_CONFIG_DIR, so it is
-// scoped to this call instead of the user's environment. Values travel through
-// private variables expanded on the command line, after rc files have loaded,
-// so neither shell profiles nor quoting can alter them.
-export function scopeCcusageCommand(
-  command: string,
-  timeZone: string,
-  claudeConfigDirs?: readonly string[],
-): { command: string; env: NodeJS.ProcessEnv } {
-  const scoped = `${command} --timezone "$${TIMEZONE_HANDOFF}"`;
-  const env = { ...process.env, [TIMEZONE_HANDOFF]: timeZone };
-  if (!claudeConfigDirs?.length) return { command: scoped, env };
-  return {
-    command: `CLAUDE_CONFIG_DIR="$${CLAUDE_CONFIG_DIR_HANDOFF}" ${scoped}`,
-    env: {
-      ...env,
-      [CLAUDE_CONFIG_DIR_HANDOFF]: claudeConfigDirs.map(expandHome).join(","),
-    },
-  };
-}
-
-// Extract JSON from stdout (interactive shells may prepend noise from rc files)
-export function extractJSON(stdout: string): string {
-  const start = stdout.indexOf("{");
-  if (start === -1) throw new Error("No JSON object found in output");
-  // Find the matching closing brace
-  let depth = 0;
-  for (let i = start; i < stdout.length; i++) {
-    if (stdout[i] === "{") depth++;
-    else if (stdout[i] === "}") depth--;
-    if (depth === 0) return stdout.slice(start, i + 1);
-  }
-  throw new Error("Malformed JSON in output");
-}
-
-// Agents served by the ccusage CLI. AMP, DimAgent and Cursor are collected
-// from their own sources instead (see collectFromSource) and never reach
-// resolveCommand.
-type CcusageAgentType = Exclude<AgentType, "amp" | "dimagent" | "cursor">;
-
-// Domain agent identifiers mapped to ccusage subcommands.
-const AGENT_CLI: Record<CcusageAgentType, { subcommand: string }> = {
-  "claude-code": { subcommand: "claude" },
-  opencode: { subcommand: "opencode" },
-  codex: { subcommand: "codex" },
-  antigravity: { subcommand: "antigravity" },
-};
-
-// Check if a command (or alias) exists in the user's shell
-async function commandExists(bin: string): Promise<boolean> {
-  try {
-    await execInShell(`command -v ${bin}`);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-// Resolve the command to run: prefer local command/alias, fallback to bunx
-// (then npx when bun is not installed).
-// The unified Rust CLI replaced standalone wrappers such as ccusage-codex.
-async function resolveCommand(agentType: CcusageAgentType): Promise<string> {
-  const { subcommand } = AGENT_CLI[agentType];
-  if (await commandExists("ccusage")) {
-    return `ccusage ${subcommand} daily --json`;
-  }
-  if (await commandExists("bunx")) {
-    console.warn(
-      "ccusage command not found in PATH; falling back to bunx ccusage. " +
-        "If you rely on a local ccusage fork, install it first so the collector uses that binary.",
-    );
-    return `bunx ccusage ${subcommand} daily --json`;
-  }
-  console.warn(
-    "ccusage command not found in PATH and bunx is unavailable; falling back to npx ccusage. " +
-      "If you rely on a local ccusage fork, install it first so the collector uses that binary.",
-  );
-  return `npx ccusage ${subcommand} daily --json`;
-}
-
-function numberField(record: Record<string, unknown>, field: string): number {
-  const value = record[field];
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-
-function stringArrayField(
-  record: Record<string, unknown>,
-  field: string,
-): string[] {
-  const value = record[field];
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string")
-    : [];
-}
-
-export function getDailyRecordDate(record: Record<string, unknown>): string {
-  if (typeof record.date === "string" && record.date.length > 0) {
-    return record.date;
-  }
-
-  if (typeof record.period === "string" || typeof record.agent === "string") {
-    throw new Error(
-      "Received all-agent ccusage output; collector must call an explicit agent subcommand",
-    );
-  }
-
-  throw new Error("Missing daily record date");
-}
-
-// Extract modelsUsed and modelBreakdowns from codex-style models object
-// Codex outputs: { models: { "gpt-5.2": { inputTokens, cachedInputTokens, outputTokens, reasoningOutputTokens, totalTokens, isFallback }, ... } }
-function extractModelsFromObject(
-  models: Record<string, Record<string, unknown>>,
-): {
-  modelsUsed: string[];
-  modelBreakdowns: ModelBreakdown[];
-} {
-  const modelsUsed = Object.keys(models);
-  const modelBreakdowns = modelsUsed.map((modelName) => {
-    const m = models[modelName] ?? {};
-    return {
-      modelName,
-      inputTokens: (m.inputTokens as number) || 0,
-      outputTokens: (m.outputTokens as number) || 0,
-      cacheCreationTokens: 0,
-      // Codex uses cachedInputTokens for cache read tokens
-      cacheReadTokens: (m.cachedInputTokens as number) || 0,
-      cost: 0,
-    };
-  });
-  return { modelsUsed, modelBreakdowns };
-}
-
-// Map ccusage output fields to API expected fields
-export function mapCcusageRecord(
-  record: Record<string, unknown>,
-): DailyUsageRecord {
-  // Extract models info: codex uses a models object, others use modelsUsed array + modelBreakdowns array
-  let modelsUsed = stringArrayField(record, "modelsUsed");
-  let modelBreakdowns = (record.modelBreakdowns as ModelBreakdown[]) || [];
-
-  if (
-    modelsUsed.length === 0 &&
-    record.models &&
-    typeof record.models === "object" &&
-    !Array.isArray(record.models)
-  ) {
-    const extracted = extractModelsFromObject(
-      record.models as Record<string, Record<string, unknown>>,
-    );
-    modelsUsed = extracted.modelsUsed;
-    modelBreakdowns = extracted.modelBreakdowns;
-  }
-
-  return {
-    date: getDailyRecordDate(record),
-    inputTokens: numberField(record, "inputTokens"),
-    outputTokens: numberField(record, "outputTokens"),
-    // ccusage uses cacheCreationInputTokens, API expects cacheCreationTokens
-    cacheCreationTokens:
-      numberField(record, "cacheCreationInputTokens") ||
-      numberField(record, "cacheCreationTokens") ||
-      0,
-    // ccusage uses cacheReadInputTokens, API expects cacheReadTokens
-    // Codex uses cachedInputTokens for cache read tokens
-    cacheReadTokens:
-      numberField(record, "cacheReadInputTokens") ||
-      numberField(record, "cacheReadTokens") ||
-      numberField(record, "cachedInputTokens") ||
-      0,
-    totalTokens: numberField(record, "totalTokens"),
-    // ccusage uses costUSD, API expects totalCost
-    totalCost:
-      numberField(record, "costUSD") || numberField(record, "totalCost"),
-    modelsUsed,
-    modelBreakdowns,
-    rawData: record,
-  };
-}
-
-type CollectedUsage = Pick<UsageData, "daily" | "totals">;
-
-async function collectCcusage(
-  agent: CcusageAgentType,
-  calendar: Calendar,
-  claudeConfigDirs?: readonly string[],
-): Promise<CollectedUsage> {
-  const { command, env } = scopeCcusageCommand(
-    await resolveCommand(agent),
-    calendar.timeZone,
-    claudeConfigDirs,
-  );
-  console.log(`Collecting ${agent} usage data via: ${command}`);
-  if (claudeConfigDirs?.length) {
-    console.log(`Claude config directories: ${env[CLAUDE_CONFIG_DIR_HANDOFF]}`);
-  }
-  const { stdout } = await execInShell(command, env);
-
-  const rawData = JSON.parse(extractJSON(stdout));
-
-  if (!rawData.daily || !Array.isArray(rawData.daily)) {
-    throw new Error("Invalid usage data format");
-  }
-
-  return {
-    // Map ccusage output fields to API expected fields
-    daily: rawData.daily.map((record: Record<string, unknown>) =>
-      mapCcusageRecord(record),
-    ),
-    totals: rawData.totals,
-  };
-}
-
-// DimAgent's local SQLite store; the parser emits ccusage-shaped records.
-function collectDimagent(calendar: Calendar): CollectedUsage {
-  console.log("Collecting dimagent usage data from local SQLite store");
-  const { daily, totals } = collectDimagentUsage(calendar);
-  return {
-    daily: daily.map((record) =>
-      mapCcusageRecord(record as unknown as Record<string, unknown>),
-    ),
-    totals,
-  };
-}
-
-// Cursor's cloud export; the parser emits ccusage-shaped records. Skipped
-// runs surface their warnings and sync nothing; dead credentials throw.
-async function collectCursor(calendar: Calendar): Promise<CollectedUsage> {
+// Cursor's cloud export. Skipped runs surface their warnings and sync
+// nothing; dead credentials throw.
+async function collectCursor(calendar: Calendar): Promise<UsageBucket[]> {
   console.log("Collecting cursor usage data from cloud export");
-  const { daily, totals, warnings } = await collectCursorUsage(calendar);
+  const { buckets, warnings } = await collectCursorUsage(calendar);
   for (const warning of warnings) {
     console.warn(warning);
   }
-  return {
-    daily: daily.map((record) =>
-      mapCcusageRecord(record as unknown as Record<string, unknown>),
-    ),
-    totals,
-  };
+  return buckets;
 }
 
+// Claude Code and Codex requests, priced and bucketed by hour and model
+async function collectTranscripts(
+  agent: TranscriptAgent,
+  config: CollectorConfig,
+  calendar: Calendar,
+  pricing: PricingTable,
+  fullHistory: boolean,
+): Promise<CollectedUsage> {
+  const { range, buckets, backfillBefore, unpricedModels, malformedRecords } =
+    await collectTranscriptUsage(agent, calendar, pricing, {
+      claudeConfigDirs: config.claudeConfigDirs,
+      fullHistory,
+    });
+  console.log(
+    fullHistory
+      ? `Read all available ${agent} history; preserve existing days before ${backfillBefore}`
+      : range
+        ? `Read ${agent} usage from ${range.from} to ${range.to}`
+        : `No recent ${agent} usage found`,
+  );
+  if (unpricedModels.length > 0) {
+    console.warn(
+      `No prices for ${unpricedModels.join(", ")}; their usage counts at zero cost.`,
+    );
+  }
+  if (malformedRecords > 0) {
+    console.warn(
+      `Skipped ${malformedRecords} inconsistent ${agent} usage records.`,
+    );
+  }
+  return { range, buckets, backfillBefore };
+}
+
+type CollectedUsage = Pick<UsageData, "buckets" | "range" | "backfillBefore">;
+
+// Sources that record each request's time report hours; AMP and ccusage
+// report whole days.
 async function collectFromSource(
   agent: AgentType,
   config: CollectorConfig,
   calendar: Calendar,
+  pricing: () => Promise<PricingTable>,
+  fullHistory: boolean,
 ): Promise<CollectedUsage> {
   switch (agent) {
+    case "claude-code":
+    case "codex":
+      return collectTranscripts(
+        agent,
+        config,
+        calendar,
+        await pricing(),
+        fullHistory,
+      );
+    case "dimagent":
+      console.log("Collecting dimagent usage data from local SQLite store");
+      return { buckets: collectDimagentUsage(calendar) };
+    case "cursor":
+      return { buckets: await collectCursor(calendar) };
     // AMP threads live server-side; they are read through the `amp` CLI
     case "amp":
-      return collectAmpUsage(calendar);
-    case "dimagent":
-      return collectDimagent(calendar);
-    case "cursor":
-      return collectCursor(calendar);
-    case "claude-code":
-      return collectCcusage(agent, calendar, config.claudeConfigDirs);
+      return {
+        buckets: dailyBuckets(await collectAmpUsage(calendar, pricing)),
+      };
     default:
-      return collectCcusage(agent, calendar);
+      return { buckets: dailyBuckets(await collectCcusage(agent, calendar)) };
   }
 }
 
 export class UsageCollector {
   private readonly config: CollectorConfig;
+  private pricing?: Promise<PricingTable>;
 
-  constructor(config: CollectorConfig) {
+  // Loaded once per collector, on first use
+  private readonly loadPricing = () => (this.pricing ??= loadPricing());
+
+  constructor(
+    config: CollectorConfig,
+    private readonly options: { fullHistory?: boolean } = {},
+  ) {
     this.config = {
       ...config,
       agentTypes: [...config.agentTypes],
@@ -308,21 +122,29 @@ export class UsageCollector {
     };
   }
 
-  // The dashboard owns the account time zone; every run buckets days in it
+  // The dashboard owns the account time zone; every run buckets days and
+  // hours in it
   async fetchCalendar(): Promise<Calendar> {
     const { endpoint, apiKey } = this.config;
     let timeZone: unknown;
+    let protocol: unknown;
     try {
       const response = await axios.get(endpoint, {
         headers: { "x-api-key": apiKey },
         timeout: 30000,
       });
       timeZone = response.data?.timezone;
+      protocol = response.data?.protocol;
     } catch (error) {
       const message = axios.isAxiosError(error)
         ? error.response?.data?.error || error.message
         : String(error);
       throw new Error(`Could not read the account time zone: ${message}`);
+    }
+    if (protocol !== SYNC_PROTOCOL) {
+      throw new Error(
+        `The dashboard speaks sync protocol ${String(protocol ?? "none")}, this collector ${SYNC_PROTOCOL}; update the older of the two`,
+      );
     }
     if (typeof timeZone !== "string" || !isTimeZone(timeZone)) {
       throw new Error(`Invalid account time zone: ${String(timeZone)}`);
@@ -336,10 +158,12 @@ export class UsageCollector {
     calendar: Calendar,
   ): Promise<UsageData> {
     try {
-      const { daily, totals } = await collectFromSource(
+      const { buckets, range, backfillBefore } = await collectFromSource(
         agent,
         this.config,
         calendar,
+        this.loadPricing,
+        this.options.fullHistory === true,
       );
 
       // Copy the resolved identity so each agent keeps its own metadata.
@@ -357,11 +181,12 @@ export class UsageCollector {
       const data: UsageData = {
         device: deviceInfo,
         timezone: calendar.timeZone,
-        daily,
-        totals,
+        ...(range ? { range } : {}),
+        ...(backfillBefore ? { backfillBefore } : {}),
+        buckets,
       };
 
-      console.log(`Collected ${data.daily.length} daily records`);
+      console.log(`Collected ${data.buckets.length} usage buckets`);
       return data;
     } catch (error) {
       if (error instanceof Error) {
@@ -404,28 +229,24 @@ export class UsageCollector {
           `Syncing ${data.device.agentType} data (attempt ${attempt}/${maxRetries})...`,
         );
 
-        const response = await axios.post(endpoint, data, {
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": apiKey,
+        const response = await axios.post(
+          endpoint,
+          { version: SYNC_PROTOCOL, ...data },
+          {
+            headers: {
+              "Content-Type": "application/json",
+              "x-api-key": apiKey,
+            },
+            timeout: 30000,
           },
-          timeout: 30000,
-        });
+        );
 
         const result: SyncResult = response.data;
 
         if (result.success) {
-          console.log(`Successfully synced ${result.processed} records`);
-
-          // Log any errors for individual records
-          const errors = result.results.filter((r) => r.status === "error");
-          if (errors.length > 0) {
-            console.warn(`${errors.length} records had errors:`);
-            errors.forEach((error) => {
-              console.warn(`  - ${error.date}: ${error.message}`);
-            });
-          }
-
+          console.log(
+            `Synced ${result.buckets} usage buckets over ${result.days.length} day(s)`,
+          );
           return result;
         } else {
           throw new Error("Sync failed: " + JSON.stringify(result));

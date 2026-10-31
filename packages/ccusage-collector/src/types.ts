@@ -20,43 +20,65 @@ export interface ModelBreakdown {
   cost: number;
 }
 
+// A day of a day-level source, split by model in its breakdowns
 export interface DailyUsageRecord {
   date: string;
   inputTokens: number;
   outputTokens: number;
   cacheCreationTokens: number;
   cacheReadTokens: number;
-  totalTokens: number;
   totalCost: number;
-  modelsUsed: string[];
   modelBreakdowns: ModelBreakdown[];
-  rawData?: Record<string, unknown>;
 }
 
+// Inclusive range of account-calendar days
+export interface DayRange {
+  from: string;
+  to: string;
+}
+
+// One agent's usage of one model in one bucket of the account calendar: an
+// hour when hourStart is set, otherwise a whole day
+export interface UsageBucket {
+  date: string;
+  // ISO instant the hour starts
+  hourStart?: string;
+  // "" when the source does not attribute this usage to a model
+  model: string;
+  // Excludes cache reads and writes
+  inputTokens: number;
+  // Includes reasoning
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  // Part of outputTokens; absent when the source does not report it
+  reasoningTokens?: number;
+  cost: number;
+  // API requests; absent when the source does not count them
+  requests?: number;
+}
+
+// One upload: a device's usage of one agent
 export interface UsageData {
   device: DeviceInfo;
-  // IANA zone the daily dates were bucketed in; the dashboard rejects any
-  // other zone than its own
+  // IANA zone the buckets' days and hours were cut in; the dashboard rejects
+  // any other zone than its own
   timezone: string;
-  daily: DailyUsageRecord[];
-  totals: {
-    inputTokens: number;
-    outputTokens: number;
-    cacheCreationTokens: number;
-    cacheReadTokens: number;
-    totalCost: number;
-    totalTokens: number;
-  };
+  // Days the upload reports completely: their stored usage is replaced even
+  // where the upload has no bucket. Without a range only the days of the
+  // buckets are replaced.
+  range?: DayRange;
+  // Earlier days are inserted only if this device/agent has no stored usage.
+  backfillBefore?: string;
+  buckets: UsageBucket[];
 }
 
 export interface SyncResult {
   success: boolean;
-  processed: number;
-  results: Array<{
-    date: string;
-    status: "success" | "error";
-    message?: string;
-  }>;
+  // Days whose stored usage the upload replaced
+  days: string[];
+  // Buckets stored
+  buckets: number;
 }
 
 export interface CollectorConfig extends DeviceIdentity {
@@ -65,6 +87,6 @@ export interface CollectorConfig extends DeviceIdentity {
   agentTypes: AgentType[];
   maxRetries: number;
   retryDelay: number;
-  /** Claude Code config directories for the claude-code collection; unset leaves lookup to ccusage. */
+  /** Claude Code config directories to read; unset uses CLAUDE_CONFIG_DIR or the default directories. */
   claudeConfigDirs?: string[];
 }

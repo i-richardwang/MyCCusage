@@ -97,3 +97,10 @@ export const TIME_RANGE_DAYS = {
   "14d": 14,
   "30d": 30,
 } as const satisfies Record<Exclude<PresetRange, "all">, number>;
+
+// Longest range shown hour by hour
+export const HOURLY_RANGE_DAYS = 31;
+
+// Share of tokens with known hours below which the hourly chart notes the
+// rest
+export const FULL_HOURLY_COVERAGE = 0.995;

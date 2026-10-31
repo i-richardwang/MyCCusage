@@ -17,16 +17,64 @@ import { captureServiceEnvironment } from "../src/service-environment";
 import { CONFIG_ENV_VARS } from "../src/config";
 import type { UsageData } from "../src/types";
 
+type Upload = UsageData & { version: number };
+
 const execFileAsync = promisify(execFile);
 const cli = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
 const packageDir = fileURLToPath(new URL("..", import.meta.url));
+
+// Today in the account zone the test receiver reports
+const today = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Shanghai",
+}).format(new Date());
+
+// One request in each agent's transcripts, an hour ago
+function writeTranscripts(home: string) {
+  const timestamp = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const claude = join(home, ".claude/projects/-work-app");
+  mkdirSync(claude, { recursive: true });
+  writeFileSync(
+    join(claude, "session-1.jsonl"),
+    JSON.stringify({
+      type: "assistant",
+      timestamp,
+      sessionId: "session-1",
+      requestId: "req_1",
+      message: {
+        id: "msg_1",
+        model: "claude-test",
+        usage: { input_tokens: 10, output_tokens: 5 },
+      },
+    }) + "\n",
+  );
+  const codex = join(home, ".codex/sessions/2026/10/30");
+  mkdirSync(codex, { recursive: true });
+  writeFileSync(
+    join(codex, "rollout-1.jsonl"),
+    [
+      { type: "session_meta", timestamp, payload: { id: "codex-1" } },
+      { type: "turn_context", timestamp, payload: { model: "gpt-test" } },
+      {
+        type: "event_msg",
+        timestamp,
+        payload: {
+          type: "token_count",
+          info: { last_token_usage: { input_tokens: 10, output_tokens: 5 } },
+        },
+      },
+    ]
+      .map((line) => JSON.stringify(line))
+      .join("\n") + "\n",
+  );
+}
 
 // Exercise the real CLI with synthetic usage and a local receiver only.
 describe("environment-configured CLI", () => {
   let home: string;
   let env: NodeJS.ProcessEnv;
   let server: Server;
-  let uploads: { data: UsageData; apiKey: string | string[] | undefined }[];
+  let protocol: number;
+  let uploads: { data: Upload; apiKey: string | string[] | undefined }[];
 
   beforeEach(async () => {
     home = mkdtempSync(join(tmpdir(), "myccusage-cli-test-"));
@@ -35,22 +83,31 @@ describe("environment-configured CLI", () => {
     // Bypass user shell startup files, but still execute the collector's commands.
     const shell = join(bin, "test-shell");
     writeFileSync(shell, '#!/bin/sh\nexec /bin/sh -c "$2"\n', { mode: 0o700 });
+    writeTranscripts(home);
+    // Fresh cached prices keep the test offline
+    mkdirSync(join(home, ".ccusage-collector"));
     writeFileSync(
-      join(bin, "ccusage"),
-      `#!/bin/sh
-case "$1" in claude|codex) ;; *) exit 1 ;; esac
-# Days must be bucketed in the dashboard's account time zone
-case "$*" in *"--timezone Asia/Shanghai") ;; *) exit 1 ;; esac
-printf '%s\\n' '{"daily":[{"date":"2026-10-26","inputTokens":10,"outputTokens":5,"totalTokens":15,"costUSD":0.01}],"totals":{"inputTokens":10,"outputTokens":5,"cacheCreationTokens":0,"cacheReadTokens":0,"totalTokens":15,"totalCost":0.01}}'
-`,
-      { mode: 0o700 },
+      join(home, ".ccusage-collector/pricing.json"),
+      JSON.stringify({
+        asOf: new Date().toISOString(),
+        models: {
+          "claude-test": { input: 0.001, output: 0.001 },
+          "gpt-test": { input: 0.001, output: 0.001 },
+        },
+      }),
     );
 
     uploads = [];
+    protocol = 3;
     server = createServer(async (req, res) => {
       res.setHeader("Content-Type", "application/json");
       if (req.method === "GET") {
-        res.end(JSON.stringify({ timezone: "Asia/Shanghai" }));
+        res.end(
+          JSON.stringify({
+            timezone: "Asia/Shanghai",
+            protocol,
+          }),
+        );
         return;
       }
       let body = "";
@@ -60,7 +117,9 @@ printf '%s\\n' '{"daily":[{"date":"2026-10-26","inputTokens":10,"outputTokens":5
         apiKey: req.headers["x-api-key"],
       });
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: true, processed: 1, results: [] }));
+      res.end(
+        JSON.stringify({ success: true, days: ["2026-10-30"], buckets: 1 }),
+      );
     });
     await new Promise<void>((resolve) =>
       server.listen(0, "127.0.0.1", resolve),
@@ -70,6 +129,9 @@ printf '%s\\n' '{"daily":[{"date":"2026-10-26","inputTokens":10,"outputTokens":5
       throw new Error("Missing test receiver address");
     env = { ...process.env };
     for (const name of Object.values(CONFIG_ENV_VARS)) delete env[name];
+    // Agents read only the synthetic transcripts under HOME
+    delete env.CLAUDE_CONFIG_DIR;
+    delete env.CODEX_HOME;
     Object.assign(env, {
       HOME: home,
       SHELL: shell,
@@ -116,17 +178,77 @@ printf '%s\\n' '{"daily":[{"date":"2026-10-26","inputTokens":10,"outputTokens":5
         agentType: "codex",
       },
     ]);
-    expect(
-      uploads.every(
-        ({ data, apiKey }) =>
-          data.daily[0]?.totalTokens === 15 &&
-          data.timezone === "Asia/Shanghai" &&
-          apiKey === "test-api-key",
-      ),
-    ).toBe(true);
+    for (const { data, apiKey } of uploads) {
+      expect(apiKey).toBe("test-api-key");
+      expect(data).toMatchObject({ version: 3, timezone: "Asia/Shanghai" });
+      expect(data.range).toEqual({
+        from: data.buckets[0]?.date,
+        to: today,
+      });
+      expect(data.buckets).toEqual([
+        expect.objectContaining({
+          inputTokens: 10,
+          outputTokens: 5,
+          requests: 1,
+          cost: expect.closeTo(0.015, 9),
+        }),
+      ]);
+    }
     expect(existsSync(join(home, ".ccusage-collector/config.json"))).toBe(
       false,
     );
+  });
+
+  it("supports one-off full-history uploads and dry runs without changing normal sync", async () => {
+    const old = join(home, ".claude/projects/-work-app/old.jsonl");
+    writeFileSync(
+      old,
+      JSON.stringify({
+        type: "assistant",
+        timestamp: "2024-01-01T10:00:00Z",
+        requestId: "old",
+        message: {
+          id: "old",
+          model: "claude-test",
+          usage: { input_tokens: 100, output_tokens: 20 },
+        },
+      }),
+    );
+    const dry = await runCLI("sync", "--full-history", "--dry-run");
+    expect(dry.stdout).toContain('"backfillBefore"');
+    expect(dry.stdout).toContain('"2024-01-01"');
+    expect(uploads).toHaveLength(0);
+    await runCLI("sync", "--full-history");
+    expect(uploads[0]?.data.buckets.map((b) => b.date)).toContain("2024-01-01");
+    expect(uploads.every(({ data }) => Boolean(data.backfillBefore))).toBe(
+      true,
+    );
+    uploads = [];
+    await runCLI("sync");
+    expect(uploads[0]?.data.buckets.map((b) => b.date)).not.toContain(
+      "2024-01-01",
+    );
+    expect(uploads.every(({ data }) => data.backfillBefore === undefined)).toBe(
+      true,
+    );
+  });
+
+  it("rejects older sync protocols before uploading history", async () => {
+    protocol = 2;
+    await expect(runCLI("sync", "--full-history")).rejects.toMatchObject({
+      stderr: expect.stringContaining("dashboard speaks sync protocol 2"),
+    });
+    expect(uploads).toHaveLength(0);
+  });
+
+  it("does not upload partial Claude data when an explicit source is missing, but still syncs Codex", async () => {
+    env.CLAUDE_CONFIG_DIR = `${join(home, ".claude")},${join(home, "missing")}`;
+    await expect(runCLI("sync")).rejects.toMatchObject({
+      stderr: expect.stringContaining(
+        "Cannot read configured Claude Code directory",
+      ),
+    });
+    expect(uploads.map(({ data }) => data.device.agentType)).toEqual(["codex"]);
   });
 
   it("generates device defaults without creating a config file", async () => {
@@ -146,7 +268,6 @@ printf '%s\\n' '{"daily":[{"date":"2026-10-26","inputTokens":10,"outputTokens":5
 
   it("keeps an existing config byte-for-byte unchanged after sync", async () => {
     const dir = join(home, ".ccusage-collector");
-    mkdirSync(dir);
     const configPath = join(dir, "config.json");
     const original =
       '{ "agentTypes": ["amp"], "deviceId": "file-id", "displayName": "File display" }\n';
@@ -187,7 +308,8 @@ printf '%s\\n' '{"daily":[{"date":"2026-10-26","inputTokens":10,"outputTokens":5
   });
 
   it("returns a nonzero status when no agents can sync", async () => {
-    writeFileSync(join(home, "bin/ccusage"), "#!/bin/sh\nexit 1\n");
+    rmSync(join(home, ".claude"), { recursive: true });
+    rmSync(join(home, ".codex"), { recursive: true });
     await expect(runCLI("sync")).rejects.toMatchObject({
       code: 1,
       stderr: expect.stringContaining("No agents synced successfully"),
@@ -257,7 +379,12 @@ printf '%s\\n' '{"daily":[{"date":"2026-10-26","inputTokens":10,"outputTokens":5
     server.removeAllListeners("request");
     server.on("request", async (req, res) => {
       if (req.method === "GET") {
-        res.end(JSON.stringify({ timezone: "Asia/Shanghai" }));
+        res.end(
+          JSON.stringify({
+            timezone: "Asia/Shanghai",
+            protocol,
+          }),
+        );
         return;
       }
       let body = "";
@@ -268,7 +395,9 @@ printf '%s\\n' '{"daily":[{"date":"2026-10-26","inputTokens":10,"outputTokens":5
       });
       await blocked;
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: true, processed: 1, results: [] }));
+      res.end(
+        JSON.stringify({ success: true, days: ["2026-10-30"], buckets: 1 }),
+      );
     });
     const first = runCLI("sync");
     try {

@@ -61,4 +61,25 @@ describe("createCalendar", () => {
     expect(() => calendar.rangeOf("2026-02-30")).toThrow("Invalid day");
     expect(() => calendar.rangeOf("20261020")).toThrow("Invalid day");
   });
+
+  it("starts hours on the account's clocks", () => {
+    const hour = (zone: string, instant: string) =>
+      createCalendar(zone).hourOf(new Date(instant)).toISOString();
+    expect(hour("Asia/Shanghai", "2026-10-20T16:59:59.999Z")).toBe(
+      "2026-10-20T16:00:00.000Z",
+    );
+    expect(hour("Asia/Kolkata", "2026-10-20T16:15:00Z")).toBe(
+      "2026-10-20T15:30:00.000Z",
+    );
+    expect(hour("Asia/Kathmandu", "2026-10-20T16:15:00Z")).toBe(
+      "2026-10-20T16:15:00.000Z",
+    );
+    // The repeated hour when New York leaves daylight saving time
+    expect(hour("America/New_York", "2026-11-01T05:30:00Z")).toBe(
+      "2026-11-01T05:00:00.000Z",
+    );
+    expect(hour("America/New_York", "2026-11-01T06:30:00Z")).toBe(
+      "2026-11-01T06:00:00.000Z",
+    );
+  });
 });

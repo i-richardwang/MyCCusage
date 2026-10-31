@@ -2,11 +2,13 @@ import { useMemo } from "react";
 import {
   ChartConfig,
   Device,
+  HourlyChartData,
   RatioChartData,
   PieChartData,
   UsageRecord,
   UsageMetrics,
 } from "@/types/chart-types";
+import { type AgentType } from "@/types/agent-types";
 import {
   CHART_COLORS,
   INPUT_OUTPUT_RATIO_CHART_CONFIG,
@@ -127,6 +129,39 @@ export function useMultiAgentChartData(view: UsageView) {
   }, [view]);
 }
 
+// Hook for hourly token chart data (in millions of tokens): one point per
+// hour of the view, stacked by agent. Null when the range is too long.
+export function useHourlyChartData(view: UsageView): HourlyChartData | null {
+  return useMemo(() => {
+    if (!view.hourly) return null;
+    const byHour = new Map<string, Map<AgentType, number>>();
+    for (const record of view.hourly.records) {
+      const values =
+        byHour.get(record.hourStart) ?? new Map<AgentType, number>();
+      values.set(
+        record.agentType,
+        (values.get(record.agentType) ?? 0) + record.totalTokens / 1000000,
+      );
+      byHour.set(record.hourStart, values);
+    }
+    const activeAgents = [
+      ...new Set(view.hourly.records.map(({ agentType }) => agentType)),
+    ];
+    const chartData = view.hourly.hours.map((hourStart) => {
+      const point: Record<string, string | number> = { hourStart };
+      for (const agent of activeAgents) {
+        point[agent] = byHour.get(hourStart)?.get(agent) ?? 0;
+      }
+      return point;
+    });
+    const chartConfig = activeAgents.reduce((config, agent) => {
+      config[agent] = AGENT_CHART_CONFIG[agent];
+      return config;
+    }, {} as ChartConfig);
+    return { chartData, chartConfig, activeAgents };
+  }, [view]);
+}
+
 // Hook for Input/Output ratio chart data, over the days with usage
 export function useInputOutputRatioChartData(view: UsageView): RatioChartData {
   return useMemo(() => {
@@ -242,11 +277,8 @@ export function useCacheEfficiencyPieData(view: UsageView): PieChartData {
   return useMemo(() => {
     const { cacheReadTokens, cacheCreationTokens, inputTokens } = view.summary;
 
-    // Non-cached input tokens = total input - cache read - cache creation
-    const nonCached = Math.max(
-      0,
-      inputTokens - cacheReadTokens - cacheCreationTokens,
-    );
+    // Input already excludes cache reads and writes
+    const nonCached = inputTokens;
     const total = cacheReadTokens + cacheCreationTokens + nonCached;
 
     const chartData = [

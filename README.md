@@ -4,7 +4,7 @@ A self-hosted web dashboard for tracking Claude Code usage statistics with autom
 
 ## Features
 
-- 📊 **Usage Analytics**: Track daily usage metrics including tokens, costs, and model usage
+- 📊 **Usage Analytics**: Track usage per hour, day and model, including tokens, reasoning, requests and costs
 - 🔄 **Auto Sync**: Automatic data collection from local Claude Code usage
 - 📱 **Responsive Dashboard**: Clean, modern UI built with shadcn/ui components
 - 🏠 **Self-Hosted**: Deploy on your own infrastructure
@@ -102,11 +102,20 @@ For cloud or sandbox environments, inject `MYCCUSAGE_API_KEY`, `MYCCUSAGE_ENDPOI
 ## Data Collection
 
 The `ccusage-collector` package automatically:
-- Collects Claude Code, OpenCode, Codex, and Antigravity usage with explicit ccusage agent commands, such as `ccusage claude daily --json`
+- Reads Claude Code and Codex transcripts and reports their usage per hour and model, pricing every request on its own
+- Reports DimAgent (local SQLite store) and Cursor (cloud export) usage per hour and model
+- Collects OpenCode and Antigravity usage with explicit ccusage agent commands, such as `ccusage opencode daily --json`
 - Collects AMP usage, including subagents, through the `amp` CLI (see the [collector README](packages/ccusage-collector/README.md#amp))
 - Syncs historical data to your dashboard
 - Supports scheduled automatic synchronization
 - Handles retries and error recovery
+
+### Historical usage
+
+To import available Claude Code and Codex history older than the regular refresh
+window, run `ccusage-collector sync --full-history` once. Add `--dry-run` to inspect
+the upload first. Existing old days are preserved; only missing historical dates are filled. See the
+[collector backfill documentation](packages/ccusage-collector/README.md#one-time-history-backfill).
 
 ## Deployment
 
@@ -120,11 +129,18 @@ Deploy the Next.js app to your preferred platform:
 
 ### Database
 
-Supported PostgreSQL providers:
+Supported PostgreSQL providers (PostgreSQL 15 or later):
 - [Neon](https://neon.tech/)
 - [Supabase](https://supabase.com/)
 - [PlanetScale](https://planetscale.com/)
 - Self-hosted PostgreSQL
+
+### Updating
+
+Collectors and the dashboard must speak the same sync protocol, and each refuses the other otherwise. Update in this order:
+
+1. Run `pnpm db:migrate` from `apps/web/`, then deploy the dashboard.
+2. Update every collector.
 
 ## Commands
 

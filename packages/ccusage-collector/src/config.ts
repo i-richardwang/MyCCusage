@@ -90,7 +90,7 @@ function parseAgentTypes(value: unknown, source: string): AgentType[] {
   return agents;
 }
 
-// ccusage splits CLAUDE_CONFIG_DIR on commas, so a path cannot contain one.
+// Directory lists use commas as separators, so a path cannot contain one.
 function parseClaudeConfigDirs(value: unknown, source: string): string[] {
   if (!Array.isArray(value) || value.length === 0) {
     throw new Error(`${source} must contain at least one directory`);

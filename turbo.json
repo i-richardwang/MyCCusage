@@ -23,7 +23,9 @@
     "typecheck": {
       "dependsOn": ["^typecheck"]
     },
-    "test": {},
+    "test": {
+      "env": ["MYCCUSAGE_TEST_DATABASE_URL"]
+    },
     "dev": {
       "cache": false,
       "persistent": true

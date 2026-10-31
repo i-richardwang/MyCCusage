@@ -10,6 +10,7 @@ import {
   SINGLE_MODEL_REPORT,
   UNPRICED,
   exportJson,
+  tokenTotal,
 } from "./fixtures";
 
 const RATE_LIMITED =
@@ -80,7 +81,7 @@ describe("syncAmpCache", () => {
       calendar: CALENDAR,
       pricing: UNPRICED,
     });
-    expect(daily[0]!.totalTokens).toBe(3 * 165);
+    expect(tokenTotal(daily[0]!)).toBe(3 * 165);
   });
 
   it("keeps exports when usage reports hit Amp's hourly limit", async () => {

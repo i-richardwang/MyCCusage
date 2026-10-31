@@ -10,14 +10,17 @@ import {
 import {
   formatCurrency,
   formatSavings,
-  getUserStatusByAmount,
-  getSubscriptionPlan,
-  getPlanPricing,
   type SubscriptionPeriod,
 } from "@/lib/cumulative-metrics";
 import type { UsageSummary } from "@/lib/usage-view";
-import type { UserStatus, UserTier } from "@/constants/business-config";
-import type { AgentType } from "@/types/chart-types";
+import {
+  getUserStatusByAmount,
+  getSubscriptionPlan,
+  getPlanPricing,
+  type UserStatus,
+  type UserTier,
+} from "@/constants/business-config";
+import { type AgentType } from "@/types/agent-types";
 import {
   Crown,
   Zap,

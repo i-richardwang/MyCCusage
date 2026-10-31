@@ -6,10 +6,13 @@ import { StatsCards } from "@/components/stats-cards";
 import { PlanComparison } from "@/components/plan-comparison";
 import { Charts } from "@/components/charts";
 import { RecentActivity } from "@/components/recent-activity";
+import { HourlyUsage } from "@/components/hourly-usage";
+import { ModelUsage } from "@/components/model-usage";
 import { GlobalFilterBar } from "@/components/global-filter-bar";
 import { ModeToggle } from "@/components/mode-toggle";
 import { Footer } from "@/components/footer";
-import { AgentType, PresetRange } from "@/types/chart-types";
+import { PresetRange } from "@/types/chart-types";
+import { type AgentType } from "@/types/agent-types";
 import type { UsageStatsResponse } from "@/types/api-types";
 import { type DateRange } from "react-day-picker";
 import { formatLocalDate, parseLocalDate } from "@/lib/date-utils";
@@ -25,7 +28,7 @@ function Dashboard({ stats }: { stats: UsageStatsResponse }) {
   const [agentFilter, setAgentFilter] = useState<AgentType | "all">("all");
 
   // "Today" in the account calendar, the zone the collectors bucket days in
-  const today = useMemo(() => todayIn(stats.timezone), [stats.timezone]);
+  const today = todayIn(stats.timezone);
 
   const range = useMemo(
     () => periodRange(period, today, stats.records),
@@ -34,8 +37,8 @@ function Dashboard({ stats }: { stats: UsageStatsResponse }) {
 
   // Every card, chart and table shows this view
   const view = useMemo(
-    () => selectUsage(stats.records, agentFilter, range),
-    [stats.records, agentFilter, range],
+    () => selectUsage(stats, agentFilter, range),
+    [stats, agentFilter, range],
   );
 
   const subscriptionPeriod = useMemo(
@@ -89,7 +92,11 @@ function Dashboard({ stats }: { stats: UsageStatsResponse }) {
 
       <StatsCards summary={view.summary} />
 
+      <HourlyUsage view={view} timeZone={stats.timezone} />
+
       <Charts view={view} devices={stats.devices} agentFilter={agentFilter} />
+
+      <ModelUsage models={view.models} />
 
       <RecentActivity daily={view.daily} />
     </>

@@ -6,10 +6,10 @@ import { createCalendar } from "../src/calendar";
 import { resolveDeviceIdentity } from "../src/utils/device-info";
 
 vi.mock("../src/amp/index.js", () => ({
-  collectAmpUsage: async () => ({ daily: [], totals: {} }),
+  collectAmpUsage: async () => [],
 }));
 vi.mock("../src/dimagent.js", () => ({
-  collectDimagentUsage: () => ({ daily: [], totals: {} }),
+  collectDimagentUsage: () => [],
 }));
 
 afterEach(() => {

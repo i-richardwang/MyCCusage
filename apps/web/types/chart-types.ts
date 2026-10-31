@@ -1,37 +1,9 @@
 // Shared types for chart components
 
-// Agent type definitions
-export type AgentType =
-  | "claude-code"
-  | "opencode"
-  | "amp"
-  | "codex"
-  | "dimagent"
-  | "cursor"
-  | "antigravity";
+import type { AgentType } from "./agent-types";
 
-// Ordered list of agents for UI display (tab order, etc.)
-export const AGENT_TYPE_ORDER: AgentType[] = [
-  "claude-code",
-  "opencode",
-  "amp",
-  "codex",
-  "dimagent",
-  "cursor",
-  "antigravity",
-];
-
-export const AGENT_TYPE_LABELS: Record<AgentType, string> = {
-  "claude-code": "Claude Code",
-  opencode: "OpenCode",
-  amp: "AMP",
-  codex: "Codex",
-  dimagent: "DimAgent",
-  cursor: "Cursor",
-  antigravity: "Antigravity",
-};
-
-// The usage metrics every record, day and summary carries
+// The usage metrics every record, day and summary carries. Input excludes
+// cache reads and writes; output includes reasoning.
 export interface UsageMetrics {
   totalCost: number;
   totalTokens: number;
@@ -41,10 +13,26 @@ export interface UsageMetrics {
   cacheReadTokens: number;
 }
 
-// One device's usage of one agent on one day, the grain usage is stored at
+// One device's usage of one agent with one model on one day
 export interface UsageRecord extends UsageMetrics {
   date: string;
   deviceId: string;
+  agentType: AgentType;
+  // "" for usage its source did not attribute to a model
+  model: string;
+  // Part of output; null where the source does not report it
+  reasoningTokens: number | null;
+  // API requests; null where the source does not count them
+  requests: number | null;
+}
+
+// One agent's usage in one hour of the account calendar, over all devices
+// and models. Only sources that record request times report hours.
+export interface HourlyRecord extends UsageMetrics {
+  // ISO instant the hour starts
+  hourStart: string;
+  // Account-calendar day of the hour
+  date: string;
   agentType: AgentType;
 }
 
@@ -63,6 +51,12 @@ export interface RatioChartRecord {
 export interface RatioChartData {
   chartData: RatioChartRecord[];
   chartConfig: Record<string, { label: string; color: string }>;
+}
+
+export interface HourlyChartData {
+  chartData: Record<string, string | number>[];
+  chartConfig: ChartConfig;
+  activeAgents: AgentType[];
 }
 
 // Preset time ranges; "custom" is a range picked in the calendar

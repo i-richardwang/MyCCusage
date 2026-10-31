@@ -3,7 +3,8 @@
  * Used by both API routes and frontend hooks
  */
 
-import { AgentType, Device, UsageRecord } from "./chart-types";
+import { Device, HourlyRecord, UsageRecord } from "./chart-types";
+import { type AgentType } from "@/types/agent-types";
 
 // Complete API response type: the account's usage at its stored grain, from
 // which the dashboard derives every view
@@ -12,45 +13,24 @@ export interface UsageStatsResponse {
   timezone: string;
   billingStartDate: string;
   devices: Device[];
+  // Usage per day, device, agent and model
   records: UsageRecord[];
+  // Usage per hour and agent, where sources report hours
+  hourly: HourlyRecord[];
 }
 
-// Usage sync request types
+// Device of a usage upload, and the agent whose usage it carries
 export interface UsageSyncDevice {
   deviceId: string;
   deviceName: string;
   displayName?: string;
-  agentType?: AgentType;
-}
-
-export interface UsageSyncRecord {
-  date: string;
-  totalTokens: number;
-  totalCost: number;
-  inputTokens: number;
-  outputTokens: number;
-  cacheCreationTokens: number;
-  cacheReadTokens: number;
-  credits?: number;
-  modelsUsed: string[];
-  rawData?: Record<string, unknown>;
-}
-
-export interface UsageSyncRequest {
-  device: UsageSyncDevice;
-  // IANA zone the daily dates were bucketed in; must be the account zone
-  timezone: string;
-  daily: UsageSyncRecord[];
-}
-
-export interface UsageSyncResult {
-  date: string;
-  status: "success" | "error";
-  message?: string;
+  agentType: AgentType;
 }
 
 export interface UsageSyncResponse {
   success: boolean;
-  processed: number;
-  results: UsageSyncResult[];
+  // Days whose stored usage the upload replaced
+  days: string[];
+  // Buckets stored
+  buckets: number;
 }

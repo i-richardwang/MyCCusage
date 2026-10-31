@@ -69,12 +69,12 @@ describe("collectDimagentUsage", () => {
   });
 
   it("returns empty result when the database does not exist", () => {
-    const result = collectDimagentUsage(SHANGHAI, join(dir, "missing.sqlite"));
-    expect(result.daily).toEqual([]);
-    expect(result.totals.totalTokens).toBe(0);
+    expect(collectDimagentUsage(SHANGHAI, join(dir, "missing.sqlite"))).toEqual(
+      [],
+    );
   });
 
-  it("aggregates daily records with exact run cost and ccusage field names", () => {
+  it("sums calls into account-calendar hours per model with exact run cost", () => {
     seedDb(
       dbPath,
       `
@@ -104,60 +104,42 @@ describe("collectDimagentUsage", () => {
       `,
     );
 
-    const result = collectDimagentUsage(SHANGHAI, dbPath);
-
-    expect(result.daily).toHaveLength(2);
-    const day1 = result.daily[0];
-    // input excludes cache reads: 1000-400=600 and 500-0=500
-    expect(day1).toMatchObject({
-      date: "2026-07-01",
-      inputTokens: 1100,
-      outputTokens: 150,
-      cacheCreationInputTokens: 0,
-      cacheReadInputTokens: 400,
-      // ccusage total_tokens(): all four counters.
-      totalTokens: 1650,
-      costUSD: 0.55,
-      modelsUsed: ["mimo-v2.6-pro", "deepseek-v4"],
-    });
-    // Breakdowns follow ccusage order: cost descending.
-    expect(day1.modelBreakdowns).toEqual([
+    // Input excludes cache reads: 1000-400=600, 500-0=500 and 200-50=150
+    expect(collectDimagentUsage(SHANGHAI, dbPath)).toEqual([
       {
-        modelName: "mimo-v2.6-pro",
+        date: "2026-07-01",
+        hourStart: "2026-07-01T10:00:00.000Z",
+        model: "mimo-v2.6-pro",
         inputTokens: 600,
         outputTokens: 100,
         cacheCreationTokens: 0,
         cacheReadTokens: 400,
         cost: 0.5,
+        requests: 1,
       },
       {
-        modelName: "deepseek-v4",
+        date: "2026-07-01",
+        hourStart: "2026-07-01T11:00:00.000Z",
+        model: "deepseek-v4",
         inputTokens: 500,
         outputTokens: 50,
         cacheCreationTokens: 0,
         cacheReadTokens: 0,
         cost: 0.05,
+        requests: 1,
+      },
+      {
+        date: "2026-07-02",
+        hourStart: "2026-07-02T10:00:00.000Z",
+        model: "mimo-v2.6-pro",
+        inputTokens: 150,
+        outputTokens: 20,
+        cacheCreationTokens: 30,
+        cacheReadTokens: 50,
+        cost: 0.1,
+        requests: 1,
       },
     ]);
-
-    const day2 = result.daily[1];
-    expect(day2).toMatchObject({
-      date: "2026-07-02",
-      inputTokens: 150,
-      outputTokens: 20,
-      cacheCreationInputTokens: 30,
-      cacheReadInputTokens: 50,
-      costUSD: 0.1,
-    });
-
-    expect(result.totals).toMatchObject({
-      inputTokens: 1250,
-      outputTokens: 170,
-      cacheCreationTokens: 30,
-      cacheReadTokens: 450,
-      totalTokens: 1900,
-      totalCost: 0.65,
-    });
   });
 
   it("excludes plugin overhead rows and deduplicates forked copies", () => {
@@ -185,24 +167,23 @@ describe("collectDimagentUsage", () => {
       `,
     );
 
-    const result = collectDimagentUsage(SHANGHAI, dbPath);
-
-    expect(result.daily).toHaveLength(1);
-    const day = result.daily[0];
     // gpt-main counted once (60 in + 20 out), orphan fork kept once (30 in),
     // plugin overhead excluded, bad JSON skipped.
-    expect(day).toMatchObject({
-      inputTokens: 90,
-      outputTokens: 30,
-      cacheReadInputTokens: 60,
-      modelsUsed: ["gpt-main", "orphan-model"],
-    });
-    expect(result.totals).toMatchObject({
-      inputTokens: 90,
-      outputTokens: 30,
-      totalTokens: 180,
-      totalCost: 0,
-    });
+    expect(
+      collectDimagentUsage(SHANGHAI, dbPath).map(
+        ({ model, inputTokens, outputTokens, cacheReadTokens, cost, requests }) => [
+          model,
+          inputTokens,
+          outputTokens,
+          cacheReadTokens,
+          cost,
+          requests,
+        ],
+      ),
+    ).toEqual([
+      ["gpt-main", 60, 20, 40, 0, 1],
+      ["orphan-model", 30, 10, 20, 0, 1],
+    ]);
   });
 
   it("estimates in-flight runs at the model day rate without double counting", () => {
@@ -224,15 +205,19 @@ describe("collectDimagentUsage", () => {
       `,
     );
 
-    const result = collectDimagentUsage(SHANGHAI, dbPath);
-    expect(result.daily).toHaveLength(1);
-    // Exact 1.1 + estimated 1.1 at the same rate; tokens counted once each.
-    expect(result.daily[0].costUSD).toBeCloseTo(2.2, 10);
-    expect(result.daily[0]).toMatchObject({
-      inputTokens: 2000,
-      outputTokens: 200,
-      totalTokens: 2200,
-    });
+    const buckets = collectDimagentUsage(SHANGHAI, dbPath);
+    // Exact 1.1, and 1.1 estimated at the same rate; tokens counted once each
+    expect(
+      buckets.map(({ hourStart, inputTokens, outputTokens, cost }) => [
+        hourStart,
+        inputTokens,
+        outputTokens,
+        cost,
+      ]),
+    ).toEqual([
+      ["2026-07-01T10:00:00.000Z", 1000, 100, 1.1],
+      ["2026-07-01T11:00:00.000Z", 1000, 100, expect.closeTo(1.1, 10)],
+    ]);
   });
 
   it("groups by the account calendar, not UTC or the process zone", () => {
@@ -247,16 +232,19 @@ describe("collectDimagentUsage", () => {
       `,
     );
 
-    const result = collectDimagentUsage(SHANGHAI, dbPath);
-    expect(result.daily).toHaveLength(1);
-    expect(result.daily[0].date).toBe("2026-07-02");
-    expect(
-      collectDimagentUsage(createCalendar("America/New_York"), dbPath).daily[0]
-        .date,
-    ).toBe("2026-07-01");
+    const bucket = (zone: string) =>
+      collectDimagentUsage(createCalendar(zone), dbPath).map(
+        ({ date, hourStart }) => [date, hourStart],
+      );
+    expect(bucket("Asia/Shanghai")).toEqual([
+      ["2026-07-02", "2026-07-01T16:00:00.000Z"],
+    ]);
+    expect(bucket("America/New_York")).toEqual([
+      ["2026-07-01", "2026-07-01T16:00:00.000Z"],
+    ]);
   });
 
-  it("keeps modelsUsed in the same cost-descending order as breakdowns", () => {
+  it("leaves an in-flight call unpriced when its model has no exact cost that day", () => {
     seedDb(
       dbPath,
       `
@@ -264,30 +252,26 @@ describe("collectDimagentUsage", () => {
         ('usage_cheap', 'sess-1', 'run-cheap', 'dim', 'cheap-model',
          '{"promptTokens":100,"completionTokens":10,"totalTokens":110}',
          NULL, '2026-07-01T10:00:00.000Z'),
-        ('usage_pricey', 'sess-1', 'run-pricey', 'dim', 'pricey-model',
+        ('usage_flying', 'sess-1', 'run-flying', 'dim', 'other-model',
          '{"promptTokens":10,"completionTokens":1,"totalTokens":11}',
-         NULL, '2026-07-01T11:00:00.000Z');
+         NULL, '2026-07-01T10:30:00.000Z');
       INSERT INTO usage_run_stats VALUES
         ('run-cheap', 'sess-1', 'dim', 'cheap-model', 'completed', NULL,
          '2026-07-01T10:00:00.000Z', 1000, 100, 10, 110, NULL, NULL,
          '{"totalCostUsd":0.01,"quality":"exact"}', '{}',
-         '2026-07-01T10:00:00.000Z', '2026-07-01T10:00:00.000Z'),
-        ('run-pricey', 'sess-1', 'dim', 'pricey-model', 'completed', NULL,
-         '2026-07-01T11:00:00.000Z', 1000, 10, 1, 11, NULL, NULL,
-         '{"totalCostUsd":1.0,"quality":"exact"}', '{}',
-         '2026-07-01T11:00:00.000Z', '2026-07-01T11:00:00.000Z');
+         '2026-07-01T10:00:00.000Z', '2026-07-01T10:00:00.000Z');
       `,
     );
 
-    const result = collectDimagentUsage(SHANGHAI, dbPath);
-    expect(result.daily).toHaveLength(1);
-    expect(result.daily[0].modelsUsed).toEqual([
-      "pricey-model",
-      "cheap-model",
-    ]);
     expect(
-      result.daily[0].modelBreakdowns.map((b) => b.modelName),
-    ).toEqual(["pricey-model", "cheap-model"]);
+      collectDimagentUsage(SHANGHAI, dbPath).map(({ model, cost }) => [
+        model,
+        cost,
+      ]),
+    ).toEqual([
+      ["cheap-model", 0.01],
+      ["other-model", 0],
+    ]);
   });
 });
 
