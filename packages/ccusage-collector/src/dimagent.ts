@@ -3,13 +3,13 @@ import { homedir } from "os";
 import { join, resolve } from "path";
 import { queryRows } from "./sqlite.js";
 import type { Calendar } from "./calendar.js";
+import { RequestBuckets, type RequestTotals } from "./buckets.js";
+import type { UsageBucket } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // DimAgent usage parser
 //
-// Reads DimAgent's local SQLite store and emits ccusage-compatible daily
-// records, so the rest of the collector pipeline (mapCcusageRecord, sync)
-// can stay untouched.
+// Reads DimAgent's local SQLite store and reports usage per hour and model.
 //
 // Verified against real DimAgent data (~/.dimcode/v2/dimcode.sqlite):
 // - usage_ledger holds one row per LLM call; `usage` is a JSON blob with
@@ -34,41 +34,6 @@ const PLUGIN_LEDGER_PREFIX = "plugin_ledger_";
 /** Forked-session history copies carry ledger ids shaped `ledger_<uuid>`. */
 const FORKED_LEDGER_ID =
   /^ledger_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-export interface DimagentModelBreakdown {
-  modelName: string;
-  inputTokens: number;
-  outputTokens: number;
-  cacheCreationTokens: number;
-  cacheReadTokens: number;
-  cost: number;
-}
-
-/** A daily record using ccusage field names (see mapCcusageRecord). */
-export interface DimagentDailyRecord {
-  date: string;
-  inputTokens: number;
-  outputTokens: number;
-  cacheCreationInputTokens: number;
-  cacheReadInputTokens: number;
-  totalTokens: number;
-  costUSD: number;
-  modelsUsed: string[];
-  modelBreakdowns: DimagentModelBreakdown[];
-  rawData: Record<string, unknown>;
-}
-
-export interface DimagentUsageResult {
-  daily: DimagentDailyRecord[];
-  totals: {
-    inputTokens: number;
-    outputTokens: number;
-    cacheCreationTokens: number;
-    cacheReadTokens: number;
-    totalTokens: number;
-    totalCost: number;
-  };
-}
 
 interface LedgerRow {
   ledgerId: string;
@@ -144,45 +109,20 @@ function parseRunCost(raw: string | null): number {
 
 // --- Aggregation ------------------------------------------------------------
 
-interface DayModelAcc {
-  inputTokens: number;
-  outputTokens: number;
-  cacheCreationTokens: number;
-  cacheReadTokens: number;
-  exactCost: number;
-  exactTokens: number;
-  unbilledTokens: number;
-}
-
-function newAcc(): DayModelAcc {
-  return {
-    inputTokens: 0,
-    outputTokens: 0,
-    cacheCreationTokens: 0,
-    cacheReadTokens: 0,
-    exactCost: 0,
-    exactTokens: 0,
-    unbilledTokens: 0,
-  };
+// One billed call, with its exact cost once its run has completed
+interface Call {
+  instant: Date;
+  date: string;
+  model: string;
+  usage: RequestTotals;
+  exactCost: number | null;
 }
 
 export function collectDimagentUsage(
   calendar: Calendar,
   dbPath: string = getDimAgentDbPath(),
-): DimagentUsageResult {
-  if (!existsSync(dbPath)) {
-    return {
-      daily: [],
-      totals: {
-        inputTokens: 0,
-        outputTokens: 0,
-        cacheCreationTokens: 0,
-        cacheReadTokens: 0,
-        totalTokens: 0,
-        totalCost: 0,
-      },
-    };
-  }
+): UsageBucket[] {
+  if (!existsSync(dbPath)) return [];
 
   const ledgerRows = queryRows(
     dbPath,
@@ -215,8 +155,7 @@ export function collectDimagentUsage(
   }
   const keptOrphanClones = new Set<string>();
 
-  const days = new Map<string, Map<string, DayModelAcc>>();
-
+  const calls: Call[] = [];
   for (const row of ledgerRows) {
     if (!row.ledgerId || row.ledgerId.startsWith(PLUGIN_LEDGER_PREFIX)) {
       continue;
@@ -235,9 +174,8 @@ export function collectDimagentUsage(
     const usage = parseUsageJson(row.usage);
     if (!usage) continue;
 
-    const timestamp = new Date(row.createdAt);
-    if (Number.isNaN(timestamp.getTime())) continue;
-    const date = calendar.dayOf(timestamp);
+    const instant = new Date(row.createdAt);
+    if (Number.isNaN(instant.getTime())) continue;
 
     const promptTokens = toCount(usage.promptTokens);
     const cacheReadTokens = toCount(usage.cacheReadTokens);
@@ -246,114 +184,46 @@ export function collectDimagentUsage(
     const outputTokens = toCount(usage.completionTokens);
     if (inputTokens + outputTokens + cacheReadTokens === 0) continue;
 
-    const model = row.modelId || "unknown";
-    let models = days.get(date);
-    if (!models) {
-      models = new Map<string, DayModelAcc>();
-      days.set(date, models);
-    }
-    let acc = models.get(model);
-    if (!acc) {
-      acc = newAcc();
-      models.set(model, acc);
-    }
-
-    acc.inputTokens += inputTokens;
-    acc.outputTokens += outputTokens;
-    acc.cacheCreationTokens += cacheCreationTokens;
-    acc.cacheReadTokens += cacheReadTokens;
-
     const priced = row.runId ? runCost.get(row.runId) : undefined;
-    if (priced && priced.cost > 0) {
-      acc.exactCost += priced.cost;
-      acc.exactTokens += inputTokens + outputTokens;
-    } else {
-      // Run still in flight (or just finished): no exact cost yet. It is
-      // estimated below from the model's priced average for the day; the
-      // next sync upserts the exact value once the run completes.
-      acc.unbilledTokens += inputTokens + outputTokens;
-    }
-  }
-
-  const daily: DimagentDailyRecord[] = [...days.entries()]
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([date, models]) => {
-      let inputTokens = 0;
-      let outputTokens = 0;
-      let cacheCreationTokens = 0;
-      let cacheReadTokens = 0;
-      let costUSD = 0;
-
-      const modelBreakdowns = [...models.entries()].map(
-        ([modelName, acc]) => {
-          let cost = acc.exactCost;
-          if (acc.unbilledTokens > 0) {
-            // Estimate unbilled tokens at the model's exact day rate so the
-            // daily total stays close to the official estimate until the
-            // exact run cost lands on the next sync.
-            const rate =
-              acc.exactTokens > 0 ? acc.exactCost / acc.exactTokens : 0;
-            cost += acc.unbilledTokens * rate;
-          }
-          inputTokens += acc.inputTokens;
-          outputTokens += acc.outputTokens;
-          cacheCreationTokens += acc.cacheCreationTokens;
-          cacheReadTokens += acc.cacheReadTokens;
-          costUSD += cost;
-          return {
-            modelName,
-            inputTokens: acc.inputTokens,
-            outputTokens: acc.outputTokens,
-            cacheCreationTokens: acc.cacheCreationTokens,
-            cacheReadTokens: acc.cacheReadTokens,
-            cost,
-          };
-        },
-      );
-
-      // ccusage sorts breakdowns by cost descending; modelsUsed follows.
-      modelBreakdowns.sort((a, b) => b.cost - a.cost);
-      const modelsUsed = modelBreakdowns.map((b) => b.modelName);
-
-      // Same definition as ccusage UsageSummary::total_tokens().
-      const totalTokens =
-        inputTokens + outputTokens + cacheCreationTokens + cacheReadTokens;
-      return {
-        date,
+    calls.push({
+      instant,
+      date: calendar.dayOf(instant),
+      model: row.modelId,
+      usage: {
         inputTokens,
         outputTokens,
-        cacheCreationInputTokens: cacheCreationTokens,
-        cacheReadInputTokens: cacheReadTokens,
-        totalTokens,
-        costUSD,
-        modelsUsed,
-        modelBreakdowns,
-        rawData: {
-          source: "dimagent",
-          date,
-        },
-      };
+        cacheCreationTokens,
+        cacheReadTokens,
+        reasoningTokens: null,
+        cost: 0,
+      },
+      // A run still in flight (or just finished) has no exact cost yet
+      exactCost: priced && priced.cost > 0 ? priced.cost : null,
     });
+  }
 
-  const totals = daily.reduce(
-    (sum, record) => ({
-      inputTokens: sum.inputTokens + record.inputTokens,
-      outputTokens: sum.outputTokens + record.outputTokens,
-      cacheCreationTokens:
-        sum.cacheCreationTokens + record.cacheCreationInputTokens,
-      cacheReadTokens: sum.cacheReadTokens + record.cacheReadInputTokens,
-      totalTokens: sum.totalTokens + record.totalTokens,
-      totalCost: sum.totalCost + record.costUSD,
-    }),
-    {
-      inputTokens: 0,
-      outputTokens: 0,
-      cacheCreationTokens: 0,
-      cacheReadTokens: 0,
-      totalTokens: 0,
-      totalCost: 0,
-    },
-  );
+  // Calls without an exact cost are estimated at their model's exact rate on
+  // the same day, so the day stays close to DimAgent's own estimate until the
+  // next sync replaces it with the exact cost.
+  const exact = new Map<string, { cost: number; tokens: number }>();
+  for (const { date, model, usage, exactCost } of calls) {
+    if (exactCost === null) continue;
+    const key = `${date}\0${model}`;
+    const sum = exact.get(key) ?? { cost: 0, tokens: 0 };
+    sum.cost += exactCost;
+    sum.tokens += usage.inputTokens + usage.outputTokens;
+    exact.set(key, sum);
+  }
 
-  return { daily, totals };
+  const buckets = new RequestBuckets(calendar);
+  for (const { instant, date, model, usage, exactCost } of calls) {
+    const rate = exact.get(`${date}\0${model}`);
+    const cost =
+      exactCost ??
+      (rate && rate.tokens > 0
+        ? ((usage.inputTokens + usage.outputTokens) * rate.cost) / rate.tokens
+        : 0);
+    buckets.add(instant, model, { ...usage, cost });
+  }
+  return buckets.list();
 }

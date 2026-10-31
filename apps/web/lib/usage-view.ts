@@ -3,10 +3,18 @@
  * and one range of days, with every metric derived from them in one place.
  */
 
-import { TIME_RANGE_DAYS } from "@/constants/chart-config";
-import { contains, daysIn, lastDays, type DayRange } from "@/lib/day-range";
+import { HOURLY_RANGE_DAYS, TIME_RANGE_DAYS } from "@/constants/chart-config";
+import {
+  contains,
+  daysIn,
+  hoursIn,
+  lastDays,
+  type DayRange,
+} from "@/lib/day-range";
+import type { UsageStatsResponse } from "@/types/api-types";
 import type {
   AgentType,
+  HourlyRecord,
   PresetRange,
   UsageMetrics,
   UsageRecord,
@@ -20,6 +28,8 @@ export interface DailyUsage extends UsageMetrics {
 }
 
 export interface UsageSummary extends UsageMetrics {
+  // Share of tokens whose hour is known
+  hourlyCoverage: number;
   // Days with usage
   activeDays: number;
   // Per active day
@@ -32,12 +42,40 @@ export interface UsageSummary extends UsageMetrics {
   costPerMillionTokens: number;
 }
 
+// One agent's use of one model over the range
+export interface ModelTotals extends UsageMetrics {
+  agentType: AgentType;
+  // "" for usage its source did not attribute to a model
+  model: string;
+  // Over the records that count them; null when none does
+  requests: number | null;
+  // Part of output, over the records that report it; null when none does
+  reasoningTokens: number | null;
+  // Share of the range's cost
+  costShare: number;
+}
+
+export interface HourlyView {
+  // ISO instant every hour of the range starts
+  hours: string[];
+  records: HourlyRecord[];
+}
+
 export interface UsageView {
   records: UsageRecord[];
   // Every day of the range; days without usage are zero
   daily: DailyUsage[];
+  // Models by cost, then tokens
+  models: ModelTotals[];
+  // Null when the range is too long to show hour by hour
+  hourly: HourlyView | null;
   summary: UsageSummary;
 }
+
+export type AccountUsage = Pick<
+  UsageStatsResponse,
+  "records" | "hourly" | "timezone"
+>;
 
 const NO_USAGE: UsageMetrics = {
   totalCost: 0,
@@ -85,15 +123,15 @@ export function periodRange(
 }
 
 export function selectUsage(
-  records: UsageRecord[],
+  account: AccountUsage,
   agent: AgentType | "all",
   range: DayRange,
 ): UsageView {
-  const selected = records.filter(
-    (record) =>
-      (agent === "all" || record.agentType === agent) &&
-      contains(range, record.date),
-  );
+  const selects = (record: { agentType: AgentType; date: string }) =>
+    (agent === "all" || record.agentType === agent) &&
+    contains(range, record.date);
+  const selected = account.records.filter(selects);
+  const selectedHours = account.hourly.filter(selects);
 
   const byDate = new Map<string, UsageMetrics>();
   for (const record of selected) {
@@ -104,14 +142,64 @@ export function selectUsage(
     ...(byDate.get(date) ?? NO_USAGE),
   }));
 
-  return { records: selected, daily, summary: summarize(daily) };
+  const hourly =
+    daily.length <= HOURLY_RANGE_DAYS
+      ? { hours: hoursIn(range, account.timezone), records: selectedHours }
+      : null;
+
+  const summary = summarize(daily, selectedHours);
+  return {
+    records: selected,
+    daily,
+    models: modelTotals(selected, summary),
+    hourly,
+    summary,
+  };
 }
 
-function summarize(daily: DailyUsage[]): UsageSummary {
+// Sum of the counts known, or null when none is
+function addKnown(a: number | null, b: number | null): number | null {
+  return a === null ? b : b === null ? a : a + b;
+}
+
+function modelTotals(
+  records: UsageRecord[],
+  total: UsageMetrics,
+): ModelTotals[] {
+  const byModel = new Map<string, ModelTotals>();
+  for (const record of records) {
+    const key = `${record.agentType}\0${record.model}`;
+    const totals = byModel.get(key);
+    byModel.set(key, {
+      agentType: record.agentType,
+      model: record.model,
+      ...add(totals ?? NO_USAGE, record),
+      requests: addKnown(totals?.requests ?? null, record.requests),
+      reasoningTokens: addKnown(
+        totals?.reasoningTokens ?? null,
+        record.reasoningTokens,
+      ),
+      costShare: 0,
+    });
+  }
+  return [...byModel.values()]
+    .filter(isActive)
+    .map((totals) => ({
+      ...totals,
+      costShare: ratio(totals.totalCost, total.totalCost),
+    }))
+    .sort((a, b) => b.totalCost - a.totalCost || b.totalTokens - a.totalTokens);
+}
+
+function summarize(daily: DailyUsage[], hours: HourlyRecord[]): UsageSummary {
   const total = daily.reduce<UsageMetrics>(add, NO_USAGE);
   const activeDays = daily.filter(isActive).length;
   return {
     ...total,
+    hourlyCoverage: ratio(
+      hours.reduce((sum, { totalTokens }) => sum + totalTokens, 0),
+      total.totalTokens,
+    ),
     activeDays,
     avgDailyCost: ratio(total.totalCost, activeDays),
     avgDailyTokens: ratio(total.totalTokens, activeDays),

@@ -1,10 +1,14 @@
 import { createHash, timingSafeEqual } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/src/db'
-import { devices, usageRecords, AGENT_TYPES, type AgentType } from '@/src/db/schema'
-import { sql } from 'drizzle-orm'
-import type { UsageSyncRequest, UsageSyncResponse, UsageSyncResult } from '@/types/api-types'
+import { devices, usageBuckets } from '@/src/db/schema'
+import { and, eq, inArray, sql } from 'drizzle-orm'
+import type { UsageSyncResponse } from '@/types/api-types'
 import { getAccountTimeZone } from '@/lib/account-timezone'
+import { parseUpload, SYNC_PROTOCOL } from '@/lib/usage-sync'
+
+// Rows per insert statement, well below PostgreSQL's parameter limit
+const INSERT_CHUNK = 1000
 
 // Constant-time secret comparison; hashing first makes it length-independent
 function safeKeyCompare(a: string, b: string): boolean {
@@ -35,12 +39,16 @@ function authorize(request: NextRequest): NextResponse | null {
 }
 
 // Collectors read the account time zone before collecting, so every device
-// buckets days in the same calendar
+// buckets days and hours in the same calendar, and the upload format the
+// dashboard accepts
 export async function GET(request: NextRequest) {
   const unauthorized = authorize(request)
   if (unauthorized) return unauthorized
   try {
-    return NextResponse.json({ timezone: getAccountTimeZone() })
+    return NextResponse.json({
+      timezone: getAccountTimeZone(),
+      protocol: SYNC_PROTOCOL
+    })
   } catch (error) {
     console.error('Account time zone error:', error)
     return NextResponse.json(
@@ -55,150 +63,70 @@ export async function POST(request: NextRequest) {
     const unauthorized = authorize(request)
     if (unauthorized) return unauthorized
 
-    const body: UsageSyncRequest = await request.json()
-
-    // Validate request format
-    if (!body.device?.deviceId || !body.device?.deviceName) {
+    let body: unknown
+    try {
+      body = await request.json()
+    } catch {
       return NextResponse.json(
-        { error: 'Invalid request format: device information is required' },
+        { error: 'Invalid request format: body must be JSON' },
         { status: 400 }
       )
     }
 
-    if (!Array.isArray(body.daily)) {
-      return NextResponse.json(
-        { error: 'Invalid request format: daily array is required' },
-        { status: 400 }
-      )
+    const parsed = parseUpload(body, getAccountTimeZone())
+    if (!parsed.ok) {
+      return NextResponse.json({ error: parsed.error }, { status: 400 })
     }
+    const { device, days, buckets } = parsed.upload
 
-    // Dates are only comparable across devices bucketed in one calendar
-    const timeZone = getAccountTimeZone()
-    if (body.timezone !== timeZone) {
-      return NextResponse.json(
-        { error: `Usage must be bucketed in the account time zone ${timeZone}, got ${body.timezone || 'none'}` },
-        { status: 400 }
-      )
-    }
-
-    // Upsert device using onConflictDoUpdate
-    await db
-      .insert(devices)
-      .values({
-        deviceId: body.device.deviceId,
-        deviceName: body.device.deviceName,
-        displayName: body.device.displayName
-      })
-      .onConflictDoUpdate({
-        target: devices.deviceId,
-        set: {
-          deviceName: sql`excluded.device_name`,
-          displayName: sql`excluded.display_name`,
-          updatedAt: new Date()
-        }
-      })
-
-    // Get agent type from request, default to 'claude-code' for backward compatibility
-    const agentType = body.device.agentType || 'claude-code'
-
-    // Reject unknown agent types so bad clients can't pollute per-agent charts
-    if (!AGENT_TYPES.includes(agentType as AgentType)) {
-      return NextResponse.json(
-        { error: `Invalid agent type: ${agentType}` },
-        { status: 400 }
-      )
-    }
-
-    // Filter and validate records (NaN/Infinity would fail the numeric columns)
-    const isValidRecord = (record: (typeof body.daily)[number]) =>
-      Boolean(record.date) &&
-      Number.isFinite(record.totalTokens) &&
-      Number.isFinite(record.totalCost)
-
-    const validRecords = body.daily.filter(record => isValidRecord(record))
-    const invalidRecords = body.daily.filter(record => !isValidRecord(record))
-
-    const results: UsageSyncResult[] = []
-
-    // Add invalid records to results
-    invalidRecords.forEach(record => {
-      results.push({
-        date: record.date || 'unknown',
-        status: 'error',
-        message: 'Missing required fields'
-      })
-    })
-
-    // Batch upsert valid records
-    if (validRecords.length > 0) {
-      const toSafeInt = (value: unknown): number =>
-        typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : 0
-
-      const recordsToInsert = validRecords.map(record => ({
-        deviceId: body.device.deviceId,
-        agentType: agentType,
-        date: record.date,
-        inputTokens: toSafeInt(record.inputTokens),
-        outputTokens: toSafeInt(record.outputTokens),
-        cacheCreationTokens: toSafeInt(record.cacheCreationTokens),
-        cacheReadTokens: toSafeInt(record.cacheReadTokens),
-        totalTokens: toSafeInt(record.totalTokens),
-        totalCost: record.totalCost.toString(),
-        credits:
-          typeof record.credits === 'number' && Number.isFinite(record.credits)
-            ? record.credits.toString()
-            : '0',
-        modelsUsed: record.modelsUsed,
-        rawData: record.rawData ?? record
-      }))
-
-      try {
-        await db
-          .insert(usageRecords)
-          .values(recordsToInsert)
-          .onConflictDoUpdate({
-            target: [usageRecords.deviceId, usageRecords.date, usageRecords.agentType],
-            set: {
-              inputTokens: sql`excluded.input_tokens`,
-              outputTokens: sql`excluded.output_tokens`,
-              cacheCreationTokens: sql`excluded.cache_creation_tokens`,
-              cacheReadTokens: sql`excluded.cache_read_tokens`,
-              totalTokens: sql`excluded.total_tokens`,
-              totalCost: sql`excluded.total_cost`,
-              credits: sql`excluded.credits`,
-              modelsUsed: sql`excluded.models_used`,
-              rawData: sql`excluded.raw_data`,
-              updatedAt: new Date()
-            }
-          })
-
-        // All valid records succeeded
-        validRecords.forEach(record => {
-          results.push({
-            date: record.date,
-            status: 'success'
-          })
+    await db.transaction(async (tx) => {
+      await tx
+        .insert(devices)
+        .values({
+          deviceId: device.deviceId,
+          deviceName: device.deviceName,
+          displayName: device.displayName
         })
-      } catch (error) {
-        // If batch insert fails, mark all as error
-        validRecords.forEach(record => {
-          results.push({
-            date: record.date,
-            status: 'error',
-            message: error instanceof Error ? error.message : 'Batch insert failed'
-          })
+        .onConflictDoUpdate({
+          target: devices.deviceId,
+          set: {
+            deviceName: sql`excluded.device_name`,
+            displayName: sql`excluded.display_name`,
+            updatedAt: new Date()
+          }
         })
+
+      // The upload states these days completely: hours, models and day
+      // buckets it does not report go
+      if (days.length > 0) {
+        await tx
+          .delete(usageBuckets)
+          .where(
+            and(
+              eq(usageBuckets.deviceId, device.deviceId),
+              eq(usageBuckets.agentType, device.agentType),
+              inArray(usageBuckets.date, days)
+            )
+          )
       }
-    }
+      for (let i = 0; i < buckets.length; i += INSERT_CHUNK) {
+        await tx.insert(usageBuckets).values(
+          buckets.slice(i, i + INSERT_CHUNK).map((bucket) => ({
+            ...bucket,
+            deviceId: device.deviceId,
+            agentType: device.agentType,
+            cost: bucket.cost.toFixed(6)
+          }))
+        )
+      }
+    })
 
     const response: UsageSyncResponse = {
       success: true,
-      processed: results.length,
-      results
+      days,
+      buckets: buckets.length
     }
-
     return NextResponse.json(response)
-
   } catch (error) {
     console.error('Usage sync error:', error)
     return NextResponse.json(

@@ -3,6 +3,8 @@ import { homedir } from "os";
 import { join, resolve } from "path";
 import { queryRows } from "./sqlite.js";
 import type { Calendar } from "./calendar.js";
+import { RequestBuckets } from "./buckets.js";
+import type { UsageBucket } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Cursor usage parser
@@ -10,13 +12,12 @@ import type { Calendar } from "./calendar.js";
 // Cursor has no ccusage support and keeps no billable ledger locally: usage
 // is metered per account in the cloud. The local state only holds the
 // session token, so this parser reads the token from Cursor's state store,
-// downloads the per-request CSV export from cursor.com, and emits
-// ccusage-compatible daily records. The rest of the collector pipeline
-// (mapCcusageRecord, sync) stays untouched.
+// downloads the per-request CSV export from cursor.com, and reports usage per
+// hour and model.
 //
 // - Token source: `<config>/Cursor/User/globalStorage/state.vscdb`,
 //   ItemTable key `cursorAuth/accessToken` (read-only; WAL-safe via sqlite.ts).
-//   The token never leaves process memory: rawData carries no credentials.
+//   The token never leaves process memory.
 // - Export endpoint (same one the dashboard uses):
 //   GET https://cursor.com/api/dashboard/export-usage-events-csv?strategy=tokens
 //   authenticated as `WorkosCursorSessionToken={sub}%3A%3A{jwt}`, with
@@ -33,11 +34,10 @@ import type { Calendar } from "./calendar.js";
 //     the same four-counter total; this one additionally preserves the
 //     cache-creation split our schema expects.
 //   - "Cost" is the list/API valuation and is preferred so Cursor stays
-//     comparable with ccusage costUSD (list prices, which the dashboard
-//     compares against subscription plans); "Cost to you" (post-plan
-//     charge) is the fallback.
-//   - Total Tokens is not trusted: totalTokens is recomputed as the
-//     four-counter sum, the ccusage UsageSummary::total_tokens() definition.
+//     comparable with the other agents' list-price costs (which the
+//     dashboard compares against subscription plans); "Cost to you"
+//     (post-plan charge) is the fallback.
+//   - Total Tokens is not trusted: the dashboard totals the four counters.
 // - Failure semantics: transient problems (no state DB, no token, network
 //   error, timeout, 429/5xx, unrecognized header) return an empty skipped
 //   result with warnings so scheduled syncs stay quiet. Only exhausted
@@ -46,8 +46,7 @@ import type { Calendar } from "./calendar.js";
 //   never as an empty upload.
 // - Cloud caveat: the export is account-wide, identical on every machine.
 //   Enable Cursor on exactly one device per account, otherwise dashboard
-//   totals double-count. Single-device upserts stay idempotent via the
-//   (deviceId, date, agentType) unique key.
+//   totals double-count. Re-syncing one device replaces its days.
 // ---------------------------------------------------------------------------
 
 const ACCESS_TOKEN_KEY = "cursorAuth/accessToken";
@@ -58,54 +57,15 @@ const WEB_BASE_URL = "https://cursor.com";
 const DEFAULT_FETCH_TIMEOUT_MS = 120_000;
 const MAX_FETCH_TIMEOUT_MS = 2_147_483_647;
 
-export interface CursorModelBreakdown {
-  modelName: string;
-  inputTokens: number;
-  outputTokens: number;
-  cacheCreationTokens: number;
-  cacheReadTokens: number;
-  cost: number;
-}
-
-/** A daily record using ccusage field names (see mapCcusageRecord). */
-export interface CursorDailyRecord {
-  date: string;
-  inputTokens: number;
-  outputTokens: number;
-  cacheCreationInputTokens: number;
-  cacheReadInputTokens: number;
-  totalTokens: number;
-  costUSD: number;
-  modelsUsed: string[];
-  modelBreakdowns: CursorModelBreakdown[];
-  rawData: Record<string, unknown>;
-}
-
 export interface CursorUsageResult {
-  daily: CursorDailyRecord[];
-  totals: {
-    inputTokens: number;
-    outputTokens: number;
-    cacheCreationTokens: number;
-    cacheReadTokens: number;
-    totalTokens: number;
-    totalCost: number;
-  };
+  buckets: UsageBucket[];
   skipped: boolean;
   warnings: string[];
 }
 
 function emptyResult(warnings: string[] = []): CursorUsageResult {
   return {
-    daily: [],
-    totals: {
-      inputTokens: 0,
-      outputTokens: 0,
-      cacheCreationTokens: 0,
-      cacheReadTokens: 0,
-      totalTokens: 0,
-      totalCost: 0,
-    },
+    buckets: [],
     skipped: true,
     warnings,
   };
@@ -477,119 +437,17 @@ export function parseCursorCsv(text: string): CsvRow[] {
   return parsed;
 }
 
-interface DayModelAcc {
-  inputTokens: number;
-  outputTokens: number;
-  cacheCreationTokens: number;
-  cacheReadTokens: number;
-  cost: number;
-}
-
+// Each row is one request: summed into its hour, or its day when the export
+// has no time of day
 export function aggregateCursorUsage(
   rows: CsvRow[],
   calendar: Calendar,
-): {
-  daily: CursorDailyRecord[];
-  totals: CursorUsageResult["totals"];
-} {
-  const days = new Map<string, Map<string, DayModelAcc>>();
-  for (const row of rows) {
-    const date =
-      typeof row.date === "string" ? row.date : calendar.dayOf(row.date);
-    let models = days.get(date);
-    if (!models) {
-      models = new Map<string, DayModelAcc>();
-      days.set(date, models);
-    }
-    let acc = models.get(row.model);
-    if (!acc) {
-      acc = {
-        inputTokens: 0,
-        outputTokens: 0,
-        cacheCreationTokens: 0,
-        cacheReadTokens: 0,
-        cost: 0,
-      };
-      models.set(row.model, acc);
-    }
-    acc.inputTokens += row.inputTokens;
-    acc.outputTokens += row.outputTokens;
-    acc.cacheCreationTokens += row.cacheCreationTokens;
-    acc.cacheReadTokens += row.cacheReadTokens;
-    acc.cost += row.cost;
+): UsageBucket[] {
+  const buckets = new RequestBuckets(calendar);
+  for (const { date, model, ...usage } of rows) {
+    buckets.add(date, model, { ...usage, reasoningTokens: null });
   }
-
-  const daily: CursorDailyRecord[] = [...days.entries()]
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([date, models]) => {
-      let inputTokens = 0;
-      let outputTokens = 0;
-      let cacheCreationTokens = 0;
-      let cacheReadTokens = 0;
-      let costUSD = 0;
-      const modelBreakdowns = [...models.entries()].map(
-        ([modelName, acc]) => {
-          inputTokens += acc.inputTokens;
-          outputTokens += acc.outputTokens;
-          cacheCreationTokens += acc.cacheCreationTokens;
-          cacheReadTokens += acc.cacheReadTokens;
-          costUSD += acc.cost;
-          return {
-            modelName,
-            inputTokens: acc.inputTokens,
-            outputTokens: acc.outputTokens,
-            cacheCreationTokens: acc.cacheCreationTokens,
-            cacheReadTokens: acc.cacheReadTokens,
-            cost: acc.cost,
-          };
-        },
-      );
-
-      // ccusage sorts breakdowns by cost descending; modelsUsed follows.
-      modelBreakdowns.sort((a, b) => b.cost - a.cost);
-      const modelsUsed = modelBreakdowns.map((b) => b.modelName);
-
-      // Same definition as ccusage UsageSummary::total_tokens().
-      const totalTokens =
-        inputTokens + outputTokens + cacheCreationTokens + cacheReadTokens;
-      return {
-        date,
-        inputTokens,
-        outputTokens,
-        cacheCreationInputTokens: cacheCreationTokens,
-        cacheReadInputTokens: cacheReadTokens,
-        totalTokens,
-        costUSD,
-        modelsUsed,
-        modelBreakdowns,
-        rawData: {
-          source: "cursor",
-          date,
-        },
-      };
-    });
-
-  const totals = daily.reduce(
-    (sum, record) => ({
-      inputTokens: sum.inputTokens + record.inputTokens,
-      outputTokens: sum.outputTokens + record.outputTokens,
-      cacheCreationTokens:
-        sum.cacheCreationTokens + record.cacheCreationInputTokens,
-      cacheReadTokens: sum.cacheReadTokens + record.cacheReadInputTokens,
-      totalTokens: sum.totalTokens + record.totalTokens,
-      totalCost: sum.totalCost + record.costUSD,
-    }),
-    {
-      inputTokens: 0,
-      outputTokens: 0,
-      cacheCreationTokens: 0,
-      cacheReadTokens: 0,
-      totalTokens: 0,
-      totalCost: 0,
-    },
-  );
-
-  return { daily, totals };
+  return buckets.list();
 }
 
 export async function collectCursorUsage(
@@ -655,6 +513,9 @@ export async function collectCursorUsage(
     return emptyResult(["Cursor export contained no usage rows."]);
   }
 
-  const { daily, totals } = aggregateCursorUsage(rows, calendar);
-  return { daily, totals, skipped: false, warnings: [] };
+  return {
+    buckets: aggregateCursorUsage(rows, calendar),
+    skipped: false,
+    warnings: [],
+  };
 }

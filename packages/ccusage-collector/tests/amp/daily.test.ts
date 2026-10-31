@@ -11,6 +11,7 @@ import {
   DEEPSEEK_REPORT,
   cachedThread,
   usageEntry,
+  tokenTotal,
 } from "./fixtures";
 
 describe("aggregateAmpDaily", () => {
@@ -47,9 +48,9 @@ describe("aggregateAmpDaily", () => {
 
     expect(daily.map((d) => d.date)).toEqual(["2026-10-20", DAY, "2026-10-22"]);
     const oct21 = daily[1]!;
-    expect(oct21.modelsUsed).toEqual(["claude-a"]);
+    expect(oct21.modelBreakdowns.map((m) => m.modelName)).toEqual(["claude-a"]);
     expect(oct21.inputTokens).toBe(3);
-    expect(oct21.totalTokens).toBe(12);
+    expect(tokenTotal(oct21)).toBe(12);
     expect(oct21.totalCost).toBe(0);
   });
 
@@ -82,7 +83,7 @@ describe("aggregateAmpDaily", () => {
       inputTokens: 0,
       cacheCreationTokens: 100,
     });
-    expect(day!.totalTokens).toBe(222);
+    expect(tokenTotal(day!)).toBe(222);
   });
 
   it("names export models without their provider prefix", () => {
@@ -95,7 +96,9 @@ describe("aggregateAmpDaily", () => {
       ],
       { calendar: CALENDAR, pricing: UNPRICED },
     );
-    expect(day!.modelsUsed).toEqual(["muse-spark-1.3"]);
+    expect(day!.modelBreakdowns.map((m) => m.modelName)).toEqual([
+      "muse-spark-1.3",
+    ]);
   });
 
   it("adds subagent usage from the day report and reuses its model names", () => {
@@ -155,7 +158,7 @@ describe("aggregateAmpDaily", () => {
       },
     );
     expect(unreconciled).toEqual([`T-1 ${DAY}`]);
-    expect(daily[0]!.totalTokens).toBe(5);
+    expect(tokenTotal(daily[0]!)).toBe(5);
   });
 
   it("prices reconciled agent/subagent usage once, sums across threads, and marks incomplete costs", () => {
@@ -193,14 +196,8 @@ describe("aggregateAmpDaily", () => {
     // Combined main + subagent: input 50, output 25, reads 200; no duplicate main usage.
     expect(day!.totalCost).toBe(120);
     expect(day!.modelBreakdowns.map((m) => m.cost)).toEqual([120, 0]);
-    expect(day!.rawData.costEstimate).toEqual({
-      source: "litellm",
-      asOf: NOON,
-      basis: "base-token-rates",
-      unpricedModels: ["unknown"],
-      pricingAliases: {},
-    });
-    expect(day!.totalTokens).toBe(282);
+    expect(day!.unpricedModels).toEqual(["unknown"]);
+    expect(tokenTotal(day!)).toBe(282);
     // Pricing and repeated aggregation do not mutate the cached thread data.
     expect(aggregateAmpDaily(threads, { calendar: CALENDAR, pricing })).toEqual(
       [day],
@@ -219,9 +216,7 @@ describe("aggregateAmpDaily", () => {
       },
     });
     expect(aliased!.totalCost).toBe(120);
-    expect(aliased!.rawData.costEstimate.pricingAliases).toEqual({
-      "deepseek-v4.1-flash": "deepseek-flash",
-    });
+    expect(aliased!.unpricedModels).toEqual(["unknown"]);
   });
 
   it("prices normalized cache counters and reprices history without changing token totals", () => {
@@ -250,7 +245,7 @@ describe("aggregateAmpDaily", () => {
     const [day] = aggregateAmpDaily(threads, { calendar: CALENDAR, pricing });
     expect(day!.modelBreakdowns.map((m) => m.cost)).toEqual([140, 340]);
     expect(day!.totalCost).toBe(480);
-    expect(day!.rawData.costEstimate.unpricedModels).toEqual([]);
+    expect(day!.unpricedModels).toEqual([]);
     const doubled = {
       ...pricing,
       models: {
@@ -268,7 +263,7 @@ describe("aggregateAmpDaily", () => {
       pricing: doubled,
     });
     expect(repriced!.totalCost).toBe(960);
-    expect(repriced!.totalTokens).toBe(day!.totalTokens);
+    expect(tokenTotal(repriced!)).toBe(tokenTotal(day!));
   });
 
   it("uses a report only for the exact range it was fetched for", () => {
@@ -292,7 +287,7 @@ describe("aggregateAmpDaily", () => {
         calendar,
         pricing: UNPRICED,
         onUnreconciled: (id) => unreconciled.push(id),
-      }).map((d) => [d.date, d.totalTokens]);
+      }).map((d) => [d.date, tokenTotal(d)]);
     // Main agent + subagents from the report
     expect(total(CALENDAR)).toEqual([[DAY, 165]]);
     // Another calendar's day has no report yet: main agent only, and not

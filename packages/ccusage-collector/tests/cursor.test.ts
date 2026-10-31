@@ -41,60 +41,39 @@ const CSV_HEADER =
   "Date,Model,Input (w/ Cache Write),Input (w/o Cache Write),Cache Read,Output Tokens,Total Tokens,Cost,Cost to you";
 
 describe("parseCursorCsv", () => {
-  it("aggregates rows with cost-descending models and ccusage field names", () => {
+  it("sums rows into account-calendar hours per model", () => {
     const rows = parseCursorCsv(
       [
         CSV_HEADER,
         '2026-09-07T01:02:00Z,cheap-model,110,100,30,40,280,"$0.10","$0.05"',
+        '2026-09-07T01:40:00Z,cheap-model,10,10,0,1,11,"$0.20","$0.10"',
         '2026-09-07T02:00:00Z,pricey-model,10,10,0,1,11,"$2.00","$1.00"',
         '2026-09-08T01:00:00Z,cheap-model,50,50,0,5,55,"$0.05","$0.02"',
       ].join("\n"),
     );
 
-    const { daily, totals } = aggregateCursorUsage(rows, SHANGHAI);
-    expect(daily).toHaveLength(2);
-    const day1 = daily[0];
+    const buckets = aggregateCursorUsage(rows, SHANGHAI);
+    expect(
+      buckets.map(({ date, hourStart, model, requests }) => [
+        date,
+        hourStart,
+        model,
+        requests,
+      ]),
+    ).toEqual([
+      ["2026-09-07", "2026-09-07T01:00:00.000Z", "cheap-model", 2],
+      ["2026-09-07", "2026-09-07T02:00:00.000Z", "pricey-model", 1],
+      ["2026-09-08", "2026-09-08T01:00:00.000Z", "cheap-model", 1],
+    ]);
     // input = w/o count; creation = w/ minus w/o; Cost preferred over Cost to you.
-    expect(day1).toMatchObject({
-      date: "2026-09-07",
+    expect(buckets[0]).toMatchObject({
       inputTokens: 110,
       outputTokens: 41,
-      cacheCreationInputTokens: 10,
-      cacheReadInputTokens: 30,
-      // ccusage total_tokens(): all four counters.
-      totalTokens: 191,
-      costUSD: 2.1,
-      modelsUsed: ["pricey-model", "cheap-model"],
-    });
-    expect(day1.modelBreakdowns).toEqual([
-      {
-        modelName: "pricey-model",
-        inputTokens: 10,
-        outputTokens: 1,
-        cacheCreationTokens: 0,
-        cacheReadTokens: 0,
-        cost: 2,
-      },
-      {
-        modelName: "cheap-model",
-        inputTokens: 100,
-        outputTokens: 40,
-        cacheCreationTokens: 10,
-        cacheReadTokens: 30,
-        cost: 0.1,
-      },
-    ]);
-    // rawData carries no credentials.
-    expect(day1.rawData).toEqual({ source: "cursor", date: "2026-09-07" });
-
-    expect(totals).toMatchObject({
-      inputTokens: 160,
-      outputTokens: 46,
       cacheCreationTokens: 10,
       cacheReadTokens: 30,
-      totalTokens: 246,
-      totalCost: 2.15,
     });
+    expect(buckets[0]?.cost).toBeCloseTo(0.3, 10);
+    expect(buckets[0]).not.toHaveProperty("reasoningTokens");
   });
 
   it("falls back to Cost to you when Cost is absent", () => {
@@ -136,21 +115,29 @@ describe("parseCursorCsv", () => {
         "2026-09-07T16:30:00Z,test-model,100,100,0,10,110,$0.1,$0.1",
       ].join("\n"),
     );
-    const day = (zone: string) =>
-      aggregateCursorUsage(rows, createCalendar(zone)).daily.map((d) => d.date);
-    expect(day("Asia/Shanghai")).toEqual(["2026-09-08"]);
-    expect(day("America/New_York")).toEqual(["2026-09-07"]);
+    const bucket = (zone: string) =>
+      aggregateCursorUsage(rows, createCalendar(zone)).map(
+        ({ date, hourStart }) => [date, hourStart],
+      );
+    expect(bucket("Asia/Shanghai")).toEqual([
+      ["2026-09-08", "2026-09-07T16:00:00.000Z"],
+    ]);
+    expect(bucket("America/New_York")).toEqual([
+      ["2026-09-07", "2026-09-07T16:00:00.000Z"],
+    ]);
   });
 
-  it("keeps date-only rows on their day in any calendar", () => {
+  it("keeps date-only rows as their whole day in any calendar", () => {
     const rows = parseCursorCsv(
       [CSV_HEADER, "2026-09-07,test-model,100,100,0,10,110,$0.1,$0.1"].join(
         "\n",
       ),
     );
     for (const zone of ["Asia/Shanghai", "America/Los_Angeles", "UTC"]) {
-      const { daily } = aggregateCursorUsage(rows, createCalendar(zone));
-      expect(daily.map((d) => d.date)).toEqual(["2026-09-07"]);
+      const buckets = aggregateCursorUsage(rows, createCalendar(zone));
+      expect(buckets.map(({ date, hourStart }) => [date, hourStart])).toEqual([
+        ["2026-09-07", undefined],
+      ]);
     }
   });
 });
@@ -181,7 +168,7 @@ describe("collectCursorUsage", () => {
     vi.stubEnv("MYCCUSAGE_CURSOR_DB", join(dir, "missing.vscdb"));
     const result = await collectCursorUsage(SHANGHAI);
     expect(result.skipped).toBe(true);
-    expect(result.daily).toEqual([]);
+    expect(result.buckets).toEqual([]);
     expect(result.warnings).toHaveLength(1);
   });
 
@@ -224,18 +211,20 @@ describe("collectCursorUsage", () => {
     expect(cookies[0]).toBe(
       `WorkosCursorSessionToken=auth0|cursor-test-user%3A%3A${TOKEN}`,
     );
-    expect(result.daily).toHaveLength(1);
-    expect(result.daily[0]).toMatchObject({
-      date: "2026-09-07",
-      inputTokens: 20,
-      outputTokens: 40,
-      cacheCreationInputTokens: 0,
-      cacheReadInputTokens: 30,
-      // 20 + 40 + max(0, 10-20)=0 + 30
-      totalTokens: 90,
-      costUSD: 1.21,
-      modelsUsed: ["test-model"],
-    });
+    expect(result.buckets).toEqual([
+      {
+        date: "2026-09-07",
+        hourStart: "2026-09-07T01:00:00.000Z",
+        model: "test-model",
+        inputTokens: 20,
+        outputTokens: 40,
+        // Cache writes are max(0, 10 - 20)
+        cacheCreationTokens: 0,
+        cacheReadTokens: 30,
+        cost: 1.21,
+        requests: 1,
+      },
+    ]);
   });
 
   it("throws a re-login error only after every credential variant fails", async () => {
@@ -263,7 +252,7 @@ describe("collectCursorUsage", () => {
 
     const result = await collectCursorUsage(SHANGHAI);
     expect(result.skipped).toBe(true);
-    expect(result.daily).toEqual([]);
+    expect(result.buckets).toEqual([]);
     expect(result.warnings[0]).toMatch(/HTTP 503/);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -300,6 +289,6 @@ describe("collectCursorUsage", () => {
 
     const result = await collectCursorUsage(SHANGHAI);
     expect(result.skipped).toBe(true);
-    expect(result.daily).toEqual([]);
+    expect(result.buckets).toEqual([]);
   });
 });

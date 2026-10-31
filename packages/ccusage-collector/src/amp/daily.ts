@@ -77,16 +77,8 @@ interface ThreadDay {
 }
 
 interface AmpDailyRecord extends DailyUsageRecord {
-  rawData: {
-    costEstimate: {
-      source: "litellm";
-      asOf: string;
-      basis: "base-token-rates";
-      unpricedModels: string[];
-      // Report model -> export model used when the report name has no price.
-      pricingAliases: Record<string, string>;
-    };
-  };
+  // Models without usable prices; their tokens count at zero cost
+  unpricedModels: string[];
 }
 
 interface AggregateOptions {
@@ -162,7 +154,6 @@ export function aggregateAmpDaily(
         cacheReadTokens: 0,
       };
       const unpricedModels: string[] = [];
-      const usedAliases: Record<string, string> = {};
       let totalCost = 0;
       for (const m of modelBreakdowns) {
         // Prefer routing names, then aliases established by reconciliation.
@@ -172,8 +163,6 @@ export function aggregateAmpDaily(
           m,
         );
         if (!estimate) unpricedModels.push(m.modelName);
-        if (estimate && estimate.model !== m.modelName)
-          usedAliases[m.modelName] = estimate.model;
         m.cost = estimate?.cost ?? 0;
         totalCost += m.cost;
         totals.inputTokens += m.inputTokens;
@@ -184,20 +173,10 @@ export function aggregateAmpDaily(
       return {
         date,
         ...totals,
-        totalTokens: tokenTotal(totals),
         totalCost,
-        modelsUsed: modelBreakdowns.map((m) => m.modelName),
         modelBreakdowns,
-        rawData: {
-          costEstimate: {
-            source: "litellm",
-            asOf: pricing.asOf,
-            basis: "base-token-rates",
-            unpricedModels,
-            pricingAliases: usedAliases,
-          },
-        },
+        unpricedModels,
       };
     })
-    .filter((record) => record.totalTokens > 0);
+    .filter((record) => tokenTotal(record) > 0);
 }

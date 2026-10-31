@@ -33,7 +33,7 @@ Deploy the [MyCCusage dashboard](../../README.md) and use its `API_KEY` when con
 
 - Node.js ≥20 (Bun may be used to install the package)
 - macOS with a logged-in graphical user session, or Linux with a running systemd user manager, for native scheduling
-- `ccusage` CLI installed and available in PATH (Claude Code, OpenCode, Codex, Antigravity)
+- `ccusage` CLI installed and available in PATH (OpenCode, Antigravity)
 - `amp` CLI installed and logged in (AMP)
 - At least one supported coding agent installed and configured
 - Access to a deployed My Claude Code Usage Dashboard
@@ -100,7 +100,7 @@ Credentials, agent selection, device identity, and Claude Code data directories 
 | `MYCCUSAGE_DEVICE_ID` | `deviceId` | Fingerprint derived from hostname and MAC addresses |
 | `MYCCUSAGE_DEVICE_NAME` | `deviceName` | Hostname |
 | `MYCCUSAGE_DISPLAY_NAME` | `displayName` | Unset; the dashboard uses the device name |
-| `MYCCUSAGE_CLAUDE_CONFIG_DIRS` | `claudeConfigDirs` | Unset; ccusage locates Claude Code data itself |
+| `MYCCUSAGE_CLAUDE_CONFIG_DIRS` | `claudeConfigDirs` | Unset; `CLAUDE_CONFIG_DIR`, else `~/.config/claude` and `~/.claude` |
 
 `MYCCUSAGE_AGENT_TYPES` is a comma-separated list. Supported values are `claude-code`, `amp`, `opencode`, `codex`, `dimagent`, `cursor`, and `antigravity`. Whitespace is trimmed and duplicates are removed. Unknown agents and empty list entries are rejected with a configuration error before collection begins.
 
@@ -108,7 +108,7 @@ Blank environment values count as unset, so an empty export never shadows a vali
 
 ### Claude Code Data Directories
 
-By default ccusage reads Claude Code logs from `~/.config/claude` and `~/.claude`. When Claude Code runs with other config directories (for example, separate accounts), list every directory to collect:
+By default the collector reads Claude Code transcripts from the directories in `CLAUDE_CONFIG_DIR` (comma-separated), else from `~/.config/claude` and `~/.claude`. When Claude Code runs with other config directories (for example, separate accounts), list every directory to collect:
 
 ```json
 {
@@ -116,9 +116,9 @@ By default ccusage reads Claude Code logs from `~/.config/claude` and `~/.claude
 }
 ```
 
-or `MYCCUSAGE_CLAUDE_CONFIG_DIRS='~/.claude,/path/to/another/claude/config'`. Each entry is an absolute path or starts with `~/`, and may be a Claude config directory or its `projects/` directory. The list replaces the default lookup, so include `~/.claude` when it should still be collected. ccusage skips directories without a `projects/` folder and merges the rest; usage entries present in several directories are counted once.
+or `MYCCUSAGE_CLAUDE_CONFIG_DIRS='~/.claude,/path/to/another/claude/config'`. Each entry is an absolute path or starts with `~/`, and may be a Claude config directory or its `projects/` directory. The list replaces the default lookup, so include `~/.claude` when it should still be collected. Directories without a `projects/` folder are skipped and the rest are merged; requests present in several directories are counted once.
 
-The collector passes the list to ccusage as `CLAUDE_CONFIG_DIR` for the `claude-code` collection only. Claude Code itself reads `CLAUDE_CONFIG_DIR` to decide where it stores its configuration, so avoid exporting a comma-separated value globally in shell profiles. When `claudeConfigDirs` is set it takes precedence over any `CLAUDE_CONFIG_DIR` in the environment or shell profiles; when unset, ccusage uses an inherited `CLAUDE_CONFIG_DIR` or its default lookup.
+Claude Code itself reads `CLAUDE_CONFIG_DIR` to decide where it stores its configuration, so prefer `claudeConfigDirs` over exporting a comma-separated `CLAUDE_CONFIG_DIR` globally in shell profiles.
 
 ### Cloud / Sandbox VM: No JSON Required
 
@@ -138,7 +138,7 @@ ccusage-collector sync
 
 No interactive setup or configuration file is needed. A platform scheduler can invoke `sync` periodically. On macOS or a Linux host with a systemd user manager, `service install` registers a native task and saves the supported environment overrides for future runs. The collector must have access to the selected agents' usage data and required CLIs in that environment. `.env` files are not loaded automatically; `.env.example` is a reference for your platform's environment injection.
 
-Use a distinct device ID for each independent usage dataset. Reuse an ID across VM rebuilds only when the VM continues the same dataset: the dashboard upserts by device ID, date, and agent type, so independent VMs sharing an ID overwrite each other's daily totals rather than adding them. Changing the display name does not change device identity.
+Use a distinct device ID for each independent usage dataset. Reuse an ID across VM rebuilds only when the VM continues the same dataset: each sync replaces the days it reports for its device ID and agent, so independent VMs sharing an ID overwrite each other's usage rather than adding to it. Changing the display name does not change device identity.
 
 The `config` wizard skips credential, agent-selection, and display-name questions supplied by the environment. When explicitly saving JSON, environment overrides are not persisted; existing file values for those fields are preserved. `status` shows resolved settings without printing the API key.
 
@@ -191,18 +191,28 @@ Alternatively, `resolveConfig(rawSettings, env)` resolves an explicit settings o
 
 ## Data Collection
 
-Days follow the dashboard's account time zone (`USAGE_TIMEZONE` on the dashboard), not the collector machine's. Each run reads it from the endpoint before collecting, buckets every agent's usage in it (ccusage receives `--timezone`), and sends it with the upload; the dashboard rejects uploads bucketed in another zone. A date therefore means the same day on every device, wherever and however the collector runs.
+Days and hours follow the dashboard's account time zone (`USAGE_TIMEZONE` on the dashboard), not the collector machine's. Each run reads it from the endpoint before collecting, buckets every agent's usage in it (ccusage receives `--timezone`), and sends it with the upload; the dashboard rejects uploads bucketed in another zone. A date therefore means the same day on every device, wherever and however the collector runs.
 
 The collector:
-- Uses explicit ccusage agent commands such as `ccusage claude daily --json`, `ccusage opencode daily --json`, `ccusage codex daily --json`, and `ccusage antigravity daily --json` (Antigravity reads its local SQLite conversation databases; set `ANTIGRAVITY_DATA_DIR` when they live outside the default `~/.gemini/*` roots)
+- Reads Claude Code and Codex transcripts itself and reports their usage per hour and model (see below)
+- Uses explicit ccusage agent commands, `ccusage opencode daily --json` and `ccusage antigravity daily --json`, for OpenCode and Antigravity (Antigravity reads its local SQLite conversation databases; set `ANTIGRAVITY_DATA_DIR` when they live outside the default `~/.gemini/*` roots)
 - Collects AMP through the `amp` CLI (see below)
 - Parses DimAgent's local SQLite store (`~/.dimcode/v2/dimcode.sqlite`) directly; no ccusage support needed
 - Pulls Cursor usage from the cloud CSV export via the local session token in Cursor's state DB; no ccusage support needed. The export is account-wide, so enable Cursor on exactly one device per account to avoid double-counting
-- Collects historical data (not just recent usage)
-- Syncs complete usage records to your dashboard
-- Supports upsert operations (updates existing records)
+- Reports Claude Code, Codex, DimAgent and Cursor per hour and model, since they record when each request ran; AMP (whose subagent usage is known per day), OpenCode and Antigravity per day and model
+- Uploads all the history DimAgent, Cursor, AMP, OpenCode and Antigravity keep, and the recent days of Claude Code and Codex transcripts (see below)
 - Generates unique device fingerprints for multi-device tracking
 - Allows custom device names for better dashboard readability
+
+### Claude Code and Codex
+
+The collector parses each request recorded in the transcripts: Claude Code's `projects/` directories and Codex's `sessions/` and `archived_sessions/` under `CODEX_HOME` (default `~/.codex`). The parsers are adapted from [T3 Code](https://github.com/pingdotgg/t3code) (MIT).
+
+- Claude Code repeats a message's usage on every content block; each request (`message.id` and `requestId`) counts once, across files and config directories. Advisor calls count under their own model
+- Codex usage carries its model and service tier from earlier lines of the rollout. Cumulative counters validate each request, history copied into forked or subagent rollouts is skipped, and a session seen both live and archived counts once
+- Each request is priced on its own at LiteLLM's rates: long-context rates when its prompt passes the model's threshold, one-hour cache writes at their own rate, Claude fast mode and US-only inference by their multipliers, and Codex priority and ultrafast tiers at their rates. A cost Claude Code recorded itself (`costUSD`) is used as is
+- Reasoning tokens are reported where the agent records them (Codex, and Claude Code versions that report thinking tokens); they are part of output tokens
+- Every sync re-reads the last 30 days, fewer when Claude Code's `cleanupPeriodDays` is shorter, so no day it sends has lost transcripts. The range starts at the first request found: a machine whose transcripts were wiped never erases days the dashboard already has. Older days keep what earlier syncs stored
 
 ### AMP
 
@@ -216,27 +226,26 @@ AMP stores threads server-side, so the collector reads them through the `amp` CL
 Notes:
 
 - AMP allows 60 usage reports per hour. The collector uses at most 40 per hour, newest days first, and pauses for an hour when AMP reports the limit. Until a day's report is fetched, that day counts the main agent only. A large backfill therefore spreads over several syncs at least an hour apart, and each sync uploads the completed days again
-- Usage AMP ran through Claude Code (`external-agent:claude-code`) is skipped, because ccusage already counts it under Claude Code
+- Usage AMP ran through Claude Code (`external-agent:claude-code`) is skipped, because the collector already counts it under Claude Code
 - Per-model input and output are exact. The report splits cache reads per thread-day only, so for subagent usage the cache-read share is estimated; main-agent usage keeps its exact split
 - Cost is an API-equivalent estimate using LiteLLM's base input, output, cache-write and cache-read rates, including linked-provider usage. It is not AMP's actual charge. Prices are cached in `~/.ccusage-collector/pricing.json` for 24 hours; failed refreshes use the newest available cache or bundled snapshot
-- Prices match exact model names and known provider/name-format variants, falling back to export/report aliases established by successful reconciliation. Unknown models, unsupported modalities (such as image generation), or missing rates for used token categories keep their tokens but contribute 0 cost, with a warning. Daily `rawData.costEstimate` records the price date, aliases used for pricing, and unpriced models
+- Prices match exact model names and known provider/name-format variants, falling back to export/report aliases established by successful reconciliation. Unknown models, unsupported modalities (such as image generation), or missing rates for used token categories keep their tokens but contribute 0 cost, with a warning naming the unpriced models
 - Estimates use base rates, without inferring long-context/fast surcharges or cache-write duration from daily totals. Subagent cache splits remain estimates as described above. Updated prices revalue cached history on subsequent syncs
 - The usage report is formatted text. If its format changes, affected days fall back to the main agent only and the collector logs a warning
 
 Maintainers can refresh the bundled price snapshot with `pnpm --filter ccusage-collector update-pricing` from the repository root.
 
 ### Data Format
-The collector syncs:
-- Daily usage metrics (tokens, costs, models)
-- Token breakdowns (input, output, cache creation/read)
-- Model usage statistics
-- Device information with optional custom display names for multi-device analytics
+
+Each upload holds one agent's usage on one device as buckets: an hour of the account calendar (Claude Code, Codex, DimAgent, Cursor) or a whole day (AMP, OpenCode, Antigravity, and Cursor rows the export dates without a time), per model. A bucket carries input tokens (excluding cache), output tokens (including reasoning), cache-write and cache-read tokens, reasoning tokens and request counts where known, and the cost. The upload replaces every stored bucket of that agent and device on the days it covers: its range for Claude Code and Codex, otherwise the days it reports.
+
+Collector and dashboard each name the sync protocol they speak (currently 2); the collector checks the dashboard's before collecting, and either side rejects an upload in another protocol. Update the dashboard first, then the collectors.
 
 ## Error Handling
 
 - **Network failures**: Automatic retry with exponential backoff
 - **Authentication errors**: Immediate failure (no retry on 401/403)
-- **Individual record failures**: Continues processing other records
+- **Invalid uploads**: The dashboard rejects the whole upload, so a day is never left half replaced
 - **Configuration errors**: Clear guidance on resolution
 - **Detailed logging**: Clear error messages and debugging info
 

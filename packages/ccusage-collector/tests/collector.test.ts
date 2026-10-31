@@ -1,5 +1,4 @@
 import { execFileSync } from "child_process";
-import { homedir } from "os";
 import { describe, expect, it } from "vitest";
 import {
   extractJSON,
@@ -9,35 +8,15 @@ import {
 } from "../src/collector";
 
 describe("scopeCcusageCommand", () => {
-  const run = ({ command, env }: ReturnType<typeof scopeCcusageCommand>) =>
-    execFileSync(
+  it("passes the account time zone regardless of the shell's own zone", () => {
+    const scoped = scopeCcusageCommand("echo", "America/Argentina/Buenos_Aires");
+    const output = execFileSync(
       "/bin/sh",
-      // Simulates an rc file exporting a conflicting value before the command.
-      ["-c", `export CLAUDE_CONFIG_DIR=/from/rc; ${command}`],
-      { env, encoding: "utf8" },
+      // Simulates an rc file setting the process time zone.
+      ["-c", `export TZ=UTC; ${scoped.command}`],
+      { env: scoped.env, encoding: "utf8" },
     );
-
-  it("passes the time zone and leaves CLAUDE_CONFIG_DIR alone", () => {
-    const scoped = scopeCcusageCommand(
-      'echo "dir=$CLAUDE_CONFIG_DIR"',
-      "Asia/Shanghai",
-    );
-    expect(run(scoped)).toBe("dir=/from/rc --timezone Asia/Shanghai\n");
-    expect(scopeCcusageCommand("ccusage", "UTC", [])).toEqual(
-      scopeCcusageCommand("ccusage", "UTC"),
-    );
-  });
-
-  it("sets CLAUDE_CONFIG_DIR only for the command, overriding the shell", () => {
-    const dirs = ["~/.claude", "/data/it's $HOME `x`"];
-    const scoped = scopeCcusageCommand(
-      'printenv CLAUDE_CONFIG_DIR; echo "after=${CLAUDE_CONFIG_DIR-unset}"',
-      "Asia/Shanghai",
-      dirs,
-    );
-    expect(run(scoped)).toBe(
-      `${homedir()}/.claude,/data/it's $HOME \`x\`\nafter=/from/rc --timezone Asia/Shanghai\n`,
-    );
+    expect(output).toBe("--timezone America/Argentina/Buenos_Aires\n");
   });
 });
 
@@ -96,7 +75,6 @@ describe("mapCcusageRecord", () => {
       cacheReadInputTokens: 400,
       totalTokens: 1000,
       costUSD: 12.34,
-      modelsUsed: ["claude-fable-5"],
       modelBreakdowns: [
         {
           modelName: "claude-fable-5",
@@ -117,47 +95,9 @@ describe("mapCcusageRecord", () => {
       outputTokens: 200,
       cacheCreationTokens: 300,
       cacheReadTokens: 400,
-      totalTokens: 1000,
       totalCost: 12.34,
-      modelsUsed: ["claude-fable-5"],
+      modelBreakdowns: record.modelBreakdowns,
     });
-    expect(mapped.rawData).toBe(record);
-  });
-
-  it("maps a codex-style record (models object, cachedInputTokens)", () => {
-    const record = {
-      date: "2026-07-10",
-      inputTokens: 50,
-      outputTokens: 60,
-      cachedInputTokens: 70,
-      totalTokens: 180,
-      costUSD: 1.5,
-      models: {
-        "gpt-5.2": {
-          inputTokens: 50,
-          cachedInputTokens: 70,
-          outputTokens: 60,
-          reasoningOutputTokens: 10,
-          totalTokens: 180,
-          isFallback: false,
-        },
-      },
-    };
-
-    const mapped = mapCcusageRecord(record);
-
-    expect(mapped.cacheReadTokens).toBe(70);
-    expect(mapped.modelsUsed).toEqual(["gpt-5.2"]);
-    expect(mapped.modelBreakdowns).toEqual([
-      {
-        modelName: "gpt-5.2",
-        inputTokens: 50,
-        outputTokens: 60,
-        cacheCreationTokens: 0,
-        cacheReadTokens: 70,
-        cost: 0,
-      },
-    ]);
   });
 
   it("maps an antigravity-style record (flat new field names)", () => {
@@ -169,7 +109,6 @@ describe("mapCcusageRecord", () => {
       cacheReadTokens: 20,
       totalTokens: 165,
       totalCost: 0.000187,
-      modelsUsed: ["gemini-3-pro"],
       modelBreakdowns: [
         {
           modelName: "gemini-3-pro",
@@ -188,9 +127,7 @@ describe("mapCcusageRecord", () => {
     expect(mapped.inputTokens).toBe(100);
     expect(mapped.cacheCreationTokens).toBe(5);
     expect(mapped.cacheReadTokens).toBe(20);
-    expect(mapped.totalTokens).toBe(165);
     expect(mapped.totalCost).toBe(0.000187);
-    expect(mapped.modelsUsed).toEqual(["gemini-3-pro"]);
   });
 
   it("falls back to totalCost when costUSD is absent", () => {
@@ -218,8 +155,7 @@ describe("mapCcusageRecord", () => {
 
     expect(mapped.inputTokens).toBe(0);
     expect(mapped.outputTokens).toBe(0);
-    expect(mapped.totalTokens).toBe(0);
     expect(mapped.totalCost).toBe(0);
-    expect(mapped.modelsUsed).toEqual([]);
+    expect(mapped.modelBreakdowns).toEqual([]);
   });
 });

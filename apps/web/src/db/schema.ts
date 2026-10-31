@@ -1,14 +1,14 @@
 import {
   pgTable,
   serial,
+  bigint,
   date,
   integer,
   numeric,
-  jsonb,
   timestamp,
   varchar,
   index,
-  uniqueIndex,
+  unique,
 } from "drizzle-orm/pg-core";
 
 // Define agent types as a const for type safety
@@ -46,26 +46,38 @@ export const devices = pgTable(
   },
 );
 
-export const usageRecords = pgTable(
-  "usage_records",
+// Usage of one agent with one model on one device: in an hour of the account
+// calendar when hour_start is set, otherwise in a whole day, for sources and
+// days whose hours are unknown. Each upload replaces whole days of a device's
+// agent. Model "" holds usage its source did not attribute to a model.
+export const usageBuckets = pgTable(
+  "usage_buckets",
   {
     id: serial("id").primaryKey(),
     deviceId: varchar("device_id", { length: 255 }).notNull(),
-    agentType: varchar("agent_type", { length: 50 })
-      .notNull()
-      .default("claude-code"),
+    agentType: varchar("agent_type", { length: 50 }).notNull(),
+    // Day of the account calendar the bucket lies in
     date: date("date").notNull(),
-    inputTokens: integer("input_tokens").notNull().default(0),
-    outputTokens: integer("output_tokens").notNull().default(0),
-    cacheCreationTokens: integer("cache_creation_tokens").notNull().default(0),
-    cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
-    totalTokens: integer("total_tokens").notNull().default(0),
-    totalCost: numeric("total_cost", { precision: 10, scale: 4 })
+    hourStart: timestamp("hour_start", { withTimezone: true }),
+    model: varchar("model", { length: 255 }).notNull().default(""),
+    // Excludes cache reads and writes
+    inputTokens: bigint("input_tokens", { mode: "number" }).notNull().default(0),
+    // Includes reasoning
+    outputTokens: bigint("output_tokens", { mode: "number" })
       .notNull()
-      .default("0"),
-    credits: numeric("credits", { precision: 10, scale: 4 }).default("0"),
-    modelsUsed: jsonb("models_used").notNull().default("[]"),
-    rawData: jsonb("raw_data").notNull(),
+      .default(0),
+    cacheCreationTokens: bigint("cache_creation_tokens", { mode: "number" })
+      .notNull()
+      .default(0),
+    cacheReadTokens: bigint("cache_read_tokens", { mode: "number" })
+      .notNull()
+      .default(0),
+    // Part of output; null where the source does not report it
+    reasoningTokens: bigint("reasoning_tokens", { mode: "number" }),
+    totalTokens: bigint("total_tokens", { mode: "number" }).notNull().default(0),
+    cost: numeric("cost", { precision: 14, scale: 6 }).notNull().default("0"),
+    // API requests; null where the source does not count them
+    requests: integer("requests"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -73,20 +85,20 @@ export const usageRecords = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (table) => {
-    return {
-      deviceIdIdx: index("usage_records_device_id_idx").on(table.deviceId),
-      dateIdx: index("usage_records_date_idx").on(table.date),
-      agentTypeIdx: index("usage_records_agent_type_idx").on(table.agentType),
-      createdAtIdx: index("usage_records_created_at_idx").on(table.createdAt),
-      uniqueDeviceDateAgentIdx: uniqueIndex(
-        "usage_records_unique_device_date_agent_idx",
-      ).on(table.deviceId, table.date, table.agentType),
-    };
-  },
+  (table) => [
+    unique("usage_buckets_unique_bucket")
+      .on(
+        table.deviceId,
+        table.agentType,
+        table.date,
+        table.hourStart,
+        table.model,
+      )
+      .nullsNotDistinct(),
+    index("usage_buckets_date_idx").on(table.date),
+    index("usage_buckets_hour_start_idx").on(table.hourStart),
+  ],
 );
 
 export type Device = typeof devices.$inferSelect;
 export type NewDevice = typeof devices.$inferInsert;
-export type UsageRecord = typeof usageRecords.$inferSelect;
-export type NewUsageRecord = typeof usageRecords.$inferInsert;

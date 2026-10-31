@@ -2,6 +2,7 @@ import { createCalendar } from "../../src/calendar";
 import { reportKey } from "../../src/amp/threads";
 import type { AmpDayReport } from "../../src/amp/report";
 import type { AmpCachedThread, AmpUsageEntry } from "../../src/amp/threads";
+import type { DailyUsageRecord } from "../../src/types";
 
 // Fixtures are wall-clock times in one fixed calendar, independent of the
 // process time zone
@@ -16,6 +17,12 @@ export const NOON = at(DAY, 12);
 export const UNPRICED = { asOf: NOON, models: {} };
 // Cache key of DAY's report
 export const DAY_KEY = reportKey(CALENDAR.rangeOf(DAY));
+
+export const tokenTotal = (day: DailyUsageRecord) =>
+  day.inputTokens +
+  day.outputTokens +
+  day.cacheCreationTokens +
+  day.cacheReadTokens;
 
 export function exportJson(
   id: string,

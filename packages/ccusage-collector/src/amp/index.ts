@@ -1,6 +1,6 @@
 import type { Calendar } from "../calendar.js";
-import type { DailyUsageRecord, UsageData } from "../types.js";
-import { loadPricing } from "../pricing/index.js";
+import type { DailyUsageRecord } from "../types.js";
+import type { PricingTable } from "../pricing/rates.js";
 import {
   createAmpRunner,
   findAmpBinary,
@@ -13,11 +13,12 @@ import { loadCachedThreads, REPORTS_PER_HOUR, syncAmpCache } from "./sync.js";
 // Usage is collected through the user's authenticated `amp` CLI instead:
 // thread exports give the main agent's usage per message, and per-day usage
 // reports add subagents (see report.ts). Both are cached locally (sync.ts)
-// and rebuilt into daily totals on every run, because the dashboard upserts
+// and rebuilt into daily totals on every run, because each upload replaces
 // whole days.
 export async function collectAmpUsage(
   calendar: Calendar,
-): Promise<Pick<UsageData, "daily" | "totals">> {
+  loadPricing: () => Promise<PricingTable>,
+): Promise<DailyUsageRecord[]> {
   const binary = findAmpBinary();
   if (!binary) {
     throw new Error(
@@ -51,7 +52,7 @@ export async function collectAmpUsage(
 
   const unreconciled: string[] = [];
   const threads = loadCachedThreads();
-  if (threads.length === 0) return { daily: [], totals: sumTotals([]) };
+  if (threads.length === 0) return [];
   const pricing = await loadPricing();
   const daily = aggregateAmpDaily(threads, {
     calendar,
@@ -60,7 +61,7 @@ export async function collectAmpUsage(
     pricing,
   });
   const unpriced = new Set(
-    daily.flatMap((day) => day.rawData.costEstimate.unpricedModels),
+    daily.flatMap((day) => day.unpricedModels),
   );
   if (unpriced.size > 0) {
     console.warn(
@@ -72,25 +73,5 @@ export async function collectAmpUsage(
       `${unreconciled.length} Amp thread-day(s) could not be reconciled with their usage report and count the main agent only (first: ${unreconciled[0]})`,
     );
   }
-  return { daily, totals: sumTotals(daily) };
-}
-
-function sumTotals(daily: DailyUsageRecord[]): UsageData["totals"] {
-  const totals: UsageData["totals"] = {
-    inputTokens: 0,
-    outputTokens: 0,
-    cacheCreationTokens: 0,
-    cacheReadTokens: 0,
-    totalTokens: 0,
-    totalCost: 0,
-  };
-  for (const record of daily) {
-    totals.inputTokens += record.inputTokens;
-    totals.outputTokens += record.outputTokens;
-    totals.cacheCreationTokens += record.cacheCreationTokens;
-    totals.cacheReadTokens += record.cacheReadTokens;
-    totals.totalTokens += record.totalTokens;
-    totals.totalCost += record.totalCost;
-  }
-  return totals;
+  return daily;
 }

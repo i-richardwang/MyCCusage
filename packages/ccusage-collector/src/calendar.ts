@@ -6,6 +6,9 @@ export interface Calendar {
   dayOf(instant: Date): string;
   // [start, end) of a day; DST days are 23 or 25 hours long
   rangeOf(day: string): [Date, Date];
+  // Start of the instant's hour on the account's clocks, which zones with
+  // half-hour offsets place off the UTC hour
+  hourOf(instant: Date): Date;
 }
 
 const DAY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -26,8 +29,14 @@ function utcMidnight(day: string): number {
   return time;
 }
 
+export function addDays(day: string, days: number): string {
+  return new Date(utcMidnight(day) + days * 24 * HOUR_MS)
+    .toISOString()
+    .slice(0, 10);
+}
+
 function nextDay(day: string): string {
-  return new Date(utcMidnight(day) + 24 * HOUR_MS).toISOString().slice(0, 10);
+  return addDays(day, 1);
 }
 
 export function isTimeZone(value: string): boolean {
@@ -76,5 +85,23 @@ export function createCalendar(timeZone: string): Calendar {
     return [startOf(day), startOf(nextDay(day))];
   }
 
-  return { timeZone, dayOf, rangeOf };
+  const clock = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    minute: "2-digit",
+    second: "2-digit",
+  });
+
+  // Offsets are whole minutes, so the local hour began the local minutes and
+  // seconds before this instant
+  function hourOf(instant: Date): Date {
+    const parts = Object.fromEntries(
+      clock.formatToParts(instant).map(({ type, value }) => [type, value]),
+    );
+    const sinceHour =
+      (Number(parts.minute) * 60 + Number(parts.second)) * 1000 +
+      instant.getUTCMilliseconds();
+    return new Date(instant.getTime() - sinceHour);
+  }
+
+  return { timeZone, dayOf, rangeOf, hourOf };
 }
