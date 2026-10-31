@@ -9,17 +9,12 @@
  *
  * The upload replaces every stored bucket of the device's agent on the days of
  * its range and of its buckets, so it is accepted or rejected as a whole:
- * storing part of it would delete the rest of those days.
+ * storing part of it would delete the rest of those days. With backfillBefore,
+ * earlier days with existing device/agent usage are preserved in full.
  */
 
 import { AGENT_TYPES, type AgentType } from "@/src/db/schema";
-import {
-  daysBetween,
-  daysIn,
-  isDay,
-  partsOf,
-  todayIn,
-} from "@/lib/day-range";
+import { daysBetween, daysIn, isDay, partsOf, todayIn } from "@/lib/day-range";
 import type { UsageSyncDevice } from "@/types/api-types";
 
 // Upload format the dashboard accepts; collectors refuse dashboards that speak
@@ -50,6 +45,7 @@ export interface ParsedUpload {
   // Days whose stored buckets the upload replaces, in order
   days: string[];
   buckets: BucketRow[];
+  backfillBefore?: string;
 }
 
 export type ParseResult =
@@ -102,10 +98,14 @@ function hourStart(value: unknown, date: string, timeZone: string): Date {
     parts.second !== "00" ||
     instant.getUTCMilliseconds() !== 0
   ) {
-    throw new UploadError(`hourStart ${value} does not start an hour in ${timeZone}`);
+    throw new UploadError(
+      `hourStart ${value} does not start an hour in ${timeZone}`,
+    );
   }
   if (todayIn(timeZone, instant) !== date) {
-    throw new UploadError(`hourStart ${value} is not on ${date} in ${timeZone}`);
+    throw new UploadError(
+      `hourStart ${value} is not on ${date} in ${timeZone}`,
+    );
   }
   return instant;
 }
@@ -115,11 +115,16 @@ function parseBucket(value: unknown, timeZone: string): BucketRow {
   const date = day(value.date, "date");
   const model = value.model ?? "";
   if (typeof model !== "string" || model.length > MAX_MODEL_LENGTH) {
-    throw new UploadError(`model must be a string of at most ${MAX_MODEL_LENGTH} characters`);
+    throw new UploadError(
+      `model must be a string of at most ${MAX_MODEL_LENGTH} characters`,
+    );
   }
   const inputTokens = count(value.inputTokens, "inputTokens");
   const outputTokens = count(value.outputTokens, "outputTokens");
-  const cacheCreationTokens = count(value.cacheCreationTokens, "cacheCreationTokens");
+  const cacheCreationTokens = count(
+    value.cacheCreationTokens,
+    "cacheCreationTokens",
+  );
   const cacheReadTokens = count(value.cacheReadTokens, "cacheReadTokens");
   return {
     date,
@@ -133,7 +138,8 @@ function parseBucket(value: unknown, timeZone: string): BucketRow {
     cacheCreationTokens,
     cacheReadTokens,
     reasoningTokens: optionalCount(value.reasoningTokens, "reasoningTokens"),
-    totalTokens: inputTokens + outputTokens + cacheCreationTokens + cacheReadTokens,
+    totalTokens:
+      inputTokens + outputTokens + cacheCreationTokens + cacheReadTokens,
     cost: amount(value.cost, "cost"),
     requests: optionalCount(value.requests, "requests"),
   };
@@ -147,7 +153,9 @@ function parseDevice(value: unknown): UsageSyncDevice {
     typeof value.deviceName !== "string" ||
     !value.deviceName
   ) {
-    throw new UploadError("Invalid request format: device information is required");
+    throw new UploadError(
+      "Invalid request format: device information is required",
+    );
   }
   if (!AGENT_TYPES.includes(value.agentType as AgentType)) {
     throw new UploadError(`Invalid agent type: ${String(value.agentType)}`);
@@ -189,11 +197,19 @@ export function parseUpload(body: unknown, timeZone: string): ParseResult {
       );
     }
     if (!Array.isArray(body.buckets)) {
-      throw new UploadError("Invalid request format: buckets array is required");
+      throw new UploadError(
+        "Invalid request format: buckets array is required",
+      );
     }
 
+    const backfillBefore =
+      body.backfillBefore === undefined
+        ? undefined
+        : day(body.backfillBefore, "backfillBefore");
     const buckets = body.buckets.map((bucket) => parseBucket(bucket, timeZone));
-    const days = new Set(body.range === undefined ? [] : parseRange(body.range));
+    const days = new Set(
+      body.range === undefined ? [] : parseRange(body.range),
+    );
     const keys = new Set<string>();
     for (const bucket of buckets) {
       const key = `${bucket.date}\0${bucket.hourStart?.toISOString() ?? ""}\0${bucket.model}`;
@@ -205,9 +221,35 @@ export function parseUpload(body: unknown, timeZone: string): ParseResult {
       keys.add(key);
       days.add(bucket.date);
     }
-    return { ok: true, upload: { device, days: [...days].sort(), buckets } };
+    return {
+      ok: true,
+      upload: {
+        device,
+        days: [...days].sort(),
+        buckets,
+        ...(backfillBefore ? { backfillBefore } : {}),
+      },
+    };
   } catch (error) {
-    if (error instanceof UploadError) return { ok: false, error: error.message };
+    if (error instanceof UploadError)
+      return { ok: false, error: error.message };
     throw error;
   }
+}
+
+// Existing history belongs to a whole device/agent/day, not individual models
+// or hours. Call after locking the device row in the upload transaction.
+export function selectUploadDays(
+  upload: ParsedUpload,
+  existingDays: readonly string[],
+): ParsedUpload {
+  const cutoff = upload.backfillBefore;
+  if (!cutoff) return upload;
+  const existing = new Set(existingDays);
+  const writable = (date: string) => date >= cutoff || !existing.has(date);
+  return {
+    ...upload,
+    days: upload.days.filter(writable),
+    buckets: upload.buckets.filter((bucket) => writable(bucket.date)),
+  };
 }

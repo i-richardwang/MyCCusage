@@ -92,9 +92,9 @@ describe("parseCodexLine", () => {
     const state = initialCodexScanState();
     parseCodexLine(turnContext, state);
     const request = counters(100, 20);
-    expect(
-      parseCodexLine(counted(request, request), state)?.outputTokens,
-    ).toBe(20);
+    expect(parseCodexLine(counted(request, request), state)?.outputTokens).toBe(
+      20,
+    );
     expect(parseCodexLine(counted(counters(20, 5), request), state)).toBeNull();
     // A context-window estimate is not a request
     expect(
@@ -147,9 +147,9 @@ describe("parseCodexLine", () => {
         )?.outputTokens,
       ).toBe(20);
       expect(parseCodexLine(counted(first), state)).toBeNull();
-      expect(parseCodexLine(counted(counters(20, 5)), state)?.outputTokens).toBe(
-        5,
-      );
+      expect(
+        parseCodexLine(counted(counters(20, 5)), state)?.outputTokens,
+      ).toBe(5);
       expect(
         parseCodexLine(counted(counters(20, 5), counters(120, 25)), state),
       ).toBeNull();
@@ -176,6 +176,54 @@ describe("parseCodexLine", () => {
     expect(state.malformedRecords).toBe(0);
   });
 
+  it("ignores replayed sequence starts without rewinding the baseline", () => {
+    const state = initialCodexScanState();
+    parseCodexLine(turnContext, state);
+    const first = counted(counters(100, 20), counters(100, 20));
+    const records = [
+      first,
+      counted(counters(200, 40), counters(300, 60)),
+      first,
+      counted(counters(300, 60), counters(600, 120)),
+    ].map((line) => parseCodexLine(line, state));
+    expect(records.map((r) => r?.outputTokens ?? 0)).toEqual([20, 40, 0, 60]);
+    expect(state.malformedRecords).toBe(0);
+  });
+
+  it("allows identical counters at a new timestamp to start a genuine sequence", () => {
+    const state = initialCodexScanState();
+    parseCodexLine(turnContext, state);
+    const first = counted(counters(100, 20), counters(100, 20));
+    parseCodexLine(first, state);
+    parseCodexLine(counted(counters(200, 40), counters(300, 60)), state);
+    expect(
+      parseCodexLine(first.replace("05:17:49.919Z", "05:18:49.919Z"), state)
+        ?.outputTokens,
+    ).toBe(20);
+    expect(
+      parseCodexLine(counted(counters(10, 2), counters(110, 22)), state)
+        ?.outputTokens,
+    ).toBe(2);
+    expect(state.malformedRecords).toBe(0);
+  });
+
+  it.each([counters(0, 0), null])(
+    "forgets the sequence start after a zero cumulative baseline (last=%j)",
+    (last) => {
+      const state = initialCodexScanState();
+      parseCodexLine(turnContext, state);
+      const first = counted(counters(100, 20), counters(100, 20));
+      parseCodexLine(first, state);
+      parseCodexLine(counted(counters(200, 40), counters(300, 60)), state);
+      expect(parseCodexLine(counted(last, counters(0, 0)), state)).toBeNull();
+      expect(parseCodexLine(first, state)?.outputTokens).toBe(20);
+      expect(
+        parseCodexLine(counted(counters(10, 2), counters(110, 22)), state)
+          ?.outputTokens,
+      ).toBe(2);
+    },
+  );
+
   it("counts inconsistent counters as malformed instead of billing them", () => {
     const state = initialCodexScanState();
     parseCodexLine(turnContext, state);
@@ -185,7 +233,11 @@ describe("parseCodexLine", () => {
   });
 
   describe("forked rollouts", () => {
-    const meta = (id: string, timestamp: string, fork: Record<string, unknown>) =>
+    const meta = (
+      id: string,
+      timestamp: string,
+      fork: Record<string, unknown>,
+    ) =>
       JSON.stringify({
         type: "session_meta",
         timestamp,
@@ -240,7 +292,9 @@ describe("parseCodexLine", () => {
       const spawnInstant = "2026-08-01T05:00:00.000Z";
       parseCodexLine(
         meta("child", spawnInstant, {
-          source: { subagent: { thread_spawn: { parent_thread_id: "parent" } } },
+          source: {
+            subagent: { thread_spawn: { parent_thread_id: "parent" } },
+          },
         }),
         state,
       );

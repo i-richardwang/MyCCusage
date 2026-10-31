@@ -73,6 +73,7 @@ describe("environment-configured CLI", () => {
   let home: string;
   let env: NodeJS.ProcessEnv;
   let server: Server;
+  let historyBackfill: boolean;
   let uploads: { data: Upload; apiKey: string | string[] | undefined }[];
 
   beforeEach(async () => {
@@ -97,10 +98,17 @@ describe("environment-configured CLI", () => {
     );
 
     uploads = [];
+    historyBackfill = true;
     server = createServer(async (req, res) => {
       res.setHeader("Content-Type", "application/json");
       if (req.method === "GET") {
-        res.end(JSON.stringify({ timezone: "Asia/Shanghai", protocol: 2 }));
+        res.end(
+          JSON.stringify({
+            timezone: "Asia/Shanghai",
+            protocol: 2,
+            historyBackfill,
+          }),
+        );
         return;
       }
       let body = "";
@@ -110,7 +118,9 @@ describe("environment-configured CLI", () => {
         apiKey: req.headers["x-api-key"],
       });
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: true, days: ["2026-10-30"], buckets: 1 }));
+      res.end(
+        JSON.stringify({ success: true, days: ["2026-10-30"], buckets: 1 }),
+      );
     });
     await new Promise<void>((resolve) =>
       server.listen(0, "127.0.0.1", resolve),
@@ -188,6 +198,60 @@ describe("environment-configured CLI", () => {
     expect(existsSync(join(home, ".ccusage-collector/config.json"))).toBe(
       false,
     );
+  });
+
+  it("supports one-off full-history uploads and dry runs without changing normal sync", async () => {
+    const old = join(home, ".claude/projects/-work-app/old.jsonl");
+    writeFileSync(
+      old,
+      JSON.stringify({
+        type: "assistant",
+        timestamp: "2024-01-01T10:00:00Z",
+        requestId: "old",
+        message: {
+          id: "old",
+          model: "claude-test",
+          usage: { input_tokens: 100, output_tokens: 20 },
+        },
+      }),
+    );
+    const dry = await runCLI("sync", "--full-history", "--dry-run");
+    expect(dry.stdout).toContain('"backfillBefore"');
+    expect(dry.stdout).toContain('"2024-01-01"');
+    expect(uploads).toHaveLength(0);
+    await runCLI("sync", "--full-history");
+    expect(uploads[0]?.data.buckets.map((b) => b.date)).toContain("2024-01-01");
+    expect(uploads.every(({ data }) => Boolean(data.backfillBefore))).toBe(
+      true,
+    );
+    uploads = [];
+    await runCLI("sync");
+    expect(uploads[0]?.data.buckets.map((b) => b.date)).not.toContain(
+      "2024-01-01",
+    );
+    expect(uploads.every(({ data }) => data.backfillBefore === undefined)).toBe(
+      true,
+    );
+  });
+
+  it("refuses full-history uploads to a dashboard without safe backfill support", async () => {
+    historyBackfill = false;
+    await expect(runCLI("sync", "--full-history")).rejects.toMatchObject({
+      stderr: expect.stringContaining(
+        "Update the dashboard before using --full-history",
+      ),
+    });
+    expect(uploads).toHaveLength(0);
+  });
+
+  it("does not upload partial Claude data when an explicit source is missing, but still syncs Codex", async () => {
+    env.CLAUDE_CONFIG_DIR = `${join(home, ".claude")},${join(home, "missing")}`;
+    await expect(runCLI("sync")).rejects.toMatchObject({
+      stderr: expect.stringContaining(
+        "Cannot read configured Claude Code directory",
+      ),
+    });
+    expect(uploads.map(({ data }) => data.device.agentType)).toEqual(["codex"]);
   });
 
   it("generates device defaults without creating a config file", async () => {
@@ -318,7 +382,13 @@ describe("environment-configured CLI", () => {
     server.removeAllListeners("request");
     server.on("request", async (req, res) => {
       if (req.method === "GET") {
-        res.end(JSON.stringify({ timezone: "Asia/Shanghai", protocol: 2 }));
+        res.end(
+          JSON.stringify({
+            timezone: "Asia/Shanghai",
+            protocol: 2,
+            historyBackfill,
+          }),
+        );
         return;
       }
       let body = "";
@@ -329,7 +399,9 @@ describe("environment-configured CLI", () => {
       });
       await blocked;
       res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ success: true, days: ["2026-10-30"], buckets: 1 }));
+      res.end(
+        JSON.stringify({ success: true, days: ["2026-10-30"], buckets: 1 }),
+      );
     });
     const first = runCLI("sync");
     try {

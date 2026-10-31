@@ -25,8 +25,9 @@ const HOURLY_WINDOW_DAYS = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export interface TranscriptCollection {
-  // Days the buckets cover completely; absent when there is no usage
+  // Recent days covered completely; absent when there is no recent usage
   range?: DayRange;
+  backfillBefore?: string;
   buckets: UsageBucket[];
   // Models without known prices; their tokens count at zero cost
   unpricedModels: string[];
@@ -38,6 +39,7 @@ interface TranscriptOptions {
   claudeConfigDirs?: readonly string[];
   env?: NodeJS.ProcessEnv;
   now?: Date;
+  fullHistory?: boolean;
 }
 
 // Directories to read, and how many days back they hold every transcript
@@ -172,7 +174,8 @@ export function bucketRequests(
  * to HOURLY_WINDOW_DAYS. The range ends today and starts no earlier than the
  * first request found, so transcripts lost with a reinstalled machine never
  * erase days the dashboard already holds. Days before the range keep what
- * earlier syncs stored.
+ * earlier syncs stored. Full-history scans also include older buckets, marked
+ * for insertion only on days the server does not already hold.
  */
 export async function collectTranscriptUsage(
   agent: TranscriptAgent,
@@ -193,7 +196,10 @@ export async function collectTranscriptUsage(
   const files: UsageRequest[][] = [];
   let malformedRecords = 0;
   for (const dir of dirs) {
-    for (const file of await listTranscriptFiles(dir, start.getTime())) {
+    for (const file of await listTranscriptFiles(
+      dir,
+      options.fullHistory ? -Infinity : start.getTime(),
+    )) {
       const read = await readRequests(agent, file.path);
       files.push(read.requests);
       malformedRecords += read.malformedRecords;
@@ -202,11 +208,18 @@ export async function collectTranscriptUsage(
   if (agent === "codex") keySharedSessions(files);
   const usage = {
     ...bucketRequests(files, calendar, pricing, [
-      start.getTime(),
+      options.fullHistory ? -Infinity : start.getTime(),
       end.getTime(),
     ]),
     malformedRecords,
   };
-  const first = usage.buckets[0]?.date;
-  return first ? { range: { from: first, to: today }, ...usage } : usage;
+  const refreshFrom = calendar.dayOf(start);
+  const first = usage.buckets.find(
+    (bucket) => bucket.date >= refreshFrom,
+  )?.date;
+  return {
+    ...usage,
+    ...(first ? { range: { from: first, to: today } } : {}),
+    ...(options.fullHistory ? { backfillBefore: refreshFrom } : {}),
+  };
 }

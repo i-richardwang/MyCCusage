@@ -5,7 +5,7 @@ import { devices, usageBuckets } from '@/src/db/schema'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import type { UsageSyncResponse } from '@/types/api-types'
 import { getAccountTimeZone } from '@/lib/account-timezone'
-import { parseUpload, SYNC_PROTOCOL } from '@/lib/usage-sync'
+import { parseUpload, selectUploadDays, SYNC_PROTOCOL } from '@/lib/usage-sync'
 
 // Rows per insert statement, well below PostgreSQL's parameter limit
 const INSERT_CHUNK = 1000
@@ -47,7 +47,8 @@ export async function GET(request: NextRequest) {
   try {
     return NextResponse.json({
       timezone: getAccountTimeZone(),
-      protocol: SYNC_PROTOCOL
+      protocol: SYNC_PROTOCOL,
+      historyBackfill: true
     })
   } catch (error) {
     console.error('Account time zone error:', error)
@@ -77,9 +78,9 @@ export async function POST(request: NextRequest) {
     if (!parsed.ok) {
       return NextResponse.json({ error: parsed.error }, { status: 400 })
     }
-    const { device, days, buckets } = parsed.upload
+    const { device } = parsed.upload
 
-    await db.transaction(async (tx) => {
+    const applied = await db.transaction(async (tx) => {
       await tx
         .insert(devices)
         .values({
@@ -95,6 +96,19 @@ export async function POST(request: NextRequest) {
             updatedAt: new Date()
           }
         })
+
+      // The device upsert holds its row lock through commit, serializing
+      // concurrent uploads before deciding which historical days are missing.
+      const existing = parsed.upload.backfillBefore && parsed.upload.days.length > 0
+        ? await tx.selectDistinct({ date: usageBuckets.date })
+            .from(usageBuckets)
+            .where(and(
+              eq(usageBuckets.deviceId, device.deviceId),
+              eq(usageBuckets.agentType, device.agentType),
+              inArray(usageBuckets.date, parsed.upload.days)
+            ))
+        : []
+      const { days, buckets } = selectUploadDays(parsed.upload, existing.map(({ date }) => date))
 
       // The upload states these days completely: hours, models and day
       // buckets it does not report go
@@ -119,12 +133,12 @@ export async function POST(request: NextRequest) {
           }))
         )
       }
+      return { days, buckets: buckets.length }
     })
 
     const response: UsageSyncResponse = {
       success: true,
-      days,
-      buckets: buckets.length
+      ...applied
     }
     return NextResponse.json(response)
   } catch (error) {

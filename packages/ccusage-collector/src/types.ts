@@ -68,6 +68,8 @@ export interface UsageData {
   // where the upload has no bucket. Without a range only the days of the
   // buckets are replaced.
   range?: DayRange;
+  // Earlier days are inserted only if this device/agent has no stored usage.
+  backfillBefore?: string;
   buckets: UsageBucket[];
 }
 

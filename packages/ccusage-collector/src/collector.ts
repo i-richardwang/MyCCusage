@@ -191,15 +191,19 @@ async function collectTranscripts(
   config: CollectorConfig,
   calendar: Calendar,
   pricing: PricingTable,
+  fullHistory: boolean,
 ): Promise<CollectedUsage> {
-  const { range, buckets, unpricedModels, malformedRecords } =
+  const { range, buckets, backfillBefore, unpricedModels, malformedRecords } =
     await collectTranscriptUsage(agent, calendar, pricing, {
       claudeConfigDirs: config.claudeConfigDirs,
+      fullHistory,
     });
   console.log(
-    range
-      ? `Read ${agent} usage from ${range.from} to ${range.to}`
-      : `No recent ${agent} usage found`,
+    fullHistory
+      ? `Read all available ${agent} history; preserve existing days before ${backfillBefore}`
+      : range
+        ? `Read ${agent} usage from ${range.from} to ${range.to}`
+        : `No recent ${agent} usage found`,
   );
   if (unpricedModels.length > 0) {
     console.warn(
@@ -211,10 +215,10 @@ async function collectTranscripts(
       `Skipped ${malformedRecords} inconsistent ${agent} usage records.`,
     );
   }
-  return { range, buckets };
+  return { range, buckets, backfillBefore };
 }
 
-type CollectedUsage = Pick<UsageData, "buckets" | "range">;
+type CollectedUsage = Pick<UsageData, "buckets" | "range" | "backfillBefore">;
 
 // Sources that record each request's time report hours; AMP and ccusage
 // report whole days.
@@ -223,11 +227,18 @@ async function collectFromSource(
   config: CollectorConfig,
   calendar: Calendar,
   pricing: () => Promise<PricingTable>,
+  fullHistory: boolean,
 ): Promise<CollectedUsage> {
   switch (agent) {
     case "claude-code":
     case "codex":
-      return collectTranscripts(agent, config, calendar, await pricing());
+      return collectTranscripts(
+        agent,
+        config,
+        calendar,
+        await pricing(),
+        fullHistory,
+      );
     case "dimagent":
       console.log("Collecting dimagent usage data from local SQLite store");
       return { buckets: collectDimagentUsage(calendar) };
@@ -250,7 +261,10 @@ export class UsageCollector {
   // Loaded once per collector, on first use
   private readonly loadPricing = () => (this.pricing ??= loadPricing());
 
-  constructor(config: CollectorConfig) {
+  constructor(
+    config: CollectorConfig,
+    private readonly options: { fullHistory?: boolean } = {},
+  ) {
     this.config = {
       ...config,
       agentTypes: [...config.agentTypes],
@@ -264,6 +278,7 @@ export class UsageCollector {
     const { endpoint, apiKey } = this.config;
     let timeZone: unknown;
     let protocol: unknown;
+    let historyBackfill: unknown;
     try {
       const response = await axios.get(endpoint, {
         headers: { "x-api-key": apiKey },
@@ -271,6 +286,7 @@ export class UsageCollector {
       });
       timeZone = response.data?.timezone;
       protocol = response.data?.protocol;
+      historyBackfill = response.data?.historyBackfill;
     } catch (error) {
       const message = axios.isAxiosError(error)
         ? error.response?.data?.error || error.message
@@ -280,6 +296,11 @@ export class UsageCollector {
     if (protocol !== SYNC_PROTOCOL) {
       throw new Error(
         `The dashboard speaks sync protocol ${String(protocol ?? "none")}, this collector ${SYNC_PROTOCOL}; update the older of the two`,
+      );
+    }
+    if (this.options.fullHistory && historyBackfill !== true) {
+      throw new Error(
+        "Update the dashboard before using --full-history; it must support safe history backfill",
       );
     }
     if (typeof timeZone !== "string" || !isTimeZone(timeZone)) {
@@ -294,11 +315,12 @@ export class UsageCollector {
     calendar: Calendar,
   ): Promise<UsageData> {
     try {
-      const { buckets, range } = await collectFromSource(
+      const { buckets, range, backfillBefore } = await collectFromSource(
         agent,
         this.config,
         calendar,
         this.loadPricing,
+        this.options.fullHistory === true,
       );
 
       // Copy the resolved identity so each agent keeps its own metadata.
@@ -317,6 +339,7 @@ export class UsageCollector {
         device: deviceInfo,
         timezone: calendar.timeZone,
         ...(range ? { range } : {}),
+        ...(backfillBefore ? { backfillBefore } : {}),
         buckets,
       };
 

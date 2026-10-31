@@ -92,6 +92,13 @@ function advanceUsage(
   );
 }
 
+function rebaseUsage(state: CodexScanState, cumulative: CodexTokenUsage): void {
+  state.lastCumulativeUsage = cumulative;
+  if (cumulative.input_tokens + cumulative.output_tokens === 0) {
+    delete state.sequenceStartSignature;
+  }
+}
+
 /**
  * `token_count` events carry no model or service tier, so both carry forward
  * through the file: the model from the latest `turn_context`, the tier from
@@ -105,6 +112,7 @@ export interface CodexScanState {
   lastCumulativeUsage: CodexTokenUsage | null;
   // Usage events skipped as inconsistent
   malformedRecords: number;
+  sequenceStartSignature?: string;
   sawSessionMeta: boolean;
   suppressingForkCopies: boolean;
   forkCopyAnchorMs: number;
@@ -211,7 +219,7 @@ export function parseCodexLine(
       state.forkCopyAnchorMs = timestampMs;
       // Copied history is billed in the parent, but sets the child's baseline
       const signature = last === null ? null : JSON.stringify(last);
-      if (cumulative !== null) state.lastCumulativeUsage = cumulative;
+      if (cumulative !== null) rebaseUsage(state, cumulative);
       else if (
         !hasCumulative &&
         last !== null &&
@@ -231,7 +239,7 @@ export function parseCodexLine(
 
   const previous = state.lastCumulativeUsage;
   // A valid snapshot stays the next baseline even if its request is malformed
-  if (cumulative !== null) state.lastCumulativeUsage = cumulative;
+  if (cumulative !== null) rebaseUsage(state, cumulative);
   if (last === null || (hasCumulative && cumulative === null)) {
     state.malformedRecords += 1;
     return null;
@@ -259,7 +267,14 @@ export function parseCodexLine(
   const signature = JSON.stringify(last);
   if (cumulative !== null) {
     // A session resumed in a new process restarts its cumulative counters
-    const restarted = USAGE_FIELDS.every((key) => cumulative[key] === last[key]);
+    const restarted = USAGE_FIELDS.every(
+      (key) => cumulative[key] === last[key],
+    );
+    const sequenceStart = JSON.stringify([timestampMs, last]);
+    if (restarted && sequenceStart === state.sequenceStartSignature) {
+      state.lastCumulativeUsage = previous;
+      return null;
+    }
     // Forks and continuations can inherit totals without a counter snapshot;
     // bill only the latest request, and require the unseen prefix to be valid
     const reconciled =
@@ -276,6 +291,7 @@ export function parseCodexLine(
       state.malformedRecords += 1;
       return null;
     }
+    if (restarted) state.sequenceStartSignature = sequenceStart;
   } else {
     if (signature === state.lastUsageSignature) return null;
     // Advance expected totals so a later cumulative re-emission is stale

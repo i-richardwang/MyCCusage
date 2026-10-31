@@ -380,3 +380,27 @@ MIT License - see [LICENSE](LICENSE) file for details.
 - 🐛 [Report bugs](https://github.com/i-richardwang/MyCCusage/issues)
 - 💡 [Request features](https://github.com/i-richardwang/MyCCusage/issues)
 - 📚 [Documentation](https://github.com/i-richardwang/MyCCusage/blob/main/README.md)
+
+### One-time history backfill
+
+```bash
+ccusage-collector sync --full-history --dry-run
+ccusage-collector sync --full-history
+```
+
+`--full-history` reads all available Claude Code and Codex transcripts, including
+files older than the normal 30-day refresh window. It applies only to this run;
+scheduled syncs and other agents keep their existing behavior. Update the dashboard
+first: the collector refuses backfill unless it advertises safe history support.
+
+Recent days are refreshed as usual. Before the refresh window (shorter when Claude
+has a shorter retention period), only dates with no stored usage for this device
+and agent are inserted. Existing historical days are preserved in full, including
+their models and hours. Repeating a backfill is safe, but does not upgrade or repair
+already stored old days. Deleted transcripts cannot be recovered; imported old
+Claude days may be partial if some of their transcripts have already expired.
+
+Every explicitly configured Claude directory (including `CLAUDE_CONFIG_DIR`) must
+be accessible. If any is missing or unreadable, Claude sync fails without uploading
+partial data; other agents continue. Missing auto-detected default directories are
+still skipped.

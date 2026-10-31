@@ -210,3 +210,9 @@ MIT License - see [LICENSE](LICENSE) file for details.
 - Create an issue for bug reports or feature requests
 - Check the [documentation](docs/) for detailed guides
 - Join our community discussions
+
+To import available Claude Code and Codex history older than the regular refresh
+window, run `ccusage-collector sync --full-history` once after updating the
+dashboard. Add `--dry-run` to inspect the upload first. Existing old days are
+preserved; only missing historical dates are filled. See the
+[collector backfill documentation](packages/ccusage-collector/README.md#one-time-history-backfill).

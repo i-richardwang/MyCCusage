@@ -94,10 +94,7 @@ describe("bucketRequests", () => {
     const { buckets } = bucketRequests(
       [
         [request({ dedupeKey: "m:r" }), request({ dedupeKey: "m:r" })],
-        [
-          request({ dedupeKey: "m:r" }),
-          request({ timestampMs: start - 1 }),
-        ],
+        [request({ dedupeKey: "m:r" }), request({ timestampMs: start - 1 })],
       ],
       calendar,
       pricing,
@@ -195,10 +192,15 @@ describe("collectTranscriptUsage", () => {
       new Date("2026-10-01T00:00:00Z"),
     );
 
-    const usage = await collectTranscriptUsage("claude-code", calendar, pricing, {
-      claudeConfigDirs: [join(home, "a"), join(home, "b")],
-      now,
-    });
+    const usage = await collectTranscriptUsage(
+      "claude-code",
+      calendar,
+      pricing,
+      {
+        claudeConfigDirs: [join(home, "a"), join(home, "b")],
+        now,
+      },
+    );
     expect(usage.range).toEqual({ from: "2026-10-24", to: "2026-10-30" });
     expect(usage.buckets.map(({ date, requests }) => [date, requests])).toEqual(
       [
@@ -273,10 +275,15 @@ describe("collectTranscriptUsage", () => {
 
   it("starts the range at the first request, leaving earlier days alone", async () => {
     mkdirSync(join(home, "c/projects"), { recursive: true });
-    const empty = await collectTranscriptUsage("claude-code", calendar, pricing, {
-      claudeConfigDirs: [join(home, "c")],
-      now,
-    });
+    const empty = await collectTranscriptUsage(
+      "claude-code",
+      calendar,
+      pricing,
+      {
+        claudeConfigDirs: [join(home, "c")],
+        now,
+      },
+    );
     expect(empty).toEqual({
       buckets: [],
       unpricedModels: [],
@@ -288,11 +295,98 @@ describe("collectTranscriptUsage", () => {
       [claudeLine("2026-10-30T09:00:00Z", "1")],
       now,
     );
-    const usage = await collectTranscriptUsage("claude-code", calendar, pricing, {
-      claudeConfigDirs: [join(home, "c")],
-      now,
-    });
+    const usage = await collectTranscriptUsage(
+      "claude-code",
+      calendar,
+      pricing,
+      {
+        claudeConfigDirs: [join(home, "c")],
+        now,
+      },
+    );
     expect(usage.range).toEqual({ from: "2026-10-30", to: "2026-10-30" });
+  });
+
+  it.each(["claude-code", "codex"] as const)(
+    "backfills old %s buckets without claiming complete old days",
+    async (agent) => {
+      const old = "2025-01-01T10:00:00Z";
+      if (agent === "claude-code") {
+        write(
+          "history/projects/p/s.jsonl",
+          [claudeLine(old, "old"), claudeLine("2026-10-29T10:00:00Z", "new")],
+          now,
+        );
+      } else {
+        write(
+          "history/sessions/s.jsonl",
+          [
+            { type: "turn_context", payload: { model: "gpt-test" } },
+            {
+              type: "event_msg",
+              timestamp: old,
+              payload: {
+                type: "token_count",
+                info: {
+                  last_token_usage: { input_tokens: 10, output_tokens: 5 },
+                },
+              },
+            },
+            {
+              type: "event_msg",
+              timestamp: "2026-10-29T10:00:00Z",
+              payload: {
+                type: "token_count",
+                info: {
+                  last_token_usage: { input_tokens: 20, output_tokens: 5 },
+                },
+              },
+            },
+          ],
+          now,
+        );
+      }
+      const options = {
+        now,
+        claudeConfigDirs: [join(home, "history")],
+        env: { CODEX_HOME: join(home, "history") },
+      };
+      const recent = await collectTranscriptUsage(
+        agent,
+        calendar,
+        pricing,
+        options,
+      );
+      expect(recent.buckets.map((b) => b.date)).toEqual(["2026-10-29"]);
+      expect(recent.backfillBefore).toBeUndefined();
+      const full = await collectTranscriptUsage(agent, calendar, pricing, {
+        ...options,
+        fullHistory: true,
+      });
+      expect(full.buckets.map((b) => b.date)).toEqual([
+        "2025-01-01",
+        "2026-10-29",
+      ]);
+      expect(full.backfillBefore).toBe("2026-10-01");
+      expect(full.range).toEqual({ from: "2026-10-29", to: "2026-10-30" });
+    },
+  );
+
+  it("reads old files on a history-only backfill without creating a long replacement range", async () => {
+    write(
+      "c/projects/p/old.jsonl",
+      [claudeLine("2024-01-01T10:00:00Z", "old")],
+      new Date("2024-01-01T10:00:00Z"),
+    );
+    const result = await collectTranscriptUsage(
+      "claude-code",
+      calendar,
+      pricing,
+      { now, claudeConfigDirs: [join(home, "c")], fullHistory: true },
+    );
+    expect(result.buckets.map((b) => b.date)).toEqual(["2024-01-01"]);
+    expect(result.range).toBeUndefined();
+    expect(result.backfillBefore).toBe("2026-10-01");
   });
 
   it("fails instead of reporting empty usage when the agent has no data directory", async () => {
@@ -301,7 +395,7 @@ describe("collectTranscriptUsage", () => {
         claudeConfigDirs: [join(home, "missing")],
         now,
       }),
-    ).rejects.toThrow("No Claude Code transcripts found");
+    ).rejects.toThrow("Cannot read configured Claude Code directory");
     await expect(
       collectTranscriptUsage("codex", calendar, pricing, {
         env: { CODEX_HOME: join(home, "missing") },

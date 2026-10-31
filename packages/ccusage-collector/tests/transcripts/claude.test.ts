@@ -131,16 +131,24 @@ describe("Claude config directories", () => {
     return dir;
   }
 
-  it("accepts config or projects directories, once each, skipping missing ones", () => {
+  it("accepts config or projects directories, once each", () => {
     home = realpathSync(mkdtempSync(join(tmpdir(), "claude-sources-")));
     const a = configDir("a");
     const b = configDir("b");
-    expect(
-      claudeSources([a, join(a, "projects"), join(home, "missing"), b]),
-    ).toEqual([
+    expect(claudeSources([a, join(a, "projects"), b])).toEqual([
       { configDir: a, projectsDir: join(a, "projects") },
       { configDir: b, projectsDir: join(b, "projects") },
     ]);
+  });
+
+  it("rejects a missing explicit source even when another source exists", () => {
+    home = realpathSync(mkdtempSync(join(tmpdir(), "claude-sources-")));
+    const a = configDir("a");
+    const missing = join(home, "missing");
+    expect(() => claudeSources([a, missing])).toThrow(missing);
+    expect(() =>
+      claudeSources(undefined, { CLAUDE_CONFIG_DIR: `${a},${missing}` }),
+    ).toThrow(missing);
   });
 
   it("falls back to a comma-separated CLAUDE_CONFIG_DIR", () => {

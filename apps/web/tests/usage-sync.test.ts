@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseUpload, SYNC_PROTOCOL } from "@/lib/usage-sync";
+import { parseUpload, selectUploadDays, SYNC_PROTOCOL } from "@/lib/usage-sync";
 
 const device = {
   deviceId: "d1",
@@ -83,11 +83,15 @@ describe("parseUpload", () => {
 
   it("requires hours that start on the account's clocks and lie in their day", () => {
     expect(
-      error(upload({ buckets: [{ ...bucket, hourStart: "2026-10-30T01:30:00Z" }] })),
+      error(
+        upload({ buckets: [{ ...bucket, hourStart: "2026-10-30T01:30:00Z" }] }),
+      ),
     ).toContain("does not start an hour");
     // 16:00 UTC is midnight of the next day in Shanghai
     expect(
-      error(upload({ buckets: [{ ...bucket, hourStart: "2026-10-30T16:00:00Z" }] })),
+      error(
+        upload({ buckets: [{ ...bucket, hourStart: "2026-10-30T16:00:00Z" }] }),
+      ),
     ).toContain("is not on 2026-10-30");
     // Kolkata hours start at half past UTC hours
     expect(
@@ -107,9 +111,9 @@ describe("parseUpload", () => {
     expect(error(upload({ timezone: "UTC" }))).toContain(
       "account time zone Asia/Shanghai",
     );
-    expect(error(upload({ device: { ...device, agentType: "nope" } }))).toContain(
-      "Invalid agent type",
-    );
+    expect(
+      error(upload({ device: { ...device, agentType: "nope" } })),
+    ).toContain("Invalid agent type");
     expect(error(upload({ device: { deviceName: "x" } }))).toContain(
       "device information",
     );
@@ -122,9 +126,9 @@ describe("parseUpload", () => {
     expect(error(upload({ buckets: [bucket, bucket] }))).toContain(
       "Duplicate bucket",
     );
-    expect(error(upload({ buckets: [{ ...bucket, cost: Number.NaN }] }))).toContain(
-      "cost",
-    );
+    expect(
+      error(upload({ buckets: [{ ...bucket, cost: Number.NaN }] })),
+    ).toContain("cost");
     expect(
       error(upload({ range: { from: "2026-10-30", to: "2026-10-01" } })),
     ).toContain("range");
@@ -139,4 +143,53 @@ describe("parseUpload", () => {
       "Unsupported sync protocol none",
     );
   });
+});
+
+it("backfills missing days but preserves every bucket on existing historical days", () => {
+  const parsed = parse(
+    upload({
+      backfillBefore: "2026-10-01",
+      range: { from: "2026-10-29", to: "2026-10-30" },
+      buckets: [
+        { ...bucket, hourStart: undefined, date: "2024-01-01" },
+        {
+          ...bucket,
+          hourStart: undefined,
+          date: "2024-01-01",
+          model: "another-model",
+        },
+        { ...bucket, hourStart: undefined, date: "2024-01-02" },
+        { ...bucket, hourStart: undefined, date: "2026-10-01" },
+        bucket,
+      ],
+    }),
+  );
+  if (!parsed.ok) throw new Error(parsed.error);
+  const applied = selectUploadDays(parsed.upload, [
+    "2024-01-01",
+    "2026-10-01",
+    "2026-10-29",
+    "2026-10-30",
+  ]);
+  expect(applied.days).toEqual([
+    "2024-01-02",
+    "2026-10-01",
+    "2026-10-29",
+    "2026-10-30",
+  ]);
+  expect(applied.buckets.map((b) => b.date)).toEqual([
+    "2024-01-02",
+    "2026-10-01",
+    "2026-10-30",
+  ]);
+  // A retry cannot insert the old missing day's usage twice.
+  expect(
+    selectUploadDays(parsed.upload, [
+      ...applied.days,
+      "2024-01-01",
+    ]).buckets.map((b) => b.date),
+  ).toEqual(["2026-10-01", "2026-10-30"]);
+  expect(error(upload({ backfillBefore: "not-a-day" }))).toContain(
+    "backfillBefore",
+  );
 });

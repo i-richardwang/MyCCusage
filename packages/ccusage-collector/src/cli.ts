@@ -27,7 +27,13 @@ program
   .command("sync")
   .description("Run a single sync operation")
   .option("--dry-run", "Collect data but don't sync to server")
-  .action(async (options: { dryRun?: boolean }) => runSync(options));
+  .option(
+    "--full-history",
+    "Backfill all available Claude Code and Codex history; preserve existing old days",
+  )
+  .action(async (options: { dryRun?: boolean; fullHistory?: boolean }) =>
+    runSync(options),
+  );
 
 program
   .command("status")

@@ -98,7 +98,8 @@ export function parseClaudeLine(line: string): UsageRequest[] {
     reasoningTokens: isRecord(details)
       ? tokenCount(details.thinking_tokens)
       : null,
-    reportedCost: typeof cost === "number" && Number.isFinite(cost) ? cost : null,
+    reportedCost:
+      typeof cost === "number" && Number.isFinite(cost) ? cost : null,
     speed,
     ...(inferenceGeo ? { inferenceGeo } : {}),
     dedupeKey,
@@ -157,8 +158,8 @@ function realPath(path: string): string | null {
  * Claude Code config directories to read, in the order ccusage looks them up:
  * the configured list, else CLAUDE_CONFIG_DIR (comma-separated), else
  * ~/.config/claude and ~/.claude. An entry may name a config directory or its
- * projects/ directory. Entries without transcripts are skipped, and a
- * directory listed twice is read once.
+ * projects/ directory. Missing defaults are skipped; explicit directories
+ * must exist. A directory listed twice is read once.
  */
 export function claudeSources(
   configured: readonly string[] | undefined,
@@ -172,6 +173,7 @@ export function claudeSources(
     : fromEnv?.length
       ? fromEnv
       : [join(homedir(), ".config", "claude"), join(homedir(), ".claude")];
+  const explicit = Boolean(configured?.length || fromEnv?.length);
   const sources: ClaudeSource[] = [];
   const seen = new Set<string>();
   for (const entry of entries) {
@@ -179,7 +181,12 @@ export function claudeSources(
     const projectsDir = realPath(
       basename(dir) === "projects" ? dir : join(dir, "projects"),
     );
-    if (projectsDir === null || seen.has(projectsDir)) continue;
+    if (projectsDir === null) {
+      if (explicit)
+        throw new Error(`Cannot read configured Claude Code directory: ${dir}`);
+      continue;
+    }
+    if (seen.has(projectsDir)) continue;
     seen.add(projectsDir);
     sources.push({ configDir: dirname(projectsDir), projectsDir });
   }

@@ -5,6 +5,7 @@ import { acquireLock, trackSync, CollectorBusyError } from "./runtime-state.js";
 
 interface SyncOptions {
   dryRun?: boolean;
+  fullHistory?: boolean;
   scheduled?: boolean;
 }
 
@@ -24,7 +25,9 @@ export async function runSync(options: SyncOptions = {}): Promise<void> {
     throw error;
   }
   try {
-    const collector = new UsageCollector(config);
+    const collector = new UsageCollector(config, {
+      fullHistory: options.fullHistory,
+    });
     if (options.dryRun) {
       console.log(
         `🧪 Dry run mode: collecting data for ${formatAgentList(config.agentTypes)}`,
