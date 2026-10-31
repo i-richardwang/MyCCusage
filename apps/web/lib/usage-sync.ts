@@ -3,7 +3,7 @@
  * agent as buckets: an hour of the account calendar (hourStart set) or a whole
  * day, per model.
  *
- *   { version, device, timezone, range?, buckets: [{ date, hourStart?, model,
+ *   { version, device, timezone, range?, backfillBefore?, buckets: [{ date, hourStart?, model,
  *     inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens,
  *     reasoningTokens?, cost, requests? }] }
  *
@@ -13,13 +13,13 @@
  * earlier days with existing device/agent usage are preserved in full.
  */
 
-import { AGENT_TYPES, type AgentType } from "@/src/db/schema";
+import { AGENT_TYPES, type AgentType } from "@/types/agent-types";
 import { daysBetween, daysIn, isDay, partsOf, todayIn } from "@/lib/day-range";
 import type { UsageSyncDevice } from "@/types/api-types";
 
 // Upload format the dashboard accepts; collectors refuse dashboards that speak
 // another
-export const SYNC_PROTOCOL = 2;
+export const SYNC_PROTOCOL = 3;
 
 // A range covers at most this many days
 const MAX_RANGE_DAYS = 400;
@@ -239,16 +239,15 @@ export function parseUpload(body: unknown, timeZone: string): ParseResult {
 
 // Existing history belongs to a whole device/agent/day, not individual models
 // or hours. Call after locking the device row in the upload transaction.
-export function selectUploadDays(
+export function planUsageWrite(
   upload: ParsedUpload,
   existingDays: readonly string[],
-): ParsedUpload {
+): Pick<ParsedUpload, "days" | "buckets"> {
   const cutoff = upload.backfillBefore;
   if (!cutoff) return upload;
   const existing = new Set(existingDays);
   const writable = (date: string) => date >= cutoff || !existing.has(date);
   return {
-    ...upload,
     days: upload.days.filter(writable),
     buckets: upload.buckets.filter((bucket) => writable(bucket.date)),
   };

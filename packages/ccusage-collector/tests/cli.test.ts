@@ -73,7 +73,7 @@ describe("environment-configured CLI", () => {
   let home: string;
   let env: NodeJS.ProcessEnv;
   let server: Server;
-  let historyBackfill: boolean;
+  let protocol: number;
   let uploads: { data: Upload; apiKey: string | string[] | undefined }[];
 
   beforeEach(async () => {
@@ -98,15 +98,14 @@ describe("environment-configured CLI", () => {
     );
 
     uploads = [];
-    historyBackfill = true;
+    protocol = 3;
     server = createServer(async (req, res) => {
       res.setHeader("Content-Type", "application/json");
       if (req.method === "GET") {
         res.end(
           JSON.stringify({
             timezone: "Asia/Shanghai",
-            protocol: 2,
-            historyBackfill,
+            protocol,
           }),
         );
         return;
@@ -181,7 +180,7 @@ describe("environment-configured CLI", () => {
     ]);
     for (const { data, apiKey } of uploads) {
       expect(apiKey).toBe("test-api-key");
-      expect(data).toMatchObject({ version: 2, timezone: "Asia/Shanghai" });
+      expect(data).toMatchObject({ version: 3, timezone: "Asia/Shanghai" });
       expect(data.range).toEqual({
         from: data.buckets[0]?.date,
         to: today,
@@ -234,12 +233,10 @@ describe("environment-configured CLI", () => {
     );
   });
 
-  it("refuses full-history uploads to a dashboard without safe backfill support", async () => {
-    historyBackfill = false;
+  it("rejects older sync protocols before uploading history", async () => {
+    protocol = 2;
     await expect(runCLI("sync", "--full-history")).rejects.toMatchObject({
-      stderr: expect.stringContaining(
-        "Update the dashboard before using --full-history",
-      ),
+      stderr: expect.stringContaining("dashboard speaks sync protocol 2"),
     });
     expect(uploads).toHaveLength(0);
   });
@@ -385,8 +382,7 @@ describe("environment-configured CLI", () => {
         res.end(
           JSON.stringify({
             timezone: "Asia/Shanghai",
-            protocol: 2,
-            historyBackfill,
+            protocol,
           }),
         );
         return;

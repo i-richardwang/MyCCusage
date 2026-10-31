@@ -8,7 +8,7 @@ import {
   CardTitle,
 } from "@workspace/ui/components/card";
 import { Progress } from "@workspace/ui/components/progress";
-import { AGENT_TYPE_LABELS } from "@/types/chart-types";
+import { AGENT_TYPE_LABELS } from "@/types/agent-types";
 import type { ModelTotals } from "@/lib/usage-view";
 
 interface ModelUsageProps {

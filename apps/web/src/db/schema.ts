@@ -11,18 +11,6 @@ import {
   unique,
 } from "drizzle-orm/pg-core";
 
-// Define agent types as a const for type safety
-export const AGENT_TYPES = [
-  "claude-code",
-  "opencode",
-  "amp",
-  "codex",
-  "dimagent",
-  "cursor",
-  "antigravity",
-] as const;
-export type AgentType = (typeof AGENT_TYPES)[number];
-
 // Devices table for tracking different devices
 export const devices = pgTable(
   "devices",
@@ -48,8 +36,8 @@ export const devices = pgTable(
 
 // Usage of one agent with one model on one device: in an hour of the account
 // calendar when hour_start is set, otherwise in a whole day, for sources and
-// days whose hours are unknown. Each upload replaces whole days of a device's
-// agent. Model "" holds usage its source did not attribute to a model.
+// days whose hours are unknown. Writes operate on whole device/agent days.
+// Model "" holds usage its source did not attribute to a model.
 export const usageBuckets = pgTable(
   "usage_buckets",
   {

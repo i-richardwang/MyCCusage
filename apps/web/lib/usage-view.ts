@@ -13,12 +13,12 @@ import {
 } from "@/lib/day-range";
 import type { UsageStatsResponse } from "@/types/api-types";
 import type {
-  AgentType,
   HourlyRecord,
   PresetRange,
   UsageMetrics,
   UsageRecord,
 } from "@/types/chart-types";
+import { type AgentType } from "@/types/agent-types";
 
 // A preset, or a range picked in the calendar
 export type Period = PresetRange | DayRange;
@@ -102,7 +102,7 @@ function ratio(part: number, whole: number): number {
 }
 
 export function isActive(usage: UsageMetrics): boolean {
-  return usage.totalTokens > 0;
+  return usage.totalTokens > 0 || usage.totalCost > 0;
 }
 
 // Presets end today; all time starts on the account's first recorded day

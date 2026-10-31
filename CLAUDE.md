@@ -85,6 +85,16 @@ pnpm db:studio               # Open Drizzle Studio to view/edit data
   days of one device's agent, so a day holds either hours or day buckets
 - `devices` - Device information and metadata
 
+## Usage collection and synchronization
+
+- `packages/ccusage-collector/src/ccusage.ts` adapts OpenCode and Antigravity CLI output. Claude Code and Codex use `transcripts/`; AMP, Cursor and DimAgent have their own adapters.
+- The collector owns source reads, pricing and account-calendar bucketing. `collector.ts` coordinates the adapters and transport; `sync.ts` owns command locking and run status.
+- Sync protocol 3 defines timezone validation, hourly/model buckets, and `backfillBefore`. It has one version check, with no capability negotiation or legacy upload path.
+- `apps/web/lib/usage-sync.ts` validates uploads and plans which complete days to write. `usage-store.ts` performs that plan in a database transaction; the HTTP route handles authentication and responses.
+- Normal uploads replace complete device/agent days. Full-history uploads preserve any existing day before `backfillBefore`; only missing historical days are inserted. Provider transcript retention may make imported old history incomplete.
+- `selectUsage` derives dashboard totals, models and hourly coverage from the selected records. Components render those results.
+- PostgreSQL integration tests use `MYCCUSAGE_TEST_DATABASE_URL`, a disposable local database, and isolated schemas. CI runs them against PostgreSQL 15.
+
 ## Chart Development Standards
 
 ### Architecture Overview

@@ -28,7 +28,11 @@ const record = (
   ...overrides,
 });
 
-const hour = (hourStart: string, date: string, tokens: number): HourlyRecord => ({
+const hour = (
+  hourStart: string,
+  date: string,
+  tokens: number,
+): HourlyRecord => ({
   hourStart,
   date,
   agentType: "claude-code",
@@ -37,7 +41,10 @@ const hour = (hourStart: string, date: string, tokens: number): HourlyRecord => 
 
 describe("hoursIn", () => {
   it("lists the hours of account days, including DST days", () => {
-    const shanghai = hoursIn({ from: "2026-10-30", to: "2026-10-30" }, "Asia/Shanghai");
+    const shanghai = hoursIn(
+      { from: "2026-10-30", to: "2026-10-30" },
+      "Asia/Shanghai",
+    );
     expect(shanghai).toHaveLength(24);
     expect(shanghai[0]).toBe("2026-10-29T16:00:00.000Z");
     expect(
@@ -52,13 +59,19 @@ describe("hoursIn", () => {
 describe("selectUsage", () => {
   const records = [
     record("2026-10-29", "", 100),
-    record("2026-10-30", "claude-opus-5-5", 600, { requests: 4, reasoningTokens: 7 }),
+    record("2026-10-30", "claude-opus-5-5", 600, {
+      requests: 4,
+      reasoningTokens: 7,
+    }),
     record("2026-10-30", "claude-haiku-5-5", 300, { requests: 2 }),
     record("2026-10-30", "gpt-5", 1000, { agentType: "codex" }),
   ];
   const hourly = [
     hour("2026-10-30T01:00:00.000Z", "2026-10-30", 900),
-    { ...hour("2026-10-30T02:00:00.000Z", "2026-10-30", 1000), agentType: "codex" as const },
+    {
+      ...hour("2026-10-30T02:00:00.000Z", "2026-10-30", 1000),
+      agentType: "codex" as const,
+    },
   ];
   const account = { records, hourly, timezone: "Asia/Shanghai" };
 
@@ -85,6 +98,30 @@ describe("selectUsage", () => {
     });
     expect(view.hourly?.hours).toHaveLength(48);
     expect(view.hourly?.records).toEqual([hourly[0]]);
+  });
+
+  it("keeps billed days and models when the source reports cost without tokens", () => {
+    const billed = record("2026-10-30", "billed-model", 0, { totalCost: 2 });
+    const view = selectUsage(
+      { ...account, records: [billed], hourly: [] },
+      "all",
+      {
+        from: "2026-10-30",
+        to: "2026-10-30",
+      },
+    );
+    expect(view.models).toEqual([
+      expect.objectContaining({
+        model: "billed-model",
+        totalCost: 2,
+        costShare: 1,
+      }),
+    ]);
+    expect(view.summary).toMatchObject({
+      activeDays: 1,
+      avgDailyCost: 2,
+      totalTokens: 0,
+    });
   });
 
   it("leaves hours out of ranges too long to show them", () => {

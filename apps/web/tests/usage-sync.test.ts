@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseUpload, selectUploadDays, SYNC_PROTOCOL } from "@/lib/usage-sync";
+import { parseUpload, planUsageWrite, SYNC_PROTOCOL } from "@/lib/usage-sync";
 
 const device = {
   deviceId: "d1",
@@ -136,8 +136,8 @@ describe("parseUpload", () => {
   });
 
   it("names the protocol it speaks to collectors that speak another", () => {
-    expect(error(upload({ version: 3 }))).toContain(
-      `Unsupported sync protocol 3; this dashboard speaks ${SYNC_PROTOCOL}`,
+    expect(error(upload({ version: 2 }))).toContain(
+      `Unsupported sync protocol 2; this dashboard speaks ${SYNC_PROTOCOL}`,
     );
     expect(error(upload({ version: undefined }))).toContain(
       "Unsupported sync protocol none",
@@ -165,7 +165,7 @@ it("backfills missing days but preserves every bucket on existing historical day
     }),
   );
   if (!parsed.ok) throw new Error(parsed.error);
-  const applied = selectUploadDays(parsed.upload, [
+  const applied = planUsageWrite(parsed.upload, [
     "2024-01-01",
     "2026-10-01",
     "2026-10-29",
@@ -184,10 +184,9 @@ it("backfills missing days but preserves every bucket on existing historical day
   ]);
   // A retry cannot insert the old missing day's usage twice.
   expect(
-    selectUploadDays(parsed.upload, [
-      ...applied.days,
-      "2024-01-01",
-    ]).buckets.map((b) => b.date),
+    planUsageWrite(parsed.upload, [...applied.days, "2024-01-01"]).buckets.map(
+      (b) => b.date,
+    ),
   ).toEqual(["2026-10-01", "2026-10-30"]);
   expect(error(upload({ backfillBefore: "not-a-day" }))).toContain(
     "backfillBefore",

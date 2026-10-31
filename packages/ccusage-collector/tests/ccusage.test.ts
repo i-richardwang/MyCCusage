@@ -5,11 +5,14 @@ import {
   getDailyRecordDate,
   mapCcusageRecord,
   scopeCcusageCommand,
-} from "../src/collector";
+} from "../src/ccusage";
 
 describe("scopeCcusageCommand", () => {
   it("passes the account time zone regardless of the shell's own zone", () => {
-    const scoped = scopeCcusageCommand("echo", "America/Argentina/Buenos_Aires");
+    const scoped = scopeCcusageCommand(
+      "echo",
+      "America/Argentina/Buenos_Aires",
+    );
     const output = execFileSync(
       "/bin/sh",
       // Simulates an rc file setting the process time zone.
@@ -36,6 +39,14 @@ describe("extractJSON", () => {
     expect(extractJSON(stdout)).toBe('{"a":{"b":{"c":1}},"d":2}');
   });
 
+  it("ignores braces and escaped quotes inside JSON strings", () => {
+    const value = {
+      daily: [{ date: "2026-07-10", model: 'model}\\"{variant' }],
+    };
+    const json = JSON.stringify(value);
+    expect(extractJSON(`shell greeting\n${json}\nbye`)).toBe(json);
+  });
+
   it("throws when no JSON object is present", () => {
     expect(() => extractJSON("command not found: ccusage")).toThrow(
       "No JSON object found",
@@ -53,9 +64,9 @@ describe("getDailyRecordDate", () => {
   });
 
   it("rejects all-agent output (period/agent shaped records)", () => {
-    expect(() => getDailyRecordDate({ period: "2026-07", agent: "claude" })).toThrow(
-      "all-agent ccusage output",
-    );
+    expect(() =>
+      getDailyRecordDate({ period: "2026-07", agent: "claude" }),
+    ).toThrow("all-agent ccusage output");
   });
 
   it("throws when the date is missing entirely", () => {
@@ -66,7 +77,7 @@ describe("getDailyRecordDate", () => {
 });
 
 describe("mapCcusageRecord", () => {
-  it("maps a claude-style record (ccusage field names)", () => {
+  it("maps ccusage records with cache input fields", () => {
     const record = {
       date: "2026-07-10",
       inputTokens: 100,

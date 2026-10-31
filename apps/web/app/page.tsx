@@ -11,7 +11,8 @@ import { ModelUsage } from "@/components/model-usage";
 import { GlobalFilterBar } from "@/components/global-filter-bar";
 import { ModeToggle } from "@/components/mode-toggle";
 import { Footer } from "@/components/footer";
-import { AgentType, PresetRange } from "@/types/chart-types";
+import { PresetRange } from "@/types/chart-types";
+import { type AgentType } from "@/types/agent-types";
 import type { UsageStatsResponse } from "@/types/api-types";
 import { type DateRange } from "react-day-picker";
 import { formatLocalDate, parseLocalDate } from "@/lib/date-utils";
@@ -27,7 +28,7 @@ function Dashboard({ stats }: { stats: UsageStatsResponse }) {
   const [agentFilter, setAgentFilter] = useState<AgentType | "all">("all");
 
   // "Today" in the account calendar, the zone the collectors bucket days in
-  const today = useMemo(() => todayIn(stats.timezone), [stats.timezone]);
+  const today = todayIn(stats.timezone);
 
   const range = useMemo(
     () => periodRange(period, today, stats.records),

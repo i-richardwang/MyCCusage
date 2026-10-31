@@ -3,7 +3,8 @@
  * Used by both API routes and frontend hooks
  */
 
-import { AgentType, Device, HourlyRecord, UsageRecord } from "./chart-types";
+import { Device, HourlyRecord, UsageRecord } from "./chart-types";
+import { type AgentType } from "@/types/agent-types";
 
 // Complete API response type: the account's usage at its stored grain, from
 // which the dashboard derives every view

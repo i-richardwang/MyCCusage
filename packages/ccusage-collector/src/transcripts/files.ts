@@ -3,27 +3,17 @@ import { readdir, stat } from "fs/promises";
 import { join } from "path";
 import { createInterface } from "readline";
 
-export interface TranscriptFile {
-  path: string;
-  mtimeMs: number;
-}
-
 // Every .jsonl file under `root` written at or after `sinceMs`. A transcript
 // holds no usage newer than its last write, so older files are skipped
-// without being read. A missing root has no files.
+// without being read. Directory failures abort the scan: an incomplete source
+// cannot safely replace stored days.
 export async function listTranscriptFiles(
   root: string,
   sinceMs: number,
-): Promise<TranscriptFile[]> {
-  const files: TranscriptFile[] = [];
+): Promise<string[]> {
+  const files: string[] = [];
   const walk = async (dir: string): Promise<void> => {
-    let entries: Dirent[];
-    try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch (error) {
-      if (isMissing(error)) return;
-      throw error;
-    }
+    const entries: Dirent[] = await readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
       const path = join(dir, entry.name);
       if (entry.isDirectory()) {
@@ -31,7 +21,7 @@ export async function listTranscriptFiles(
       } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
         try {
           const { mtimeMs } = await stat(path);
-          if (mtimeMs >= sinceMs) files.push({ path, mtimeMs });
+          if (mtimeMs >= sinceMs) files.push(path);
         } catch (error) {
           // Agents delete and rotate transcripts while they run
           if (!isMissing(error)) throw error;
@@ -40,7 +30,7 @@ export async function listTranscriptFiles(
     }
   };
   await walk(root);
-  return files.sort((a, b) => a.path.localeCompare(b.path));
+  return files.sort((a, b) => a.localeCompare(b));
 }
 
 export async function* readLines(path: string): AsyncGenerator<string> {
@@ -57,7 +47,7 @@ export async function* readLines(path: string): AsyncGenerator<string> {
   }
 }
 
-export function isMissing(error: unknown): boolean {
+function isMissing(error: unknown): boolean {
   return (
     error instanceof Error &&
     "code" in error &&

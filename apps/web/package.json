@@ -18,7 +18,6 @@
   },
   "dependencies": {
     "@workspace/ui": "workspace:*",
-    "ccusage-collector": "workspace:*",
     "date-fns": "^4.1.0",
     "drizzle-orm": "^0.44.2",
     "lucide-react": "^0.475.0",

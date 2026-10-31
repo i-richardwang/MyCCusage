@@ -70,7 +70,7 @@ async function upload(
         "x-api-key": "integration-test-key",
       },
       body: JSON.stringify({
-        version: 2,
+        version: 3,
         timezone: "UTC",
         device: { deviceId, deviceName: "test", agentType },
         buckets,

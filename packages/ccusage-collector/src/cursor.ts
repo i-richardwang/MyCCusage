@@ -372,8 +372,7 @@ export function parseCursorCsv(text: string): CsvRow[] {
   const apiCostIdx = at("API Cost");
   const costToYouIdx = at("Cost to you");
 
-  // A renamed column used to degrade silently into zero-token rows and an
-  // empty upload. Treat an unrecognized header as a skipped run instead.
+  // An unrecognized header cannot establish complete usage; skip the run.
   const hasTokenColumn =
     withWriteIdx >= 0 ||
     withoutWriteIdx >= 0 ||

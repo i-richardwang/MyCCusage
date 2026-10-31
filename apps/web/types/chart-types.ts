@@ -1,35 +1,6 @@
 // Shared types for chart components
 
-// Agent type definitions
-export type AgentType =
-  | "claude-code"
-  | "opencode"
-  | "amp"
-  | "codex"
-  | "dimagent"
-  | "cursor"
-  | "antigravity";
-
-// Ordered list of agents for UI display (tab order, etc.)
-export const AGENT_TYPE_ORDER: AgentType[] = [
-  "claude-code",
-  "opencode",
-  "amp",
-  "codex",
-  "dimagent",
-  "cursor",
-  "antigravity",
-];
-
-export const AGENT_TYPE_LABELS: Record<AgentType, string> = {
-  "claude-code": "Claude Code",
-  opencode: "OpenCode",
-  amp: "AMP",
-  codex: "Codex",
-  dimagent: "DimAgent",
-  cursor: "Cursor",
-  antigravity: "Antigravity",
-};
+import type { AgentType } from "./agent-types";
 
 // The usage metrics every record, day and summary carries. Input excludes
 // cache reads and writes; output includes reasoning.

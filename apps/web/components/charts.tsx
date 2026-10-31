@@ -37,7 +37,8 @@ import {
   useDeviceCostPieData,
   useCacheEfficiencyPieData,
 } from "@/hooks/use-chart-data";
-import { Device, AgentType } from "@/types/chart-types";
+import { Device } from "@/types/chart-types";
+import { type AgentType } from "@/types/agent-types";
 import { CHART_COLORS } from "@/constants/chart-config";
 import { formatChartDate } from "@/lib/date-utils";
 import type { UsageView } from "@/lib/usage-view";

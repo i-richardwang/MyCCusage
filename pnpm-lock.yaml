@@ -29,9 +29,6 @@ importers:
       '@workspace/ui':
         specifier: workspace:*
         version: link:../../packages/ui
-      ccusage-collector:
-        specifier: workspace:*
-        version: link:../../packages/ccusage-collector
       date-fns:
         specifier: ^4.1.0
         version: 4.1.0

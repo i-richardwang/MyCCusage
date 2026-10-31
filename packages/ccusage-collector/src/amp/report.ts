@@ -32,7 +32,7 @@ export interface AmpDayReport {
 }
 
 // Usage Amp ran through an external agent (Claude Code on the user's own
-// subscription). ccusage already counts it under claude-code.
+// subscription). the Claude transcript source counts it under claude-code.
 const EXTERNAL_AGENT_PREFIX = "external-agent:";
 
 function parseCount(cell: string | undefined): number | null {

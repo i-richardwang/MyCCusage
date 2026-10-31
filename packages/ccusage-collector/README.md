@@ -4,7 +4,7 @@ A command-line tool for collecting coding agent usage statistics and syncing the
 
 ## Overview
 
-Collect usage from selected coding agents, attach device identity, and sync daily records to your dashboard. Configure the collector through environment variables or an optional JSON file.
+Collect usage from selected coding agents, attach device identity, and sync usage buckets to your dashboard. Configure the collector through environment variables or an optional JSON file.
 
 ## Installation
 
@@ -76,6 +76,7 @@ ccusage-collector service status
 | `ccusage-collector service logs [-f]` | Show the latest 100 log lines; optionally follow |
 | `ccusage-collector sync` | Run single sync operation |
 | `ccusage-collector sync --dry-run` | Test data collection without syncing |
+| `ccusage-collector sync --full-history` | Fill missing historical Claude Code and Codex days; combine with `--dry-run` to inspect |
 | `ccusage-collector status` | Check configuration status |
 | `ccusage-collector test` | Test configuration and connection |
 | `ccusage-collector --help` | Show help |
@@ -116,7 +117,7 @@ By default the collector reads Claude Code transcripts from the directories in `
 }
 ```
 
-or `MYCCUSAGE_CLAUDE_CONFIG_DIRS='~/.claude,/path/to/another/claude/config'`. Each entry is an absolute path or starts with `~/`, and may be a Claude config directory or its `projects/` directory. The list replaces the default lookup, so include `~/.claude` when it should still be collected. Directories without a `projects/` folder are skipped and the rest are merged; requests present in several directories are counted once.
+or `MYCCUSAGE_CLAUDE_CONFIG_DIRS='~/.claude,/path/to/another/claude/config'`. Each entry is an absolute path or starts with `~/`, and may be a Claude config directory or its `projects/` directory. The list replaces the default lookup, so include `~/.claude` when it should still be collected. Every explicit directory must have an accessible `projects/` folder. If any is missing or unreadable, Claude sync fails without uploading partial data; other agents continue. Missing auto-detected defaults are skipped. Requests present in several directories are counted once.
 
 Claude Code itself reads `CLAUDE_CONFIG_DIR` to decide where it stores its configuration, so prefer `claudeConfigDirs` over exporting a comma-separated `CLAUDE_CONFIG_DIR` globally in shell profiles.
 
@@ -214,6 +215,25 @@ The collector parses each request recorded in the transcripts: Claude Code's `pr
 - Reasoning tokens are reported where the agent records them (Codex, and Claude Code versions that report thinking tokens); they are part of output tokens
 - Every sync re-reads the last 30 days, fewer when Claude Code's `cleanupPeriodDays` is shorter, so no day it sends has lost transcripts. The range starts at the first request found: a machine whose transcripts were wiped never erases days the dashboard already has. Older days keep what earlier syncs stored
 
+### One-time history backfill
+
+```bash
+ccusage-collector sync --full-history --dry-run
+ccusage-collector sync --full-history
+```
+
+`--full-history` reads all available Claude Code and Codex transcripts, including
+files older than the normal 30-day refresh window. It applies only to this run;
+scheduled syncs keep the recent refresh window. Other agents collect their
+source-provided history in either mode.
+
+Recent days are refreshed as usual. Before the refresh window (shorter when Claude
+has a shorter retention period), only dates with no stored usage for this device
+and agent are inserted. Existing historical days are preserved in full, including
+their models and hours. Repeating a backfill is safe, but does not upgrade or repair
+already stored old days. Deleted transcripts cannot be recovered; imported old
+Claude days may be partial if some of their transcripts have already expired.
+
 ### AMP
 
 AMP stores threads server-side, so the collector reads them through the `amp` CLI:
@@ -237,9 +257,9 @@ Maintainers can refresh the bundled price snapshot with `pnpm --filter ccusage-c
 
 ### Data Format
 
-Each upload holds one agent's usage on one device as buckets: an hour of the account calendar (Claude Code, Codex, DimAgent, Cursor) or a whole day (AMP, OpenCode, Antigravity, and Cursor rows the export dates without a time), per model. A bucket carries input tokens (excluding cache), output tokens (including reasoning), cache-write and cache-read tokens, reasoning tokens and request counts where known, and the cost. The upload replaces every stored bucket of that agent and device on the days it covers: its range for Claude Code and Codex, otherwise the days it reports.
+Each upload holds one agent's usage on one device as buckets: an hour of the account calendar (Claude Code, Codex, DimAgent, Cursor) or a whole day (AMP, OpenCode, Antigravity, and Cursor rows the export dates without a time), per model. A bucket carries input tokens (excluding cache), output tokens (including reasoning), cache-write and cache-read tokens, reasoning tokens and request counts where known, and the cost. The upload replaces every stored bucket of that agent and device on the days it covers: its range for Claude Code and Codex, otherwise the days it reports. In full-history mode, dates before `backfillBefore` are inserted only when that device and agent have no stored usage on the date. The decision and writes share one transaction; existing historical days are preserved as a whole.
 
-Collector and dashboard each name the sync protocol they speak (currently 2); the collector checks the dashboard's before collecting, and either side rejects an upload in another protocol. Update the dashboard first, then the collectors.
+Collector and dashboard each name the sync protocol they speak (currently 3); the collector checks the dashboard's before collecting, and either side rejects an upload in another protocol. Update the dashboard first, then the collectors.
 
 ## Error Handling
 
@@ -380,27 +400,3 @@ MIT License - see [LICENSE](LICENSE) file for details.
 - 🐛 [Report bugs](https://github.com/i-richardwang/MyCCusage/issues)
 - 💡 [Request features](https://github.com/i-richardwang/MyCCusage/issues)
 - 📚 [Documentation](https://github.com/i-richardwang/MyCCusage/blob/main/README.md)
-
-### One-time history backfill
-
-```bash
-ccusage-collector sync --full-history --dry-run
-ccusage-collector sync --full-history
-```
-
-`--full-history` reads all available Claude Code and Codex transcripts, including
-files older than the normal 30-day refresh window. It applies only to this run;
-scheduled syncs and other agents keep their existing behavior. Update the dashboard
-first: the collector refuses backfill unless it advertises safe history support.
-
-Recent days are refreshed as usual. Before the refresh window (shorter when Claude
-has a shorter retention period), only dates with no stored usage for this device
-and agent are inserted. Existing historical days are preserved in full, including
-their models and hours. Repeating a backfill is safe, but does not upgrade or repair
-already stored old days. Deleted transcripts cannot be recovered; imported old
-Claude days may be partial if some of their transcripts have already expired.
-
-Every explicitly configured Claude directory (including `CLAUDE_CONFIG_DIR`) must
-be accessible. If any is missing or unreadable, Claude sync fails without uploading
-partial data; other agents continue. Missing auto-detected default directories are
-still skipped.

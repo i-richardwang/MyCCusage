@@ -151,6 +151,12 @@ describe("Claude config directories", () => {
     ).toThrow(missing);
   });
 
+  it("requires explicit projects paths to be directories", () => {
+    home = realpathSync(mkdtempSync(join(tmpdir(), "claude-sources-")));
+    writeFileSync(join(home, "projects"), "not a directory");
+    expect(() => claudeSources([home])).toThrow(home);
+  });
+
   it("falls back to a comma-separated CLAUDE_CONFIG_DIR", () => {
     home = realpathSync(mkdtempSync(join(tmpdir(), "claude-sources-")));
     const a = configDir("a");

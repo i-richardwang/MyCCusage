@@ -4,13 +4,12 @@ import * as React from "react";
 import { format } from "date-fns";
 import { CalendarIcon } from "lucide-react";
 import { type DateRange } from "react-day-picker";
+import { TimeRange, PresetRange } from "@/types/chart-types";
 import {
-  TimeRange,
-  PresetRange,
-  AgentType,
+  type AgentType,
   AGENT_TYPE_LABELS,
-  AGENT_TYPE_ORDER,
-} from "@/types/chart-types";
+  AGENT_TYPES,
+} from "@/types/agent-types";
 import { cn } from "@workspace/ui/lib/utils";
 import { Tabs, TabsList, TabsTrigger } from "@workspace/ui/components/tabs";
 import {
@@ -68,7 +67,7 @@ export function GlobalFilterBar({
       >
         <TabsList>
           <TabsTrigger value="all">All Agents</TabsTrigger>
-          {AGENT_TYPE_ORDER.map((agent) => (
+          {AGENT_TYPES.map((agent) => (
             <TabsTrigger key={agent} value={agent}>
               {AGENT_TYPE_LABELS[agent]}
             </TabsTrigger>

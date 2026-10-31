@@ -23,7 +23,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
-import { readFileSync, realpathSync } from "fs";
+import { readFileSync, realpathSync, statSync } from "fs";
 import { homedir } from "os";
 import { basename, dirname, join } from "path";
 import {
@@ -148,14 +148,14 @@ function expandHome(dir: string): string {
 
 function realPath(path: string): string | null {
   try {
-    return realpathSync(path);
+    return statSync(path).isDirectory() ? realpathSync(path) : null;
   } catch {
     return null;
   }
 }
 
 /**
- * Claude Code config directories to read, in the order ccusage looks them up:
+ * Claude Code config directories, in lookup order:
  * the configured list, else CLAUDE_CONFIG_DIR (comma-separated), else
  * ~/.config/claude and ~/.claude. An entry may name a config directory or its
  * projects/ directory. Missing defaults are skipped; explicit directories

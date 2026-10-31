@@ -200,7 +200,7 @@ export async function collectTranscriptUsage(
       dir,
       options.fullHistory ? -Infinity : start.getTime(),
     )) {
-      const read = await readRequests(agent, file.path);
+      const read = await readRequests(agent, file);
       files.push(read.requests);
       malformedRecords += read.malformedRecords;
     }

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { isNotNull, sql } from "drizzle-orm";
 import { db } from "@/src/db";
 import { usageBuckets, devices } from "@/src/db/schema";
-import type { AgentType } from "@/types/chart-types";
+import { type AgentType } from "@/types/agent-types";
 import type { UsageStatsResponse } from "@/types/api-types";
 import { getAccountTimeZone } from "@/lib/account-timezone";
 

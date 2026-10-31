@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import {
-  AgentType,
   ChartConfig,
   Device,
   HourlyChartData,
@@ -9,6 +8,7 @@ import {
   UsageRecord,
   UsageMetrics,
 } from "@/types/chart-types";
+import { type AgentType } from "@/types/agent-types";
 import {
   CHART_COLORS,
   INPUT_OUTPUT_RATIO_CHART_CONFIG,
@@ -136,7 +136,8 @@ export function useHourlyChartData(view: UsageView): HourlyChartData | null {
     if (!view.hourly) return null;
     const byHour = new Map<string, Map<AgentType, number>>();
     for (const record of view.hourly.records) {
-      const values = byHour.get(record.hourStart) ?? new Map<AgentType, number>();
+      const values =
+        byHour.get(record.hourStart) ?? new Map<AgentType, number>();
       values.set(
         record.agentType,
         (values.get(record.agentType) ?? 0) + record.totalTokens / 1000000,
