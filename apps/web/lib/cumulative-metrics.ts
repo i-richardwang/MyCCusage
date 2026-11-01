@@ -44,26 +44,3 @@ export function getSubscriptionPeriod(
     totalMonths,
   };
 }
-
-/**
- * Format currency for display
- */
-export function formatCurrency(amount: number): string {
-  return `$${amount.toFixed(2)}`;
-}
-
-/**
- * Format savings display with proper sign and color class
- */
-export function formatSavings(savings: number): {
-  text: string;
-  colorClass: string;
-} {
-  const isPositive = savings > 0;
-  return {
-    text: isPositive
-      ? `+${formatCurrency(Math.abs(savings))}`
-      : `-${formatCurrency(Math.abs(savings))}`,
-    colorClass: isPositive ? "text-primary" : "text-destructive",
-  };
-}

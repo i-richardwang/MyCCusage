@@ -7,11 +7,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@workspace/ui/components/card";
-import {
-  formatCurrency,
-  formatSavings,
-  type SubscriptionPeriod,
-} from "@/lib/cumulative-metrics";
+import { type SubscriptionPeriod } from "@/lib/cumulative-metrics";
+import { formatSignedUsd, formatTokens, formatUsd } from "@/lib/format";
 import type { UsageSummary } from "@/lib/usage-view";
 import {
   getUserStatusByAmount,
@@ -70,21 +67,13 @@ export function PlanComparison({
 
   const IconComponent = STATUS_ICONS[userStatus.tier];
 
-  const getVsPlanValue = () => {
-    if (isAllTime) {
-      return formatSavings(vsPlan).text;
-    }
-    return vsPlan > 0
-      ? `+${formatCurrency(Math.abs(vsPlan))}`
-      : `-${formatCurrency(Math.abs(vsPlan))}`;
-  };
-
-  const getVsPlanColor = () => {
-    if (isAllTime) {
-      return formatSavings(vsPlan).colorClass;
-    }
-    return vsPlan > 0 ? "text-primary" : "text-muted-foreground";
-  };
+  // Over the whole subscription, falling short of the plan is a loss
+  const vsPlanColor =
+    vsPlan > 0
+      ? "text-primary"
+      : isAllTime
+        ? "text-destructive"
+        : "text-muted-foreground";
 
   const getDaysDisplay = () => {
     if (isAllTime) {
@@ -116,15 +105,6 @@ export function PlanComparison({
   // Calculate Tokens per Dollar (for PAYG agents)
   const tokensPerDollar =
     summary.totalCost > 0 ? summary.totalTokens / summary.totalCost : 0;
-
-  const formatTokensPerDollar = (tokens: number): string => {
-    if (tokens >= 1_000_000) {
-      return `${(tokens / 1_000_000).toFixed(2)}M`;
-    } else if (tokens >= 1_000) {
-      return `${(tokens / 1_000).toFixed(1)}K`;
-    }
-    return tokens.toFixed(0);
-  };
 
   return (
     <Card className="pt-0">
@@ -166,12 +146,12 @@ export function PlanComparison({
                 <div className="space-y-1">
                   <CardDescription>API Value Consumed</CardDescription>
                   <CardTitle className="text-3xl">
-                    {formatCurrency(summary.totalCost)}
+                    {formatUsd(summary.totalCost)}
                   </CardTitle>
                   <CardDescription>
                     {isAllTime
-                      ? `Avg: ${formatCurrency(avgMonthlyCost)}/month`
-                      : `Avg: ${formatCurrency(summary.avgDailyCost)}/day`}
+                      ? `Avg: ${formatUsd(avgMonthlyCost)}/month`
+                      : `Avg: ${formatUsd(summary.avgDailyCost)}/day`}
                   </CardDescription>
                 </div>
                 <TrendingUp className="h-6 w-6 text-muted-foreground" />
@@ -186,7 +166,7 @@ export function PlanComparison({
                   <div className="space-y-1">
                     <CardDescription>Tokens per Dollar</CardDescription>
                     <CardTitle className="text-3xl text-primary">
-                      {formatTokensPerDollar(tokensPerDollar)}
+                      {formatTokens(tokensPerDollar)}
                     </CardTitle>
                     <CardDescription>Cost efficiency metric</CardDescription>
                   </div>
@@ -195,8 +175,8 @@ export function PlanComparison({
                     <CardDescription>
                       vs Max ${subscriptionPlan}/month
                     </CardDescription>
-                    <CardTitle className={`text-3xl ${getVsPlanColor()}`}>
-                      {getVsPlanValue()}
+                    <CardTitle className={`text-3xl ${vsPlanColor}`}>
+                      {formatSignedUsd(vsPlan)}
                     </CardTitle>
                     <CardDescription>
                       {vsPlan > 0 ? "Bonus Value!" : "Almost there!"}
@@ -218,7 +198,7 @@ export function PlanComparison({
                 <div className="space-y-1">
                   <CardDescription>Average Daily Cost</CardDescription>
                   <CardTitle className="text-3xl">
-                    {formatCurrency(summary.avgDailyCost)}
+                    {formatUsd(summary.avgDailyCost)}
                   </CardTitle>
                   <CardDescription>Daily average analysis</CardDescription>
                 </div>
