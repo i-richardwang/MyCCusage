@@ -23,9 +23,10 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
-import { readFileSync, realpathSync, statSync } from "fs";
+import { readFileSync } from "fs";
 import { homedir } from "os";
 import { basename, dirname, join } from "path";
+import { existingDirs, expandHome } from "./files.js";
 import {
   isRecord,
   parseTimestampMs,
@@ -140,20 +141,6 @@ export interface ClaudeSource {
   projectsDir: string;
 }
 
-function expandHome(dir: string): string {
-  return dir === "~" || dir.startsWith("~/")
-    ? join(homedir(), dir.slice(1))
-    : dir;
-}
-
-function realPath(path: string): string | null {
-  try {
-    return statSync(path).isDirectory() ? realpathSync(path) : null;
-  } catch {
-    return null;
-  }
-}
-
 /**
  * Claude Code config directories, in lookup order:
  * the configured list, else CLAUDE_CONFIG_DIR (comma-separated), else
@@ -173,24 +160,18 @@ export function claudeSources(
     : fromEnv?.length
       ? fromEnv
       : [join(homedir(), ".config", "claude"), join(homedir(), ".claude")];
-  const explicit = Boolean(configured?.length || fromEnv?.length);
-  const sources: ClaudeSource[] = [];
-  const seen = new Set<string>();
-  for (const entry of entries) {
-    const dir = expandHome(entry);
-    const projectsDir = realPath(
-      basename(dir) === "projects" ? dir : join(dir, "projects"),
-    );
-    if (projectsDir === null) {
-      if (explicit)
-        throw new Error(`Cannot read configured Claude Code directory: ${dir}`);
-      continue;
-    }
-    if (seen.has(projectsDir)) continue;
-    seen.add(projectsDir);
-    sources.push({ configDir: dirname(projectsDir), projectsDir });
-  }
-  return sources;
+  const projectsDirs = existingDirs(
+    entries.map((entry) => {
+      const dir = expandHome(entry);
+      return basename(dir) === "projects" ? dir : join(dir, "projects");
+    }),
+    Boolean(configured?.length || fromEnv?.length),
+    "Claude Code",
+  );
+  return projectsDirs.map((projectsDir) => ({
+    configDir: dirname(projectsDir),
+    projectsDir,
+  }));
 }
 
 // Days a transcript survives after its last write

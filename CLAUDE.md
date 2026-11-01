@@ -87,7 +87,7 @@ pnpm db:studio               # Open Drizzle Studio to view/edit data
 
 ## Usage collection and synchronization
 
-- `packages/ccusage-collector/src/ccusage.ts` adapts OpenCode and Antigravity CLI output. Claude Code and Codex use `transcripts/`; AMP, Cursor and DimAgent have their own adapters.
+- `packages/ccusage-collector/src/transcripts/` parses the session stores of Claude Code, Codex, OpenCode and Antigravity request by request; AMP, Cursor and DimAgent have their own adapters.
 - The collector owns source reads, pricing and account-calendar bucketing. `collector.ts` coordinates the adapters and transport; `sync.ts` owns command locking and run status.
 - Sync protocol 3 defines timezone validation, hourly/model buckets, and `backfillBefore`. It has one version check, with no capability negotiation or legacy upload path.
 - `apps/web/lib/usage-sync.ts` validates uploads and plans which complete days to write. `usage-store.ts` performs that plan in a database transaction; the HTTP route handles authentication and responses.

@@ -6,6 +6,8 @@ export type RequestSpeed = "standard" | "fast" | "ultrafast";
 export interface UsageRequest {
   timestampMs: number;
   model: string;
+  // Model whose prices apply when the agent names a variant of it
+  rateModel?: string;
   sessionId: string;
   inputTokens: number;
   outputTokens: number;

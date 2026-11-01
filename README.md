@@ -102,9 +102,8 @@ For cloud or sandbox environments, inject `MYCCUSAGE_API_KEY`, `MYCCUSAGE_ENDPOI
 ## Data Collection
 
 The `ccusage-collector` package automatically:
-- Reads Claude Code and Codex transcripts and reports their usage per hour and model, pricing every request on its own
+- Reads Claude Code, Codex, OpenCode and Antigravity transcripts and reports their usage per hour and model, pricing every request on its own
 - Reports DimAgent (local SQLite store) and Cursor (cloud export) usage per hour and model
-- Collects OpenCode and Antigravity usage with explicit ccusage agent commands, such as `ccusage opencode daily --json`
 - Collects AMP usage, including subagents, through the `amp` CLI (see the [collector README](packages/ccusage-collector/README.md#amp))
 - Syncs historical data to your dashboard
 - Supports scheduled automatic synchronization
@@ -112,7 +111,7 @@ The `ccusage-collector` package automatically:
 
 ### Historical usage
 
-To import available Claude Code and Codex history older than the regular refresh
+To import available Claude Code, Codex, OpenCode and Antigravity history older than the regular refresh
 window, run `ccusage-collector sync --full-history` once. Add `--dry-run` to inspect
 the upload first. Existing old days are preserved; only missing historical dates are filled. See the
 [collector backfill documentation](packages/ccusage-collector/README.md#one-time-history-backfill).
