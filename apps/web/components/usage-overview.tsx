@@ -47,8 +47,10 @@ export function UsageOverview({
   const other = otherMetric(metric);
   const facts = [
     `${formatMetric(other, metricValue(other, summary))} ${METRIC_NAMES[other].noun}`,
-    `${formatCount(summary.requests)} requests`,
-  ];
+    summary.requests === null
+      ? null
+      : `${formatCount(summary.requests)} requests`,
+  ].filter((fact) => fact !== null);
 
   const agentRows: ShareRow[] = view.agents.map((agent) => ({
     ...agent,

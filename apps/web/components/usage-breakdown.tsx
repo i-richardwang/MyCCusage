@@ -177,7 +177,7 @@ function ModelTable({
                     {formatPercent(metricShare(metric, model))}
                   </td>
                   <td className="hidden px-2 py-2.5 text-muted-foreground md:table-cell">
-                    {formatCount(model.requests)}
+                    {model.requests === null ? "—" : formatCount(model.requests)}
                   </td>
                 </tr>
               );

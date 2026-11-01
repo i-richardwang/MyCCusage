@@ -6,7 +6,7 @@ import {
   formatTokens,
   formatUsd,
 } from "@/lib/format";
-import type { UsageCounts, UsageRates } from "@/lib/usage-view";
+import type { ReportedCounts, UsageRates } from "@/lib/usage-view";
 import type { UsageMetrics } from "@/types/chart-types";
 
 export interface Figure {
@@ -17,9 +17,9 @@ export interface Figure {
 }
 
 // The figures of a selection, or of one model in it; rates without a base and
-// counts no source reports are left out
+// counts no selected record carries are left out
 export function usageFigures(
-  usage: UsageMetrics & UsageRates & UsageCounts,
+  usage: UsageMetrics & UsageRates & ReportedCounts,
 ): Figure[] {
   const figures: (Figure | null)[] = [
     { label: "API cost", value: formatUsd(usage.totalCost) },
@@ -37,7 +37,9 @@ export function usageFigures(
           value: formatPercent(usage.cacheHitRate),
           note: "Input read from cache",
         },
-    { label: "Requests", value: formatCount(usage.requests) },
+    usage.requests === null
+      ? null
+      : { label: "Requests", value: formatCount(usage.requests) },
     usage.reasoningTokens === null
       ? null
       : {

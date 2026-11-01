@@ -81,14 +81,17 @@ pnpm db:studio               # Open Drizzle Studio to view/edit data
 
 **Key Tables:**
 - `usage_buckets` - Usage per device, agent and model in an hour of the
-  account calendar. Each sync replaces whole days of one device's agent
+  account calendar. Usage recorded before collectors reported hours keeps its
+  whole day (no hour; model "" where unattributed; requests possibly unknown).
+  Each sync replaces whole days of one device's agent, so a day holds either
+  hours or day history
 - `devices` - Device information and metadata
 
 ## Usage collection and synchronization
 
 - `packages/ccusage-collector/src/transcripts/` parses the session stores of Claude Code, Codex, OpenCode and Antigravity request by request; AMP, Cursor and DimAgent have their own adapters.
 - The collector owns source reads, pricing and account-calendar bucketing. `collector.ts` coordinates the adapters and transport; `sync.ts` owns command locking and run status.
-- Sync protocol 4 defines timezone validation, hour/model buckets with request counts, and `backfillBefore`. It has one version check, with no capability negotiation or legacy upload path.
+- Sync protocol 4 defines timezone validation, hour/model buckets with request counts, and `backfillBefore`. Uploads never carry day buckets; those exist only as stored history. It has one version check, with no capability negotiation or legacy upload path.
 - `apps/web/lib/usage-sync.ts` validates uploads and plans which complete days to write. `usage-store.ts` performs that plan in a database transaction; the HTTP route handles authentication and responses.
 - Normal uploads replace complete device/agent days. A full-history upload replaces every day it covers, except that an agent which deletes old transcripts (Claude Code) sends `backfillBefore`, its retention boundary: earlier days are inserted only where none is stored, since their transcripts may be partial.
 - `selectUsage` derives dashboard totals, models and hours from the selected records. Components render those results.
@@ -111,7 +114,7 @@ pnpm db:studio               # Open Drizzle Studio to view/edit data
 
 **Data Flow:**
 - `/api/usage-stats` returns `records` (one device, agent and model on one
-  day, hours summed into their day), `hourly` (one agent in one hour), devices, the account time zone and the billing start
+  day, hours summed into their day), `hourly` (one agent in one hour; day history has none), devices, the account time zone and the billing start
   date.
 - The page resolves the selected period to a concrete `DayRange` (all time
   starts on the first recorded day) and calls `selectUsage` once. The resulting

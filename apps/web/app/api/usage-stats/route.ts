@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { sql } from "drizzle-orm";
+import { isNotNull, sql } from "drizzle-orm";
 import { db } from "@/src/db";
 import { usageBuckets, devices } from "@/src/db/schema";
 import { type AgentType } from "@/types/agent-types";
@@ -42,8 +42,8 @@ export async function GET() {
           displayName: devices.displayName,
         })
         .from(devices),
-      // Hours summed into their days; the dashboard derives every daily view
-      // from these
+      // Hours summed into their days, with day history; the dashboard derives
+      // every daily view from these
       db
         .select({
           date: usageBuckets.date,
@@ -52,7 +52,7 @@ export async function GET() {
           model: usageBuckets.model,
           ...metrics,
           reasoningTokens: nullableTotal(usageBuckets.reasoningTokens),
-          requests: total(usageBuckets.requests),
+          requests: nullableTotal(usageBuckets.requests),
         })
         .from(usageBuckets)
         .groupBy(
@@ -64,12 +64,16 @@ export async function GET() {
         .orderBy(usageBuckets.date),
       db
         .select({
-          hourStart: usageBuckets.hourStart,
+          // Day history is filtered out below, so every hour is known
+          hourStart: sql<Date>`${usageBuckets.hourStart}`.mapWith(
+            usageBuckets.hourStart,
+          ),
           date: usageBuckets.date,
           agentType: usageBuckets.agentType,
           ...metrics,
         })
         .from(usageBuckets)
+        .where(isNotNull(usageBuckets.hourStart))
         .groupBy(
           usageBuckets.hourStart,
           usageBuckets.date,

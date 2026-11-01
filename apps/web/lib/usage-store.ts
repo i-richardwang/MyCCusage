@@ -49,8 +49,8 @@ export async function storeUsage(
       existing.map(({ date }) => date),
     );
 
-    // The upload states these days completely: hours and models it does
-    // not report go
+    // The upload states these days completely: hours, models and day
+    // buckets it does not report go
     if (days.length > 0) {
       await tx
         .delete(usageBuckets)

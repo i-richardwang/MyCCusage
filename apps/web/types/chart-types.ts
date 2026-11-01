@@ -18,15 +18,16 @@ export interface UsageRecord extends UsageMetrics {
   date: string;
   deviceId: string;
   agentType: AgentType;
+  // "" for day history not attributed to a model
   model: string;
   // Part of output; null where the source does not report it
   reasoningTokens: number | null;
-  // API requests
-  requests: number;
+  // API requests; null where day history did not count them
+  requests: number | null;
 }
 
 // One agent's usage in one hour of the account calendar, over all devices
-// and models
+// and models. Day history has no hours.
 export interface HourlyRecord extends UsageMetrics {
   // ISO instant the hour starts
   hourStart: string;

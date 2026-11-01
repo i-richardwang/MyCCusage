@@ -135,3 +135,30 @@ it.skipIf(!url)(
     ).toEqual([{ model: "replacement" }]);
   },
 );
+
+it.skipIf(!url)(
+  "keeps day history before the backfill boundary and replaces it from hours",
+  async () => {
+    const deviceId = "history-device";
+    for (const date of ["2024-02-01", "2026-10-02"]) {
+      await pool.query(
+        `INSERT INTO usage_buckets (device_id, agent_type, date, model, input_tokens, total_tokens, cost)
+         VALUES ($1, 'claude-code', $2, '', 900, 900, 9)`,
+        [deviceId, date],
+      );
+    }
+    await upload(
+      [bucket("2024-02-01", "partial", 10), bucket("2026-10-02", "hours", 20)],
+      "2026-10-01",
+      deviceId,
+    );
+    const stored = await pool.query(
+      `SELECT date::text, model, hour_start IS NULL AS whole_day, requests FROM usage_buckets WHERE device_id = $1 ORDER BY date`,
+      [deviceId],
+    );
+    expect(stored.rows).toEqual([
+      { date: "2024-02-01", model: "", whole_day: true, requests: null },
+      { date: "2026-10-02", model: "hours", whole_day: false, requests: 1 },
+    ]);
+  },
+);
