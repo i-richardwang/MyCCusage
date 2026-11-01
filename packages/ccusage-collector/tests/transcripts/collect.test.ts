@@ -16,6 +16,7 @@ import {
   collectTranscriptUsage,
 } from "../../src/transcripts/index";
 import type { UsageRequest } from "../../src/transcripts/types";
+import { protoBytes, protoNumber, protoText } from "./protobuf";
 
 const pricing: PricingTable = {
   asOf: "2026-10-01T00:00:00.000Z",
@@ -402,5 +403,124 @@ describe("collectTranscriptUsage", () => {
         now,
       }),
     ).rejects.toThrow("No Codex sessions found");
+    await expect(
+      collectTranscriptUsage("opencode", calendar, pricing, {
+        env: { XDG_DATA_HOME: join(home, "missing") },
+        now,
+      }),
+    ).rejects.toThrow("No OpenCode data found");
+    await expect(
+      collectTranscriptUsage("antigravity", calendar, pricing, {
+        env: { ANTIGRAVITY_DATA_DIR: join(home, "missing") },
+        now,
+      }),
+    ).rejects.toThrow("Cannot read configured Antigravity directory");
+  });
+
+  function openDb(dbPath: string) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { DatabaseSync } = require("node:sqlite");
+    return new DatabaseSync(dbPath);
+  }
+
+  it("prices OpenCode requests the agent did not and keeps the recent range", async () => {
+    const root = join(home, "xdg", "opencode");
+    mkdirSync(root, { recursive: true });
+    const db = openDb(join(root, "opencode.db"));
+    db.exec(
+      "CREATE TABLE message (id TEXT, session_id TEXT, data TEXT, time_created INTEGER)",
+    );
+    const insert = db.prepare("INSERT INTO message VALUES (?, ?, ?, ?)");
+    const row = (id: string, created: string, cost: number) => {
+      const timestampMs = Date.parse(created);
+      insert.run(
+        id,
+        "s1",
+        JSON.stringify({
+          role: "assistant",
+          modelID: "claude-test",
+          time: { created: timestampMs },
+          cost,
+          tokens: { input: 100, output: 10, reasoning: 2 },
+        }),
+        timestampMs,
+      );
+    };
+    row("old", "2025-01-01T10:00:00Z", 0);
+    row("priced", "2026-10-29T10:00:00Z", 0.5);
+    row("unpriced", "2026-10-29T11:00:00Z", 0);
+    db.close();
+
+    const usage = await collectTranscriptUsage("opencode", calendar, pricing, {
+      env: { XDG_DATA_HOME: join(home, "xdg") },
+      now,
+    });
+    expect(usage.range).toEqual({ from: "2026-10-29", to: "2026-10-30" });
+    expect(
+      usage.buckets.map(({ hourStart, requests, reasoningTokens }) => [
+        hourStart,
+        requests,
+        reasoningTokens,
+      ]),
+    ).toEqual([
+      ["2026-10-29T10:00:00.000Z", 1, 2],
+      ["2026-10-29T11:00:00.000Z", 1, 2],
+    ]);
+    // The agent's own cost is kept; a zero cost is priced from the table
+    expect(usage.buckets[0]!.cost).toBe(0.5);
+    expect(usage.buckets[1]!.cost).toBeCloseTo(100e-6 + 12 * 2e-6, 12);
+    const full = await collectTranscriptUsage("opencode", calendar, pricing, {
+      env: { XDG_DATA_HOME: join(home, "xdg") },
+      now,
+      fullHistory: true,
+    });
+    expect([...new Set(full.buckets.map((b) => b.date))]).toEqual([
+      "2025-01-01",
+      "2026-10-29",
+    ]);
+    expect(full.backfillBefore).toBe("2026-10-01");
+  });
+
+  it("buckets Antigravity generations by their own time", async () => {
+    const conversations = join(home, ".gemini", "antigravity", "conversations");
+    mkdirSync(conversations, { recursive: true });
+    const db = openDb(join(conversations, "session.db"));
+    db.exec("CREATE TABLE steps (idx INTEGER, metadata BLOB)");
+    // Usage: model id 246, 100 input, 40 output, a response id; its own time
+    const usage = [
+      ...protoNumber(1, 246),
+      ...protoNumber(2, 100),
+      ...protoNumber(3, 40),
+      ...protoText(11, "r-1"),
+    ];
+    const stamp = protoNumber(1, Date.parse("2026-10-29T10:00:00Z") / 1000);
+    db.prepare("INSERT INTO steps VALUES (?, ?)").run(
+      0,
+      new Uint8Array([...protoBytes(9, usage), ...protoBytes(8, stamp)]),
+    );
+    db.close();
+
+    const usageByHour = await collectTranscriptUsage(
+      "antigravity",
+      calendar,
+      pricing,
+      {
+        env: { ANTIGRAVITY_DATA_DIR: join(home, ".gemini", "antigravity") },
+        now,
+      },
+    );
+    expect(usageByHour.range).toEqual({ from: "2026-10-29", to: "2026-10-30" });
+    expect(usageByHour.buckets).toEqual([
+      expect.objectContaining({
+        hourStart: "2026-10-29T10:00:00.000Z",
+        model: "gemini-2.5-pro",
+        inputTokens: 100,
+        outputTokens: 40,
+        reasoningTokens: 0,
+        requests: 1,
+        cost: 0,
+      }),
+    ]);
+    expect(usageByHour.unpricedModels).toEqual(["gemini-2.5-pro"]);
   });
 });

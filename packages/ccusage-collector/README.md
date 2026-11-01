@@ -33,7 +33,6 @@ Deploy the [MyCCusage dashboard](../../README.md) and use its `API_KEY` when con
 
 - Node.js ≥20 (Bun may be used to install the package)
 - macOS with a logged-in graphical user session, or Linux with a running systemd user manager, for native scheduling
-- `ccusage` CLI installed and available in PATH (OpenCode, Antigravity)
 - `amp` CLI installed and logged in (AMP)
 - At least one supported coding agent installed and configured
 - Access to a deployed My Claude Code Usage Dashboard
@@ -76,7 +75,7 @@ ccusage-collector service status
 | `ccusage-collector service logs [-f]` | Show the latest 100 log lines; optionally follow |
 | `ccusage-collector sync` | Run single sync operation |
 | `ccusage-collector sync --dry-run` | Test data collection without syncing |
-| `ccusage-collector sync --full-history` | Fill missing historical Claude Code and Codex days; combine with `--dry-run` to inspect |
+| `ccusage-collector sync --full-history` | Fill missing historical days of transcript-based agents; combine with `--dry-run` to inspect |
 | `ccusage-collector status` | Check configuration status |
 | `ccusage-collector test` | Test configuration and connection |
 | `ccusage-collector --help` | Show help |
@@ -192,27 +191,28 @@ Alternatively, `resolveConfig(rawSettings, env)` resolves an explicit settings o
 
 ## Data Collection
 
-Days and hours follow the dashboard's account time zone (`USAGE_TIMEZONE` on the dashboard), not the collector machine's. Each run reads it from the endpoint before collecting, buckets every agent's usage in it (ccusage receives `--timezone`), and sends it with the upload; the dashboard rejects uploads bucketed in another zone. A date therefore means the same day on every device, wherever and however the collector runs.
+Days and hours follow the dashboard's account time zone (`USAGE_TIMEZONE` on the dashboard), not the collector machine's. Each run reads it from the endpoint before collecting, buckets every agent's usage in it, and sends it with the upload; the dashboard rejects uploads bucketed in another zone. A date therefore means the same day on every device, wherever and however the collector runs.
 
 The collector:
-- Reads Claude Code and Codex transcripts itself and reports their usage per hour and model (see below)
-- Uses explicit ccusage agent commands, `ccusage opencode daily --json` and `ccusage antigravity daily --json`, for OpenCode and Antigravity (Antigravity reads its local SQLite conversation databases; set `ANTIGRAVITY_DATA_DIR` when they live outside the default `~/.gemini/*` roots)
+- Reads the transcripts of Claude Code, Codex, OpenCode and Antigravity itself and reports their usage per hour and model (see below)
 - Collects AMP through the `amp` CLI (see below)
-- Parses DimAgent's local SQLite store (`~/.dimcode/v2/dimcode.sqlite`) directly; no ccusage support needed
-- Pulls Cursor usage from the cloud CSV export via the local session token in Cursor's state DB; no ccusage support needed. The export is account-wide, so enable Cursor on exactly one device per account to avoid double-counting
-- Reports Claude Code, Codex, DimAgent and Cursor per hour and model, since they record when each request ran; AMP (whose subagent usage is known per day), OpenCode and Antigravity per day and model
-- Uploads all the history DimAgent, Cursor, AMP, OpenCode and Antigravity keep, and the recent days of Claude Code and Codex transcripts (see below)
+- Parses DimAgent's local SQLite store (`~/.dimcode/v2/dimcode.sqlite`) directly
+- Pulls Cursor usage from the cloud CSV export via the local session token in Cursor's state DB. The export is account-wide, so enable Cursor on exactly one device per account to avoid double-counting
+- Reports every agent that records when each request ran per hour and model; AMP, whose subagent usage is known per day, per day and model
+- Uploads all the history DimAgent, Cursor and AMP keep, and the recent days of the transcript-based agents (see below)
 - Generates unique device fingerprints for multi-device tracking
 - Allows custom device names for better dashboard readability
 
-### Claude Code and Codex
+### Claude Code, Codex, OpenCode and Antigravity
 
-The collector parses each request recorded in the transcripts: Claude Code's `projects/` directories and Codex's `sessions/` and `archived_sessions/` under `CODEX_HOME` (default `~/.codex`). The parsers are adapted from [T3 Code](https://github.com/pingdotgg/t3code) (MIT).
+The collector parses each request these agents record in their own session stores. The parsers are adapted from [T3 Code](https://github.com/pingdotgg/t3code) (MIT).
 
-- Claude Code repeats a message's usage on every content block; each request (`message.id` and `requestId`) counts once, across files and config directories. Advisor calls count under their own model
-- Codex usage carries its model and service tier from earlier lines of the rollout. Cumulative counters validate each request, history copied into forked or subagent rollouts is skipped, and a session seen both live and archived counts once
-- Each request is priced on its own at LiteLLM's rates: long-context rates when its prompt passes the model's threshold, one-hour cache writes at their own rate, Claude fast mode and US-only inference by their multipliers, and Codex priority and ultrafast tiers at their rates. A cost Claude Code recorded itself (`costUSD`) is used as is
-- Reasoning tokens are reported where the agent records them (Codex, and Claude Code versions that report thinking tokens); they are part of output tokens
+- **Claude Code**: the `projects/` directories of its config directories (see above). It repeats a message's usage on every content block; each request (`message.id` and `requestId`) counts once, across files and config directories. Advisor calls count under their own model
+- **Codex**: `sessions/` and `archived_sessions/` under `CODEX_HOME` (default `~/.codex`). Usage carries its model and service tier from earlier lines of the rollout. Cumulative counters validate each request, history copied into forked or subagent rollouts is skipped, and a session seen both live and archived counts once
+- **OpenCode**: the `opencode*.db` databases and the older `storage/message/` JSON files under `OPENCODE_DATA_DIR` (comma-separated), else `$XDG_DATA_HOME/opencode`, else `~/.local/share/opencode`. A message migrated from the JSON store into the database counts once. OpenCode's own cost is used where it recorded one; a zero cost, as subscriptions record, is priced from the table
+- **Antigravity**: the conversation databases under `ANTIGRAVITY_DATA_DIR` (comma-separated), else the `~/.gemini/antigravity*` roots and `~/.config/antigravity`. Each generation is decoded from its protobuf metadata; the copies Antigravity keeps in steps, generation metadata, retries and backup roots are merged into one request
+- Each request is priced on its own at LiteLLM's rates: long-context rates when its prompt passes the model's threshold, one-hour cache writes at their own rate, Claude fast mode and US-only inference by their multipliers, and Codex priority and ultrafast tiers at their rates. A cost the agent recorded itself (Claude Code's `costUSD`, OpenCode's `cost`) is used as is
+- Reasoning tokens are reported where the agent records them (Codex, OpenCode, Antigravity, and Claude Code versions that report thinking tokens); they are part of output tokens
 - Every sync re-reads the last 30 days, fewer when Claude Code's `cleanupPeriodDays` is shorter, so no day it sends has lost transcripts. The range starts at the first request found: a machine whose transcripts were wiped never erases days the dashboard already has. Older days keep what earlier syncs stored
 
 ### One-time history backfill
@@ -222,8 +222,8 @@ ccusage-collector sync --full-history --dry-run
 ccusage-collector sync --full-history
 ```
 
-`--full-history` reads all available Claude Code and Codex transcripts, including
-files older than the normal 30-day refresh window. It applies only to this run;
+`--full-history` reads all available Claude Code, Codex, OpenCode and Antigravity
+transcripts, including files older than the normal 30-day refresh window. It applies only to this run;
 scheduled syncs keep the recent refresh window. Other agents collect their
 source-provided history in either mode.
 
@@ -257,7 +257,7 @@ Maintainers can refresh the bundled price snapshot with `pnpm --filter ccusage-c
 
 ### Data Format
 
-Each upload holds one agent's usage on one device as buckets: an hour of the account calendar (Claude Code, Codex, DimAgent, Cursor) or a whole day (AMP, OpenCode, Antigravity, and Cursor rows the export dates without a time), per model. A bucket carries input tokens (excluding cache), output tokens (including reasoning), cache-write and cache-read tokens, reasoning tokens and request counts where known, and the cost. The upload replaces every stored bucket of that agent and device on the days it covers: its range for Claude Code and Codex, otherwise the days it reports. In full-history mode, dates before `backfillBefore` are inserted only when that device and agent have no stored usage on the date. The decision and writes share one transaction; existing historical days are preserved as a whole.
+Each upload holds one agent's usage on one device as buckets: an hour of the account calendar (Claude Code, Codex, OpenCode, Antigravity, DimAgent, Cursor) or a whole day (AMP, and Cursor rows the export dates without a time), per model. A bucket carries input tokens (excluding cache), output tokens (including reasoning), cache-write and cache-read tokens, reasoning tokens and request counts where known, and the cost. The upload replaces every stored bucket of that agent and device on the days it covers: its range for the transcript-based agents, otherwise the days it reports. In full-history mode, dates before `backfillBefore` are inserted only when that device and agent have no stored usage on the date. The decision and writes share one transaction; existing historical days are preserved as a whole.
 
 Collector and dashboard each name the sync protocol they speak (currently 3); the collector checks the dashboard's before collecting, and either side rejects an upload in another protocol. Update the dashboard first, then the collectors.
 
@@ -307,9 +307,8 @@ For development, build the package and manage the task through `node packages/cc
 ccusage-collector config
 ```
 
-**❌ "ccusage command not found"**
-- Ensure the `ccusage` CLI is installed and in PATH
-- Run `ccusage --help` to verify installation
+**❌ "No OpenCode data found" / "No Antigravity conversations found"**
+- Set `OPENCODE_DATA_DIR` or `ANTIGRAVITY_DATA_DIR` to the directory the agent uses, when it is not one of the defaults listed under [Data Collection](#data-collection)
 
 **❌ "Authentication failed"**
 - Run `ccusage-collector config` to update credentials

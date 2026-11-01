@@ -11,7 +11,6 @@ import { createCalendar, isTimeZone, type Calendar } from "./calendar.js";
 import { collectAmpUsage } from "./amp/index.js";
 import { collectDimagentUsage } from "./dimagent.js";
 import { collectCursorUsage } from "./cursor.js";
-import { collectCcusage } from "./ccusage.js";
 import { dailyBuckets } from "./buckets.js";
 import { loadPricing } from "./pricing/index.js";
 import type { PricingTable } from "./pricing/rates.js";
@@ -35,7 +34,8 @@ async function collectCursor(calendar: Calendar): Promise<UsageBucket[]> {
   return buckets;
 }
 
-// Claude Code and Codex requests, priced and bucketed by hour and model
+// Requests read from an agent's own transcripts, priced and bucketed by hour
+// and model
 async function collectTranscripts(
   agent: TranscriptAgent,
   config: CollectorConfig,
@@ -70,8 +70,8 @@ async function collectTranscripts(
 
 type CollectedUsage = Pick<UsageData, "buckets" | "range" | "backfillBefore">;
 
-// Sources that record each request's time report hours; AMP and ccusage
-// report whole days.
+// Sources that record each request's time report hours; AMP reports whole
+// days.
 async function collectFromSource(
   agent: AgentType,
   config: CollectorConfig,
@@ -82,6 +82,8 @@ async function collectFromSource(
   switch (agent) {
     case "claude-code":
     case "codex":
+    case "opencode":
+    case "antigravity":
       return collectTranscripts(
         agent,
         config,
@@ -99,8 +101,6 @@ async function collectFromSource(
       return {
         buckets: dailyBuckets(await collectAmpUsage(calendar, pricing)),
       };
-    default:
-      return { buckets: dailyBuckets(await collectCcusage(agent, calendar)) };
   }
 }
 

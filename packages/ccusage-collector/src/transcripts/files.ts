@@ -1,7 +1,46 @@
-import { createReadStream, type Dirent } from "fs";
+import { createReadStream, realpathSync, statSync, type Dirent } from "fs";
 import { readdir, stat } from "fs/promises";
-import { join } from "path";
+import { homedir } from "os";
+import { join, resolve } from "path";
 import { createInterface } from "readline";
+
+export function expandHome(dir: string): string {
+  return dir === "~" || dir.startsWith("~/")
+    ? join(homedir(), dir.slice(1))
+    : dir;
+}
+
+// The canonical path of an existing directory; null for anything else
+export function realDirectory(path: string): string | null {
+  try {
+    const canonical = realpathSync(resolve(expandHome(path)));
+    return statSync(canonical).isDirectory() ? canonical : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The existing directories among `entries` in canonical form, each once.
+ * Configured entries must exist; missing defaults are skipped.
+ */
+export function existingDirs(
+  entries: readonly string[],
+  configured: boolean,
+  agent: string,
+): string[] {
+  const dirs: string[] = [];
+  for (const entry of entries) {
+    const dir = realDirectory(entry);
+    if (dir === null) {
+      if (configured)
+        throw new Error(`Cannot read configured ${agent} directory: ${entry}`);
+      continue;
+    }
+    if (!dirs.includes(dir)) dirs.push(dir);
+  }
+  return dirs;
+}
 
 // Every .jsonl file under `root` written at or after `sinceMs`. A transcript
 // holds no usage newer than its last write, so older files are skipped
@@ -47,7 +86,7 @@ export async function* readLines(path: string): AsyncGenerator<string> {
   }
 }
 
-function isMissing(error: unknown): boolean {
+export function isMissing(error: unknown): boolean {
   return (
     error instanceof Error &&
     "code" in error &&

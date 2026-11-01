@@ -4,6 +4,10 @@ import { estimateRequestCost, type PricingTable } from "../pricing/rates.js";
 import { RequestBuckets } from "../buckets.js";
 import type { DayRange, UsageBucket } from "../types.js";
 import {
+  antigravityConversationDirs,
+  readAntigravityUsage,
+} from "./antigravity.js";
+import {
   claudeRetentionDays,
   claudeSources,
   parseClaudeLine,
@@ -14,10 +18,15 @@ import {
   parseCodexLine,
 } from "./codex.js";
 import { listTranscriptFiles, readLines } from "./files.js";
+import { openCodeDataDirs, readOpenCodeUsage } from "./opencode.js";
 import type { UsageRequest } from "./types.js";
 
 // Agents whose transcripts record every request with its time
-export type TranscriptAgent = "claude-code" | "codex";
+export type TranscriptAgent =
+  | "claude-code"
+  | "codex"
+  | "opencode"
+  | "antigravity";
 
 // Days re-read on every sync. Older days keep what earlier syncs uploaded.
 const HOURLY_WINDOW_DAYS = 30;
@@ -42,48 +51,53 @@ interface TranscriptOptions {
   fullHistory?: boolean;
 }
 
-// Directories to read, and how many days back they hold every transcript
-function transcriptSources(
-  agent: TranscriptAgent,
-  options: TranscriptOptions,
-): { dirs: string[]; completeDays: number } {
-  const env = options.env ?? process.env;
-  if (agent === "claude-code") {
-    const sources = claudeSources(options.claudeConfigDirs, env);
-    if (sources.length === 0) {
-      throw new Error(
-        "No Claude Code transcripts found; set claudeConfigDirs to the config directories Claude Code uses",
-      );
-    }
-    // A day is complete only while no transcript touching it can have been
-    // deleted: Claude Code removes transcripts by their last write.
-    return {
-      dirs: sources.map(({ projectsDir }) => projectsDir),
-      completeDays: Math.min(
-        ...sources.map(({ configDir }) => claudeRetentionDays(configDir)),
-      ),
-    };
-  }
-  const dirs = codexSessionDirs(env).filter((dir) => existsSync(dir));
-  if (dirs.length === 0) {
-    throw new Error(
-      "No Codex sessions found; set CODEX_HOME to the directory Codex uses",
-    );
-  }
-  return { dirs, completeDays: Infinity };
+// Requests read from transcripts, one list per file
+interface TranscriptRequests {
+  files: UsageRequest[][];
+  malformedRecords: number;
 }
 
-async function readRequests(
-  agent: TranscriptAgent,
-  path: string,
-): Promise<{ requests: UsageRequest[]; malformedRecords: number }> {
-  const requests: UsageRequest[] = [];
-  if (agent === "claude-code") {
-    for await (const line of readLines(path)) {
-      requests.push(...parseClaudeLine(line));
+interface TranscriptSource {
+  // How many days back every transcript is still on disk
+  completeDays: number;
+  // Every request made at or after sinceMs
+  read(sinceMs: number): Promise<TranscriptRequests>;
+}
+
+// The requests of one transcript file
+interface FileRequests {
+  requests: UsageRequest[];
+  malformedRecords: number;
+}
+
+// JSONL transcripts under `dirs`, one request list per file
+async function readJsonl(
+  dirs: readonly string[],
+  sinceMs: number,
+  parse: (path: string) => Promise<FileRequests>,
+): Promise<TranscriptRequests> {
+  const files: UsageRequest[][] = [];
+  let malformedRecords = 0;
+  for (const dir of dirs) {
+    for (const file of await listTranscriptFiles(dir, sinceMs)) {
+      const read = await parse(file);
+      files.push(read.requests);
+      malformedRecords += read.malformedRecords;
     }
-    return { requests, malformedRecords: 0 };
   }
+  return { files, malformedRecords };
+}
+
+async function readClaudeFile(path: string): Promise<FileRequests> {
+  const requests: UsageRequest[] = [];
+  for await (const line of readLines(path)) {
+    requests.push(...parseClaudeLine(line));
+  }
+  return { requests, malformedRecords: 0 };
+}
+
+async function readCodexFile(path: string): Promise<FileRequests> {
+  const requests: UsageRequest[] = [];
   const state = initialCodexScanState();
   for await (const line of readLines(path)) {
     const request = parseCodexLine(line, state);
@@ -127,6 +141,83 @@ function keySharedSessions(files: UsageRequest[][]): void {
   }
 }
 
+// Where an agent keeps its transcripts, and how to read them. An agent
+// without any data directory fails: an empty result would erase stored days.
+function transcriptSource(
+  agent: TranscriptAgent,
+  options: TranscriptOptions,
+): TranscriptSource {
+  const env = options.env ?? process.env;
+  switch (agent) {
+    case "claude-code": {
+      const sources = claudeSources(options.claudeConfigDirs, env);
+      if (sources.length === 0) {
+        throw new Error(
+          "No Claude Code transcripts found; set claudeConfigDirs to the config directories Claude Code uses",
+        );
+      }
+      const dirs = sources.map(({ projectsDir }) => projectsDir);
+      return {
+        // A day is complete only while no transcript touching it can have
+        // been deleted: Claude Code removes transcripts by their last write
+        completeDays: Math.min(
+          ...sources.map(({ configDir }) => claudeRetentionDays(configDir)),
+        ),
+        read: (sinceMs) => readJsonl(dirs, sinceMs, readClaudeFile),
+      };
+    }
+    case "codex": {
+      const dirs = codexSessionDirs(env).filter((dir) => existsSync(dir));
+      if (dirs.length === 0) {
+        throw new Error(
+          "No Codex sessions found; set CODEX_HOME to the directory Codex uses",
+        );
+      }
+      return {
+        completeDays: Infinity,
+        read: async (sinceMs) => {
+          const read = await readJsonl(dirs, sinceMs, readCodexFile);
+          keySharedSessions(read.files);
+          return read;
+        },
+      };
+    }
+    case "opencode": {
+      const dirs = openCodeDataDirs(env);
+      if (dirs.length === 0) {
+        throw new Error(
+          "No OpenCode data found; set OPENCODE_DATA_DIR to the data directory OpenCode uses",
+        );
+      }
+      return {
+        completeDays: Infinity,
+        read: async (sinceMs) => {
+          const files: UsageRequest[][] = [];
+          for (const dir of dirs) {
+            files.push(...(await readOpenCodeUsage(dir, sinceMs)));
+          }
+          return { files, malformedRecords: 0 };
+        },
+      };
+    }
+    case "antigravity": {
+      const dirs = antigravityConversationDirs(env);
+      if (dirs.length === 0) {
+        throw new Error(
+          "No Antigravity conversations found; set ANTIGRAVITY_DATA_DIR to the data directory Antigravity uses",
+        );
+      }
+      return {
+        completeDays: Infinity,
+        read: async (sinceMs) => ({
+          files: await readAntigravityUsage(dirs, sinceMs),
+          malformedRecords: 0,
+        }),
+      };
+    }
+  }
+}
+
 /**
  * Sum requests into account-calendar hours per model, counting each request
  * once and keeping only those inside [startMs, endMs). Requests are priced one
@@ -152,7 +243,10 @@ export function bucketRequests(
       }
       let cost = request.reportedCost;
       if (cost === null) {
-        const estimate = estimateRequestCost(pricing, [request.model], request);
+        const models = request.rateModel
+          ? [request.model, request.rateModel]
+          : [request.model];
+        const estimate = estimateRequestCost(pricing, models, request);
         if (!estimate) unpriced.add(request.model);
         cost = estimate?.cost ?? 0;
       }
@@ -183,34 +277,20 @@ export async function collectTranscriptUsage(
   pricing: PricingTable,
   options: TranscriptOptions = {},
 ): Promise<TranscriptCollection> {
-  const { dirs, completeDays } = transcriptSources(agent, options);
+  const source = transcriptSource(agent, options);
   const now = options.now ?? new Date();
   const today = calendar.dayOf(now);
-  const days = Math.min(HOURLY_WINDOW_DAYS, completeDays);
+  const days = Math.min(HOURLY_WINDOW_DAYS, source.completeDays);
   // The first whole day after the instant `days` × 24h ago, as retention
   // counts: a 25-hour DST day in the window never lets it reach further
   const cutoff = new Date(now.getTime() - days * DAY_MS);
   const [start] = calendar.rangeOf(addDays(calendar.dayOf(cutoff), 1));
   const [, end] = calendar.rangeOf(today);
+  const sinceMs = options.fullHistory ? -Infinity : start.getTime();
 
-  const files: UsageRequest[][] = [];
-  let malformedRecords = 0;
-  for (const dir of dirs) {
-    for (const file of await listTranscriptFiles(
-      dir,
-      options.fullHistory ? -Infinity : start.getTime(),
-    )) {
-      const read = await readRequests(agent, file);
-      files.push(read.requests);
-      malformedRecords += read.malformedRecords;
-    }
-  }
-  if (agent === "codex") keySharedSessions(files);
+  const { files, malformedRecords } = await source.read(sinceMs);
   const usage = {
-    ...bucketRequests(files, calendar, pricing, [
-      options.fullHistory ? -Infinity : start.getTime(),
-      end.getTime(),
-    ]),
+    ...bucketRequests(files, calendar, pricing, [sinceMs, end.getTime()]),
     malformedRecords,
   };
   const refreshFrom = calendar.dayOf(start);
