@@ -1,4 +1,3 @@
-import type { ModelBreakdown } from "../types.js";
 import type { AmpUsageEntry } from "./threads.js";
 
 // Thread exports only carry the main agent's usage (routing purpose
@@ -224,8 +223,18 @@ function matchRouteId(
   return byName.length === 1 ? byName[0]! : null;
 }
 
+// One model's usage in a thread-day, main agent and subagents together
+export interface AmpModelUsage {
+  model: string;
+  requests: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+}
+
 export interface MergedDayUsage {
-  breakdowns: ModelBreakdown[];
+  models: AmpModelUsage[];
   // Export model name -> report model name (e.g. deepseek-flash ->
   // deepseek-v4.1-flash), so days without a report use the same names
   aliases: Map<string, string>;
@@ -283,19 +292,19 @@ export function mergeDayUsage(
     subagentInput,
   );
 
-  const breakdowns = rows.map((row) => {
+  const models = rows.map((row): AmpModelUsage => {
     const cacheReads =
       subagentInput > 0
         ? Math.round((subagentCacheReads * row.subagentInput) / subagentInput)
         : 0;
     return {
-      modelName: stripProvider(row.routeId),
+      model: stripProvider(row.routeId),
+      requests: row.model.requests,
       inputTokens: (row.agent?.inputTokens ?? 0) + row.subagentInput - cacheReads,
       outputTokens: row.model.outputTokens,
       cacheCreationTokens: row.agent?.cacheCreationTokens ?? 0,
       cacheReadTokens: (row.agent?.cacheReadTokens ?? 0) + cacheReads,
-      cost: 0,
     };
   });
-  return { breakdowns, aliases };
+  return { models, aliases };
 }

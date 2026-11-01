@@ -48,6 +48,22 @@ export function isTimeZone(value: string): boolean {
   }
 }
 
+// Days a normal sync re-reads from a source that keeps its whole history.
+// Older days keep what earlier syncs uploaded.
+export const SYNC_WINDOW_DAYS = 30;
+
+// The first whole day after the instant `days` × 24h before `now`, as
+// retention counts: a 25-hour DST day in the window never lets it reach
+// further
+export function firstDayWithin(
+  calendar: Calendar,
+  now: Date,
+  days: number,
+): Date {
+  const cutoff = new Date(now.getTime() - days * 24 * HOUR_MS);
+  return calendar.rangeOf(addDays(calendar.dayOf(cutoff), 1))[0];
+}
+
 export function createCalendar(timeZone: string): Calendar {
   if (!isTimeZone(timeZone)) {
     throw new Error(`Unknown time zone: ${timeZone}`);

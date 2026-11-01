@@ -103,8 +103,8 @@ For cloud or sandbox environments, inject `MYCCUSAGE_API_KEY`, `MYCCUSAGE_ENDPOI
 
 The `ccusage-collector` package automatically:
 - Reads Claude Code, Codex, OpenCode and Antigravity transcripts and reports their usage per hour and model, pricing every request on its own
-- Reports DimAgent (local SQLite store) and Cursor (cloud export) usage per hour and model
-- Collects AMP usage, including subagents, through the `amp` CLI (see the [collector README](packages/ccusage-collector/README.md#amp))
+- Reports DimAgent (local SQLite store) and Cursor (the account's usage events) usage per hour and model
+- Collects AMP usage per hour and model, including subagents, through the `amp` CLI (see the [collector README](packages/ccusage-collector/README.md#amp))
 - Syncs historical data to your dashboard
 - Supports scheduled automatic synchronization
 - Handles retries and error recovery
