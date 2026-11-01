@@ -64,7 +64,7 @@ describe("mergeDayUsage", () => {
     const merged = mergeDayUsage(report, entries)!;
     expect(merged.aliases.get("claude-opus-5-5")).toBe("claude-opus-5-5");
     const byModel = Object.fromEntries(
-      merged.breakdowns.map((b) => [b.modelName, b]),
+      merged.models.map((m) => [m.model, m]),
     );
     expect(Object.keys(byModel).sort()).toEqual(["claude-opus-5-5", "gpt-5.6-terra"]);
     // Main-agent-only model: exactly the export
@@ -95,15 +95,15 @@ describe("mergeDayUsage", () => {
       usageEntry("gpt-6.1-sol", { inputTokens: 40, outputTokens: 20, cacheReadTokens: 360 }),
       usageEntry("gpt-6.1-sol", { outputTokens: 10 }),
     ])!;
-    expect(merged.breakdowns).toEqual([
+    expect(merged.models).toEqual([
       {
-        modelName: "gpt-6.1-sol",
+        model: "gpt-6.1-sol",
+        requests: 3,
         // 600 subagent input, of which 540 cache reads (900 - 360)
         inputTokens: 40 + 60,
         outputTokens: 50,
         cacheCreationTokens: 0,
         cacheReadTokens: 360 + 540,
-        cost: 0,
       },
     ]);
   });

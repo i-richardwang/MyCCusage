@@ -1,11 +1,10 @@
 /**
  * Validation of usage uploads. An upload carries one device's usage of one
- * agent as buckets: an hour of the account calendar (hourStart set) or a whole
- * day, per model.
+ * agent as buckets: an hour of the account calendar, per model.
  *
- *   { version, device, timezone, range?, backfillBefore?, buckets: [{ date, hourStart?, model,
+ *   { version, device, timezone, range?, backfillBefore?, buckets: [{ date, hourStart, model,
  *     inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens,
- *     reasoningTokens?, cost, requests? }] }
+ *     reasoningTokens?, cost, requests }] }
  *
  * The upload replaces every stored bucket of the device's agent on the days of
  * its range and of its buckets, so it is accepted or rejected as a whole:
@@ -19,7 +18,7 @@ import type { UsageSyncDevice } from "@/types/api-types";
 
 // Upload format the dashboard accepts; collectors refuse dashboards that speak
 // another
-export const SYNC_PROTOCOL = 3;
+export const SYNC_PROTOCOL = 4;
 
 // A range covers at most this many days
 const MAX_RANGE_DAYS = 400;
@@ -28,7 +27,7 @@ const MAX_MODEL_LENGTH = 255;
 // A stored bucket, before the database adds its bookkeeping columns
 export interface BucketRow {
   date: string;
-  hourStart: Date | null;
+  hourStart: Date;
   model: string;
   inputTokens: number;
   outputTokens: number;
@@ -37,7 +36,7 @@ export interface BucketRow {
   reasoningTokens: number | null;
   totalTokens: number;
   cost: number;
-  requests: number | null;
+  requests: number;
 }
 
 export interface ParsedUpload {
@@ -113,10 +112,10 @@ function hourStart(value: unknown, date: string, timeZone: string): Date {
 function parseBucket(value: unknown, timeZone: string): BucketRow {
   if (!isRecord(value)) throw new UploadError("Every bucket must be an object");
   const date = day(value.date, "date");
-  const model = value.model ?? "";
-  if (typeof model !== "string" || model.length > MAX_MODEL_LENGTH) {
+  const model = value.model;
+  if (typeof model !== "string" || !model || model.length > MAX_MODEL_LENGTH) {
     throw new UploadError(
-      `model must be a string of at most ${MAX_MODEL_LENGTH} characters`,
+      `model must be a string of 1 to ${MAX_MODEL_LENGTH} characters`,
     );
   }
   const inputTokens = count(value.inputTokens, "inputTokens");
@@ -128,10 +127,7 @@ function parseBucket(value: unknown, timeZone: string): BucketRow {
   const cacheReadTokens = count(value.cacheReadTokens, "cacheReadTokens");
   return {
     date,
-    hourStart:
-      value.hourStart === undefined || value.hourStart === null
-        ? null
-        : hourStart(value.hourStart, date, timeZone),
+    hourStart: hourStart(value.hourStart, date, timeZone),
     model,
     inputTokens,
     outputTokens,
@@ -141,7 +137,7 @@ function parseBucket(value: unknown, timeZone: string): BucketRow {
     totalTokens:
       inputTokens + outputTokens + cacheCreationTokens + cacheReadTokens,
     cost: amount(value.cost, "cost"),
-    requests: optionalCount(value.requests, "requests"),
+    requests: count(value.requests, "requests"),
   };
 }
 
@@ -212,10 +208,10 @@ export function parseUpload(body: unknown, timeZone: string): ParseResult {
     );
     const keys = new Set<string>();
     for (const bucket of buckets) {
-      const key = `${bucket.date}\0${bucket.hourStart?.toISOString() ?? ""}\0${bucket.model}`;
+      const key = `${bucket.hourStart.toISOString()}\0${bucket.model}`;
       if (keys.has(key)) {
         throw new UploadError(
-          `Duplicate bucket for ${bucket.model || "unattributed usage"} on ${bucket.hourStart?.toISOString() ?? bucket.date}`,
+          `Duplicate bucket for ${bucket.model} at ${bucket.hourStart.toISOString()}`,
         );
       }
       keys.add(key);

@@ -25,6 +25,12 @@ const upload = (overrides: Record<string, unknown> = {}) => ({
   buckets: [bucket],
   ...overrides,
 });
+// The bucket's hour on another day
+const at = (date: string) => ({
+  ...bucket,
+  date,
+  hourStart: `${date}T01:00:00.000Z`,
+});
 const parse = (body: unknown) => parseUpload(body, "Asia/Shanghai");
 const error = (body: unknown) => {
   const result = parse(body);
@@ -56,8 +62,8 @@ describe("parseUpload", () => {
     const result = parse(
       upload({
         buckets: [
-          { ...bucket, hourStart: undefined, date: "2026-10-01" },
-          { ...bucket, hourStart: undefined, date: "2026-10-03", model: "" },
+          at("2026-10-01"),
+          { ...at("2026-10-03"), model: "claude-haiku-5-5" },
         ],
       }),
     );
@@ -65,10 +71,6 @@ describe("parseUpload", () => {
       "2026-10-01",
       "2026-10-03",
     ]);
-    expect(result.ok && result.upload.buckets[1]).toMatchObject({
-      hourStart: null,
-      model: "",
-    });
   });
 
   it("accepts an empty upload whose range states days without usage", () => {
@@ -123,6 +125,15 @@ describe("parseUpload", () => {
     expect(
       error(upload({ buckets: [bucket, { ...bucket, inputTokens: -1 }] })),
     ).toContain("inputTokens");
+    expect(
+      error(upload({ buckets: [{ ...bucket, hourStart: undefined }] })),
+    ).toContain("hourStart");
+    expect(error(upload({ buckets: [{ ...bucket, model: "" }] }))).toContain(
+      "model",
+    );
+    expect(
+      error(upload({ buckets: [{ ...bucket, requests: undefined }] })),
+    ).toContain("requests");
     expect(error(upload({ buckets: [bucket, bucket] }))).toContain(
       "Duplicate bucket",
     );
@@ -151,15 +162,10 @@ it("backfills missing days but preserves every bucket on existing historical day
       backfillBefore: "2026-10-01",
       range: { from: "2026-10-29", to: "2026-10-30" },
       buckets: [
-        { ...bucket, hourStart: undefined, date: "2024-01-01" },
-        {
-          ...bucket,
-          hourStart: undefined,
-          date: "2024-01-01",
-          model: "another-model",
-        },
-        { ...bucket, hourStart: undefined, date: "2024-01-02" },
-        { ...bucket, hourStart: undefined, date: "2026-10-01" },
+        at("2024-01-01"),
+        { ...at("2024-01-01"), model: "another-model" },
+        at("2024-01-02"),
+        at("2026-10-01"),
         bucket,
       ],
     }),

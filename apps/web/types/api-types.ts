@@ -15,7 +15,7 @@ export interface UsageStatsResponse {
   devices: Device[];
   // Usage per day, device, agent and model
   records: UsageRecord[];
-  // Usage per hour and agent, where sources report hours
+  // Usage per hour and agent
   hourly: HourlyRecord[];
 }
 

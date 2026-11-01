@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isNotNull, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { db } from "@/src/db";
 import { usageBuckets, devices } from "@/src/db/schema";
 import { type AgentType } from "@/types/agent-types";
@@ -52,7 +52,7 @@ export async function GET() {
           model: usageBuckets.model,
           ...metrics,
           reasoningTokens: nullableTotal(usageBuckets.reasoningTokens),
-          requests: nullableTotal(usageBuckets.requests),
+          requests: total(usageBuckets.requests),
         })
         .from(usageBuckets)
         .groupBy(
@@ -70,7 +70,6 @@ export async function GET() {
           ...metrics,
         })
         .from(usageBuckets)
-        .where(isNotNull(usageBuckets.hourStart))
         .groupBy(
           usageBuckets.hourStart,
           usageBuckets.date,
@@ -89,7 +88,7 @@ export async function GET() {
       })),
       hourly: hourlyRows.map(({ hourStart, ...record }) => ({
         ...record,
-        hourStart: hourStart!.toISOString(),
+        hourStart: hourStart.toISOString(),
         agentType: record.agentType as AgentType,
       })),
     };

@@ -16,16 +16,12 @@ import {
 } from "@workspace/ui/components/chart";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { SegmentedControl } from "@/components/segmented-control";
-import {
-  FULL_HOURLY_COVERAGE,
-  HOURLY_RANGE_DAYS,
-} from "@/constants/chart-config";
+import { HOURLY_RANGE_DAYS } from "@/constants/chart-config";
 import { useTrendData } from "@/hooks/use-chart-data";
 import { usePeriodLabels } from "@/hooks/use-period-labels";
 import {
   formatAxisMetric,
   formatMetric,
-  formatPercent,
   METRIC_NAMES,
 } from "@/lib/format";
 import type { UsageView } from "@/lib/usage-view";
@@ -59,10 +55,7 @@ function describe(
       ? days
       : `${days} Hours are shown for ranges of ${HOURLY_RANGE_DAYS} days or fewer.`;
   }
-  const { hourlyCoverage, totalTokens } = view.summary;
-  return hourlyCoverage < FULL_HOURLY_COVERAGE && totalTokens > 0
-    ? `Per hour, by agent. Hours are known for ${formatPercent(hourlyCoverage)} of tokens: agents that record when each request ran report hours; the others, and days beyond what their records keep, report whole days.`
-    : "Per hour, by agent.";
+  return "Per hour, by agent.";
 }
 
 // The metric over the period, per day or per hour

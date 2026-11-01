@@ -5,13 +5,11 @@ import type {
   SyncResult,
   CollectorConfig,
   AgentType,
-  UsageBucket,
 } from "./types.js";
 import { createCalendar, isTimeZone, type Calendar } from "./calendar.js";
 import { collectAmpUsage } from "./amp/index.js";
 import { collectDimagentUsage } from "./dimagent.js";
 import { collectCursorUsage } from "./cursor.js";
-import { dailyBuckets } from "./buckets.js";
 import { loadPricing } from "./pricing/index.js";
 import type { PricingTable } from "./pricing/rates.js";
 import {
@@ -21,17 +19,23 @@ import {
 
 // Version of the upload format. The dashboard reports the one it accepts, and
 // the collector uploads only to a dashboard that speaks its own.
-export const SYNC_PROTOCOL = 3;
+export const SYNC_PROTOCOL = 4;
 
-// Cursor's cloud export. Skipped runs surface their warnings and sync
-// nothing; dead credentials throw.
-async function collectCursor(calendar: Calendar): Promise<UsageBucket[]> {
-  console.log("Collecting cursor usage data from cloud export");
-  const { buckets, warnings } = await collectCursorUsage(calendar);
+// Cursor's account usage from the cloud. Skipped runs surface their warnings
+// and sync nothing; dead credentials throw.
+async function collectCursor(
+  calendar: Calendar,
+  fullHistory: boolean,
+): Promise<CollectedUsage> {
+  console.log("Collecting cursor usage data from the account's usage events");
+  const { buckets, range, warnings } = await collectCursorUsage(calendar, {
+    fullHistory,
+  });
   for (const warning of warnings) {
     console.warn(warning);
   }
-  return buckets;
+  if (range) console.log(`Read cursor usage from ${range.from} to ${range.to}`);
+  return { buckets, ...(range ? { range } : {}) };
 }
 
 // Requests read from an agent's own transcripts, priced and bucketed by hour
@@ -72,8 +76,6 @@ async function collectTranscripts(
 
 type CollectedUsage = Pick<UsageData, "buckets" | "range" | "backfillBefore">;
 
-// Sources that record each request's time report hours; AMP reports whole
-// days.
 async function collectFromSource(
   agent: AgentType,
   config: CollectorConfig,
@@ -97,12 +99,10 @@ async function collectFromSource(
       console.log("Collecting dimagent usage data from local SQLite store");
       return { buckets: collectDimagentUsage(calendar) };
     case "cursor":
-      return { buckets: await collectCursor(calendar) };
+      return collectCursor(calendar, fullHistory);
     // AMP threads live server-side; they are read through the `amp` CLI
     case "amp":
-      return {
-        buckets: dailyBuckets(await collectAmpUsage(calendar, pricing)),
-      };
+      return { buckets: await collectAmpUsage(calendar, pricing) };
   }
 }
 

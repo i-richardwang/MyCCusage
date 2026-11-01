@@ -75,7 +75,7 @@ ccusage-collector service status
 | `ccusage-collector service logs [-f]` | Show the latest 100 log lines; optionally follow |
 | `ccusage-collector sync` | Run single sync operation |
 | `ccusage-collector sync --dry-run` | Test data collection without syncing |
-| `ccusage-collector sync --full-history` | Re-read all transcripts of Claude Code, Codex, OpenCode and Antigravity, one time; combine with `--dry-run` to inspect |
+| `ccusage-collector sync --full-history` | Re-read all transcripts of Claude Code, Codex, OpenCode and Antigravity and every Cursor usage event, one time; combine with `--dry-run` to inspect |
 | `ccusage-collector status` | Check configuration status |
 | `ccusage-collector test` | Test configuration and connection |
 | `ccusage-collector --help` | Show help |
@@ -197,9 +197,9 @@ The collector:
 - Reads the transcripts of Claude Code, Codex, OpenCode and Antigravity itself and reports their usage per hour and model (see below)
 - Collects AMP through the `amp` CLI (see below)
 - Parses DimAgent's local SQLite store (`~/.dimcode/v2/dimcode.sqlite`) directly
-- Pulls Cursor usage from the cloud CSV export via the local session token in Cursor's state DB. The export is account-wide, so enable Cursor on exactly one device per account to avoid double-counting
-- Reports every agent that records when each request ran per hour and model; AMP, whose subagent usage is known per day, per day and model
-- Uploads all the history DimAgent, Cursor and AMP keep, and the recent days of the transcript-based agents (see below)
+- Pulls Cursor usage from the account's usage events on cursor.com via the local session token in Cursor's state DB (see below). The events are account-wide, so enable Cursor on exactly one device per account to avoid double-counting
+- Reports every agent per hour and model. AMP's subagent usage is known per day and spread over the day's hours (see below)
+- Uploads all the history DimAgent and AMP keep, and the recent days of the transcript-based agents and Cursor (see below)
 - Generates unique device fingerprints for multi-device tracking
 - Allows custom device names for better dashboard readability
 
@@ -223,9 +223,10 @@ ccusage-collector sync --full-history
 ```
 
 `--full-history` reads all available Claude Code, Codex, OpenCode and Antigravity
-transcripts, including files older than the normal 30-day refresh window. It applies only to this run;
-scheduled syncs keep the recent refresh window. Other agents collect their
-source-provided history in either mode.
+transcripts and every Cursor usage event, including those older than the normal
+30-day refresh window. It applies only to this run; scheduled syncs keep the
+recent refresh window. Other agents collect their source-provided history in
+either mode.
 
 Codex, OpenCode and Antigravity never delete their transcripts, so every day
 they cover is stated completely and replaces what the dashboard stored for it,
@@ -248,25 +249,36 @@ AMP stores threads server-side, so the collector reads them through the `amp` CL
 - Lists this machine's threads with `amp threads list --json --installation-id <id>` (the id comes from `~/.local/share/amp/device-id.json`), so each device reports only its own threads
 - Exports new or changed threads with `amp threads export`, keeping only per-message usage in `~/.ccusage-collector/amp-cache/`. Exports hold the main agent's usage only
 - Fetches `amp threads usage <id> --details` for each active day to add subagent and side-call usage (Task, Read Thread, View Media, Finder, Librarian, compaction, Thread Title) per model. Reports are cached by the exact time range they cover, so a day only uses a report fetched for its range in the account time zone; after a time zone change, reports are fetched again
-- Rebuilds daily totals from the cache on every run
+- Rebuilds hour buckets from the cache on every run
 
 Notes:
 
+- The main agent's requests are placed in their own hours. Subagent usage, which a report states per model for the whole day, is spread over the hours the thread was active that day in proportion to the main agent's tokens there (the same model's first, then any model's, then the thread's messages). A day's totals are exact; the hours of its subagent share are an estimate
 - AMP allows 60 usage reports per hour. The collector uses at most 40 per hour, newest days first, and pauses for an hour when AMP reports the limit. Until a day's report is fetched, that day counts the main agent only. A large backfill therefore spreads over several syncs at least an hour apart, and each sync uploads the completed days again
 - Usage AMP ran through Claude Code (`external-agent:claude-code`) is skipped, because the collector already counts it under Claude Code
 - Per-model input and output are exact. The report splits cache reads per thread-day only, so for subagent usage the cache-read share is estimated; main-agent usage keeps its exact split
 - Cost is an API-equivalent estimate using LiteLLM's base input, output, cache-write and cache-read rates, including linked-provider usage. It is not AMP's actual charge. Prices are cached in `~/.ccusage-collector/pricing.json` for 24 hours; failed refreshes use the newest available cache or bundled snapshot
 - Prices match exact model names and known provider/name-format variants, falling back to export/report aliases established by successful reconciliation. Unknown models, unsupported modalities (such as image generation), or missing rates for used token categories keep their tokens but contribute 0 cost, with a warning naming the unpriced models
-- Estimates use base rates, without inferring long-context/fast surcharges or cache-write duration from daily totals. Subagent cache splits remain estimates as described above. Updated prices revalue cached history on subsequent syncs
+- Estimates use base rates, without inferring long-context/fast surcharges or cache-write duration from summed usage. Subagent cache splits remain estimates as described above. Updated prices revalue cached history on subsequent syncs
+
+### Cursor
+
+Cursor meters usage per account in the cloud, so the collector reads it the way the dashboard's usage table does:
+
+- Takes the session token from Cursor's state DB (`<config>/Cursor/User/globalStorage/state.vscdb`, read-only). It never leaves the process
+- Pages through `POST https://cursor.com/api/dashboard/get-filtered-usage-events` for the last 30 days (every event with `--full-history`), 1,000 events a page. Each event is one request with its time, model, uncached input, cache-write, cache-read and output tokens, and `totalCents`, Cursor's valuation at list price, which is reported as the cost
+- Drops the events a page repeats from the one before when usage arrives while the pages are read, checked against the window's event count
+- Skips the run quietly on network errors, timeouts (`MYCCUSAGE_CURSOR_FETCH_TIMEOUT_MS`, default 120000, per page), server errors or a page shape it does not understand, and asks for a new sign-in inside Cursor only when every credential variant is rejected
+- Events without token usage (requests that were not token-based, or errored and not charged) are skipped
 - The usage report is formatted text. If its format changes, affected days fall back to the main agent only and the collector logs a warning
 
 Maintainers can refresh the bundled price snapshot with `pnpm --filter ccusage-collector update-pricing` from the repository root.
 
 ### Data Format
 
-Each upload holds one agent's usage on one device as buckets: an hour of the account calendar (Claude Code, Codex, OpenCode, Antigravity, DimAgent, Cursor) or a whole day (AMP, and Cursor rows the export dates without a time), per model. A bucket carries input tokens (excluding cache), output tokens (including reasoning), cache-write and cache-read tokens, reasoning tokens and request counts where known, and the cost. The upload replaces every stored bucket of that agent and device on the days it covers: its range for the transcript-based agents, otherwise the days it reports. A full-history upload of an agent that deletes old transcripts carries `backfillBefore`: dates before it are inserted only when that device and agent have no stored usage on the date. The decision and writes share one transaction; such historical days are preserved as a whole.
+Each upload holds one agent's usage on one device as buckets: an hour of the account calendar, per model. A bucket carries input tokens (excluding cache), output tokens (including reasoning), cache-write and cache-read tokens, reasoning tokens where the source reports them, the request count and the cost. The upload replaces every stored bucket of that agent and device on the days it covers: its range for the transcript-based agents and Cursor, otherwise the days it reports. A full-history upload of an agent that deletes old transcripts carries `backfillBefore`: dates before it are inserted only when that device and agent have no stored usage on the date. The decision and writes share one transaction; such historical days are preserved as a whole.
 
-Collector and dashboard each name the sync protocol they speak (currently 3); the collector checks the dashboard's before collecting, and either side rejects an upload in another protocol. Update the dashboard first, then the collectors.
+Collector and dashboard each name the sync protocol they speak (currently 4); the collector checks the dashboard's before collecting, and either side rejects an upload in another protocol. Update the dashboard first, then the collectors.
 
 ## Error Handling
 

@@ -2,65 +2,70 @@ import { existsSync } from "fs";
 import { homedir } from "os";
 import { join, resolve } from "path";
 import { queryRows } from "./sqlite.js";
-import type { Calendar } from "./calendar.js";
+import { SYNC_WINDOW_DAYS, firstDayWithin, type Calendar } from "./calendar.js";
 import { RequestBuckets } from "./buckets.js";
-import type { UsageBucket } from "./types.js";
+import type { DayRange, UsageBucket } from "./types.js";
 
 // ---------------------------------------------------------------------------
-// Cursor usage parser
+// Cursor usage reader
 //
-// Cursor has no ccusage support and keeps no billable ledger locally: usage
-// is metered per account in the cloud. The local state only holds the
-// session token, so this parser reads the token from Cursor's state store,
-// downloads the per-request CSV export from cursor.com, and reports usage per
-// hour and model.
+// Cursor keeps no billable ledger locally: usage is metered per account in
+// the cloud. The local state only holds the session token, so this reader
+// takes the token from Cursor's state store, pages through the account's
+// usage events from cursor.com, and reports usage per hour and model.
 //
 // - Token source: `<config>/Cursor/User/globalStorage/state.vscdb`,
 //   ItemTable key `cursorAuth/accessToken` (read-only; WAL-safe via sqlite.ts).
 //   The token never leaves process memory.
-// - Export endpoint (same one the dashboard uses):
-//   GET https://cursor.com/api/dashboard/export-usage-events-csv?strategy=tokens
-//   authenticated as `WorkosCursorSessionToken={sub}%3A%3A{jwt}`, with
-//   browser-mimicking headers. Cookie variants are retried in order; only
-//   401/403 advances to the next variant.
-// - CSV columns: Date, Model, Input (w/ Cache Write),
-//   Input (w/o Cache Write), Cache Read, Output Tokens, Total Tokens, Cost,
-//   Cost to you. Column semantics (cross-checked against two independent
-//   implementations, vibe-usage and tokscale, plus a third-party billing
-//   breakdown):
-//   - "w/o" is the plain input count; "w/ minus w/o" is the cache-write
-//     portion (the export has no standalone write column, so the write
-//     amount is only recoverable as this difference). Either reading gives
-//     the same four-counter total; this one additionally preserves the
-//     cache-creation split our schema expects.
-//   - "Cost" is the list/API valuation and is preferred so Cursor stays
-//     comparable with the other agents' list-price costs (which the
-//     dashboard compares against subscription plans); "Cost to you"
-//     (post-plan charge) is the fallback.
-//   - Total Tokens is not trusted: the dashboard totals the four counters.
+// - Events endpoint (the one the dashboard's usage table uses):
+//   POST https://cursor.com/api/dashboard/get-filtered-usage-events
+//   with { page, pageSize, startDate, endDate } (epoch milliseconds as
+//   strings), authenticated as `WorkosCursorSessionToken={sub}%3A%3A{jwt}`.
+//   Cookie variants are retried in order; only 401/403 advances to the next
+//   variant. A page holds up to 1,000 events, newest first, as
+//   `usageEventsDisplay`, with `totalUsageEventsCount` for the window.
+// - Each event is one request: `timestamp` (epoch ms), `model`, and
+//   `tokenUsage` with inputTokens (uncached), cacheWriteTokens,
+//   cacheReadTokens, outputTokens and totalCents, Cursor's valuation of the
+//   request at list price, which keeps Cursor comparable with the other
+//   agents' list-price costs. Events without `tokenUsage` (not token-based)
+//   carry no usage and are skipped.
+// - Window: a normal sync reads the last SYNC_WINDOW_DAYS days and states
+//   them completely; a full-history run reads every event. The days are cut
+//   in the account calendar.
+// - Pages may overlap at their boundaries when events arrive while they are
+//   read; the count tells how many duplicates to drop, and they are found as
+//   the longest run shared by two neighbouring pages.
 // - Failure semantics: transient problems (no state DB, no token, network
-//   error, timeout, 429/5xx, unrecognized header) return an empty skipped
+//   error, timeout, 429/5xx, an unrecognized page) return an empty skipped
 //   result with warnings so scheduled syncs stay quiet. Only exhausted
 //   credentials (401/403 on every variant) throw, telling the user to sign
-//   in again inside Cursor. A renamed export header is treated as a skip,
-//   never as an empty upload.
-// - Cloud caveat: the export is account-wide, identical on every machine.
+//   in again inside Cursor.
+// - Cloud caveat: the events are account-wide, identical on every machine.
 //   Enable Cursor on exactly one device per account, otherwise dashboard
 //   totals double-count. Re-syncing one device replaces its days.
 // ---------------------------------------------------------------------------
 
 const ACCESS_TOKEN_KEY = "cursorAuth/accessToken";
 const SESSION_COOKIE = "WorkosCursorSessionToken";
-const EXPORT_PATH = "/api/dashboard/export-usage-events-csv?strategy=tokens";
+const USAGE_EVENTS_PATH = "/api/dashboard/get-filtered-usage-events";
 const WEB_BASE_URL = "https://cursor.com";
+const PAGE_SIZE = 1000;
 
 const DEFAULT_FETCH_TIMEOUT_MS = 120_000;
 const MAX_FETCH_TIMEOUT_MS = 2_147_483_647;
 
 export interface CursorUsageResult {
   buckets: UsageBucket[];
+  // Recent days stated completely; absent when there is no recent usage
+  range?: DayRange;
   skipped: boolean;
   warnings: string[];
+}
+
+export interface CursorOptions {
+  fullHistory?: boolean;
+  now?: Date;
 }
 
 function emptyResult(warnings: string[] = []): CursorUsageResult {
@@ -99,12 +104,7 @@ export function getCursorStateDbPath(): string | null {
       const resolved = resolve(trimmed);
       const candidate = resolved.endsWith(".vscdb")
         ? resolved
-        : join(
-            resolved,
-            "User",
-            "globalStorage",
-            "state.vscdb",
-          );
+        : join(resolved, "User", "globalStorage", "state.vscdb");
       if (existsSync(candidate)) return candidate;
     }
   }
@@ -126,8 +126,9 @@ export function getCursorStateDbPath(): string | null {
       process.env.APPDATA?.trim() || join(homedir(), "AppData", "Roaming");
     candidate = join(appData, "Cursor", relative);
   } else {
-    // eslint-disable-next-line turbo/no-undeclared-env-vars
-    const xdg = process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
+    const xdg =
+      // eslint-disable-next-line turbo/no-undeclared-env-vars
+      process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
     candidate = join(xdg, "Cursor", relative);
   }
   return existsSync(candidate) ? candidate : null;
@@ -172,7 +173,7 @@ export function resolveCursorFetchTimeout(value: unknown): number {
     : DEFAULT_FETCH_TIMEOUT_MS;
 }
 
-function exportBaseUrl(): string {
+function dashboardBaseUrl(): string {
   // Mirror override (runtime-only lookup, not a build input)
   // eslint-disable-next-line turbo/no-undeclared-env-vars
   const base = process.env.CURSOR_WEB_BASE_URL?.trim();
@@ -201,153 +202,9 @@ function networkCodes(error: unknown): string[] {
   return [...codes];
 }
 
-async function fetchUsageCsv(
-  token: string,
-  timeoutMs: number,
-): Promise<string> {
-  const url = `${exportBaseUrl()}${EXPORT_PATH}`;
-  const sub = decodeJwtSub(token);
-  const userId = sub?.includes("|") ? sub.split("|").pop() : null;
-  const cookieValues = [
-    ...(sub ? [`${sub}%3A%3A${token}`] : []),
-    ...(userId ? [`${userId}%3A%3A${token}`] : []),
-    token,
-  ];
-
-  const baseHeaders = {
-    Accept: "text/csv,*/*;q=0.8",
-    Origin: "https://cursor.com",
-    Referer: "https://cursor.com/dashboard?tab=usage",
-    "User-Agent":
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-  };
-  const attempts: Record<string, string>[] = cookieValues.map((value) => ({
-    Cookie: `${SESSION_COOKIE}=${value}`,
-  }));
-  attempts.push({ Authorization: `Bearer ${token}` });
-
-  const failures: string[] = [];
-  for (const headers of attempts) {
-    const signal = AbortSignal.timeout(timeoutMs);
-    let resp: Response;
-    try {
-      resp = await fetch(url, { headers: { ...baseHeaders, ...headers }, signal });
-    } catch (error) {
-      if (signal.aborted) {
-        throw new CursorSkipError(
-          `Cursor usage export skipped (timeout after ${timeoutMs}ms). ` +
-            `The export is computed over the whole account and slow for heavy users; ` +
-            `retry later or raise MYCCUSAGE_CURSOR_FETCH_TIMEOUT_MS.`,
-        );
-      }
-      const codes = networkCodes(error);
-      throw new CursorSkipError(
-        `Cursor usage export skipped (network: ${codes.join(", ") || "fetch failed"}). ` +
-          `Check terminal network/proxy setup; browser access does not imply Node uses the same proxy.`,
-      );
-    }
-    if (resp.ok) {
-      try {
-        return await resp.text();
-      } catch (error) {
-        if (signal.aborted) {
-          throw new CursorSkipError(
-            `Cursor usage export skipped (timeout after ${timeoutMs}ms). ` +
-              `Raise MYCCUSAGE_CURSOR_FETCH_TIMEOUT_MS and retry.`,
-          );
-        }
-        const codes = networkCodes(error);
-        throw new CursorSkipError(
-          `Cursor usage export skipped (network: ${codes.join(", ") || "fetch failed"}).`,
-        );
-      }
-    }
-    failures.push(`${resp.status} ${resp.statusText}`);
-    // Only auth rejections are worth another credential variant; rate
-    // limits and server errors are transient states to skip quietly.
-    if (resp.status !== 401 && resp.status !== 403) {
-      throw new CursorSkipError(
-        `Cursor usage export skipped (HTTP ${resp.status} ${resp.statusText}).`,
-      );
-    }
-  }
-  throw new CursorAuthError(
-    `Cursor session rejected (${failures.join("; ")}). ` +
-      `Open Cursor and sign in again, then re-run sync.`,
-  );
-}
-
-function parseCsv(text: string): string[][] {
-  const rows: string[][] = [];
-  let field = "";
-  let row: string[] = [];
-  let inQuotes = false;
-  let i = 0;
-  while (i < text.length) {
-    const c = text[i];
-    if (inQuotes) {
-      if (c === '"') {
-        if (text[i + 1] === '"') {
-          field += '"';
-          i += 2;
-          continue;
-        }
-        inQuotes = false;
-        i++;
-        continue;
-      }
-      field += c;
-      i++;
-      continue;
-    }
-    if (c === '"') {
-      inQuotes = true;
-      i++;
-      continue;
-    }
-    if (c === ",") {
-      row.push(field);
-      field = "";
-      i++;
-      continue;
-    }
-    if (c === "\r") {
-      i++;
-      continue;
-    }
-    if (c === "\n") {
-      row.push(field);
-      rows.push(row);
-      field = "";
-      row = [];
-      i++;
-      continue;
-    }
-    field += c;
-    i++;
-  }
-  if (field !== "" || row.length > 0) {
-    row.push(field);
-    rows.push(row);
-  }
-  return rows;
-}
-
-function parseCount(value: string | undefined): number {
-  if (value == null) return 0;
-  const n = Number(value.replace(/,/g, "").trim());
-  return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
-}
-
-function parseCost(value: string | undefined): number {
-  if (value == null) return 0;
-  const n = Number(value.replace(/[$,]/g, "").trim());
-  return Number.isFinite(n) && n > 0 ? n : 0;
-}
-
-interface CsvRow {
-  // An instant, or a day label when the export has no time of day
-  date: Date | string;
+// One request of the account
+export interface CursorUsageEvent {
+  instant: Date;
   model: string;
   inputTokens: number;
   outputTokens: number;
@@ -356,104 +213,299 @@ interface CsvRow {
   cost: number;
 }
 
-export function parseCursorCsv(text: string): CsvRow[] {
-  const rows = parseCsv(text);
-  if (rows.length < 2) return [];
-  const header = (rows[0] ?? []).map((h) => h.trim());
-  const at = (name: string): number => header.indexOf(name);
-  const dateIdx = at("Date");
-  const modelIdx = at("Model");
-  const withWriteIdx = at("Input (w/ Cache Write)");
-  const withoutWriteIdx = at("Input (w/o Cache Write)");
-  const cacheReadIdx = at("Cache Read");
-  const outputIdx = at("Output Tokens");
-  // Optional valuation columns; Cost is preferred (see header comment).
-  const costIdx = at("Cost");
-  const apiCostIdx = at("API Cost");
-  const costToYouIdx = at("Cost to you");
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
-  // An unrecognized header cannot establish complete usage; skip the run.
-  const hasTokenColumn =
-    withWriteIdx >= 0 ||
-    withoutWriteIdx >= 0 ||
-    cacheReadIdx >= 0 ||
-    outputIdx >= 0;
-  if (dateIdx < 0 || modelIdx < 0 || !hasTokenColumn) {
-    throw new CursorSkipError(
-      "Cursor export header unrecognized " +
-        "(need Date, Model and at least one token column); skipping to " +
-        `protect incremental state. Got: ${header.slice(0, 8).join(", ")}`,
-    );
+function count(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.trunc(value)
+    : 0;
+}
+
+interface UsagePage {
+  // Events in the window, newest first; absent on a window without usage
+  events: unknown[];
+  // Events in the whole window, when the page states it
+  total?: number;
+}
+
+// The usage events of one page. Throws a skip on any shape this reader does
+// not understand, so a changed endpoint never uploads partial usage.
+export function parseUsagePage(body: unknown): UsagePage {
+  if (!isRecord(body))
+    throw new CursorSkipError("Cursor usage page is not an object");
+  if ("error" in body || "message" in body || "code" in body) {
+    throw new CursorSkipError("Cursor usage page is an error response");
   }
+  const keys = Object.keys(body);
+  if (keys.length === 0) return { events: [] };
+  const total = body.totalUsageEventsCount;
+  const events =
+    keys.length === 1 && keys[0] === "totalUsageEventsCount"
+      ? []
+      : body.usageEventsDisplay;
+  if (
+    (total !== undefined &&
+      (typeof total !== "number" ||
+        !Number.isSafeInteger(total) ||
+        total < 0)) ||
+    !Array.isArray(events) ||
+    events.length > PAGE_SIZE
+  ) {
+    throw new CursorSkipError("Cursor usage page unrecognized");
+  }
+  return { events, ...(typeof total === "number" ? { total } : {}) };
+}
 
-  const parsed: CsvRow[] = [];
-  for (let r = 1; r < rows.length; r++) {
-    const row = rows[r] ?? [];
-    if (row.length === 1 && (row[0] ?? "").trim() === "") continue;
-    const rawDate = (row[dateIdx] ?? "").trim();
-    const model = (row[modelIdx] ?? "").trim();
-    if (!rawDate || !model) continue;
-    const date = /^\d{4}-\d{2}-\d{2}$/.test(rawDate)
-      ? rawDate
-      : new Date(rawDate);
-    if (date instanceof Date && Number.isNaN(date.getTime())) continue;
+// One event as a request in the window, or null for an event that carries
+// no usage. Throws a skip on an event this reader does not understand.
+export function parseUsageEvent(
+  raw: unknown,
+  [sinceMs, untilMs]: [number, number],
+): CursorUsageEvent | null {
+  if (!isRecord(raw))
+    throw new CursorSkipError("Cursor usage event unrecognized");
+  if (raw.tokenUsage === undefined || raw.tokenUsage === null) return null;
+  const usage = raw.tokenUsage;
+  if (!isRecord(usage))
+    throw new CursorSkipError("Cursor usage event unrecognized");
+  for (const key of [
+    "inputTokens",
+    "outputTokens",
+    "cacheReadTokens",
+    "cacheWriteTokens",
+    "totalCents",
+  ]) {
+    const value = usage[key];
+    if (
+      value !== undefined &&
+      (typeof value !== "number" || !Number.isFinite(value) || value < 0)
+    ) {
+      throw new CursorSkipError("Cursor usage event has invalid totals");
+    }
+  }
+  const timestampMs =
+    typeof raw.timestamp === "string" && raw.timestamp.trim() !== ""
+      ? Number(raw.timestamp)
+      : raw.timestamp;
+  if (
+    typeof timestampMs !== "number" ||
+    !Number.isFinite(timestampMs) ||
+    typeof raw.model !== "string" ||
+    !raw.model
+  ) {
+    throw new CursorSkipError("Cursor usage event unrecognized");
+  }
+  if (timestampMs < sinceMs || timestampMs > untilMs) return null;
+  const event: CursorUsageEvent = {
+    instant: new Date(timestampMs),
+    model: raw.model,
+    inputTokens: count(usage.inputTokens),
+    outputTokens: count(usage.outputTokens),
+    cacheCreationTokens: count(usage.cacheWriteTokens),
+    cacheReadTokens: count(usage.cacheReadTokens),
+    cost: typeof usage.totalCents === "number" ? usage.totalCents / 100 : 0,
+  };
+  // An errored request, not charged
+  const total =
+    event.inputTokens +
+    event.outputTokens +
+    event.cacheCreationTokens +
+    event.cacheReadTokens;
+  return total === 0 && event.cost === 0 ? null : event;
+}
 
-    const withWrite = parseCount(row[withWriteIdx]);
-    const withoutWrite = parseCount(row[withoutWriteIdx]);
-    const inputTokens = withoutWriteIdx >= 0 ? withoutWrite : withWrite;
-    const cacheCreationTokens =
-      withWriteIdx >= 0 && withoutWriteIdx >= 0
-        ? Math.max(0, withWrite - withoutWrite)
-        : 0;
-    const cacheReadTokens = parseCount(row[cacheReadIdx]);
-    const outputTokens = parseCount(row[outputIdx]);
-    let cost = 0;
-    for (const idx of [costIdx, apiCostIdx, costToYouIdx]) {
-      if (idx < 0) continue;
-      const value = parseCost(row[idx]);
-      if (value > 0) {
-        cost = value;
+// Length of the longest run that ends `previous` and starts `current`, up to
+// `limit`: events that moved from one page to the next while they were read
+function boundaryOverlap(
+  previous: string[],
+  current: string[],
+  limit: number,
+): number {
+  for (let k = Math.min(limit, previous.length, current.length); k > 0; k--) {
+    let same = true;
+    for (let i = 0; i < k; i++) {
+      if (previous[previous.length - k + i] !== current[i]) {
+        same = false;
         break;
       }
     }
-    if (
-      inputTokens + outputTokens + cacheCreationTokens + cacheReadTokens ===
-        0 &&
-      cost === 0
-    ) {
-      continue;
-    }
-    parsed.push({
-      date,
-      model,
-      inputTokens,
-      outputTokens,
-      cacheCreationTokens,
-      cacheReadTokens,
-      cost,
-    });
+    if (same) return k;
   }
-  return parsed;
+  return 0;
 }
 
-// Each row is one request: summed into its hour, or its day when the export
-// has no time of day
+// Events of all pages, without the duplicates the count announces. Every
+// page is complete: a page's events may only repeat the end of the one
+// before.
+export function dedupePages(pages: unknown[][], total?: number): unknown[] {
+  const events: unknown[] = [];
+  const raw = pages.reduce((sum, page) => sum + page.length, 0);
+  if (total !== undefined && raw < total) {
+    throw new CursorSkipError(
+      `Cursor usage pages hold ${raw} of ${total} events`,
+    );
+  }
+  let removals = total === undefined ? 0 : raw - total;
+  let previous: string[] = [];
+  for (const page of pages) {
+    const keys = removals > 0 ? page.map((event) => JSON.stringify(event)) : [];
+    const overlap = boundaryOverlap(previous, keys, removals);
+    removals -= overlap;
+    previous = keys;
+    events.push(...page.slice(overlap));
+  }
+  if (removals !== 0) {
+    throw new CursorSkipError(
+      "Cursor usage pages do not add up to their count",
+    );
+  }
+  return events;
+}
+
+const PAGE_HEADERS = {
+  Accept: "application/json",
+  "Content-Type": "application/json",
+  Origin: "https://cursor.com",
+  Referer: "https://cursor.com/dashboard?tab=usage",
+  "User-Agent":
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+};
+
+// Credential headers to try in order; only 401/403 moves on to the next
+function credentialVariants(token: string): Record<string, string>[] {
+  const sub = decodeJwtSub(token);
+  const userId = sub?.includes("|") ? sub.split("|").pop() : null;
+  const cookieValues = [
+    ...(sub ? [`${sub}%3A%3A${token}`] : []),
+    ...(userId ? [`${userId}%3A%3A${token}`] : []),
+    token,
+  ];
+  return [
+    ...cookieValues.map((value) => ({ Cookie: `${SESSION_COOKIE}=${value}` })),
+    { Authorization: `Bearer ${token}` },
+  ];
+}
+
+// Pages of the account's usage events in [sinceMs, untilMs], newest first
+async function fetchUsagePages(
+  token: string,
+  [sinceMs, untilMs]: [number, number],
+  timeoutMs: number,
+): Promise<{ pages: unknown[][]; total?: number }> {
+  const url = `${dashboardBaseUrl()}${USAGE_EVENTS_PATH}`;
+  const variants = credentialVariants(token);
+  const failures: string[] = [];
+  // The variant the first page accepted serves the following ones
+  let accepted: Record<string, string> | undefined;
+
+  const request = async (
+    page: number,
+    headers: Record<string, string>,
+  ): Promise<Response> => {
+    const signal = AbortSignal.timeout(timeoutMs);
+    try {
+      return await fetch(url, {
+        method: "POST",
+        headers: { ...PAGE_HEADERS, ...headers },
+        body: JSON.stringify({
+          page,
+          pageSize: PAGE_SIZE,
+          startDate: String(sinceMs),
+          endDate: String(untilMs),
+        }),
+        signal,
+      });
+    } catch (error) {
+      if (signal.aborted) {
+        throw new CursorSkipError(
+          `Cursor usage skipped (timeout after ${timeoutMs}ms on page ${page}). ` +
+            `Retry later or raise MYCCUSAGE_CURSOR_FETCH_TIMEOUT_MS.`,
+        );
+      }
+      const codes = networkCodes(error);
+      throw new CursorSkipError(
+        `Cursor usage skipped (network: ${codes.join(", ") || "fetch failed"}). ` +
+          `Check terminal network/proxy setup; browser access does not imply Node uses the same proxy.`,
+      );
+    }
+  };
+
+  const readPage = async (page: number): Promise<UsagePage> => {
+    for (const headers of accepted ? [accepted] : variants) {
+      const resp = await request(page, headers);
+      if (resp.ok) {
+        accepted = headers;
+        let body: unknown;
+        try {
+          body = await resp.json();
+        } catch {
+          throw new CursorSkipError("Cursor usage skipped (page is not JSON).");
+        }
+        return parseUsagePage(body);
+      }
+      failures.push(`${resp.status} ${resp.statusText}`);
+      // Only auth rejections are worth another credential variant; rate
+      // limits and server errors are transient states to skip quietly.
+      if (resp.status !== 401 && resp.status !== 403) {
+        throw new CursorSkipError(
+          `Cursor usage skipped (HTTP ${resp.status} ${resp.statusText}).`,
+        );
+      }
+      if (accepted) break;
+    }
+    throw new CursorAuthError(
+      `Cursor session rejected (${failures.join("; ")}). ` +
+        `Open Cursor and sign in again, then re-run sync.`,
+    );
+  };
+
+  const pages: unknown[][] = [];
+  let total: number | undefined;
+  for (let page = 1; ; page++) {
+    // The count can include overlapping page boundaries; allow room to
+    // reconcile them without a fixed account-size limit
+    const limit =
+      total === undefined ? 1000 : Math.ceil(total / PAGE_SIZE) * 2 + 1;
+    if (page > limit) {
+      throw new CursorSkipError("Cursor usage skipped (too many pages).");
+    }
+    const result = await readPage(page);
+    if (result.total !== undefined) {
+      if (total !== undefined && result.total !== total) {
+        throw new CursorSkipError(
+          "Cursor usage skipped (the event count changed while reading).",
+        );
+      }
+      total = result.total;
+    }
+    pages.push(result.events);
+    if (result.events.length < PAGE_SIZE) break;
+  }
+  return { pages, ...(total !== undefined ? { total } : {}) };
+}
+
+// Each event is one request, summed into its hour per model
 export function aggregateCursorUsage(
-  rows: CsvRow[],
+  events: CursorUsageEvent[],
   calendar: Calendar,
 ): UsageBucket[] {
   const buckets = new RequestBuckets(calendar);
-  for (const { date, model, ...usage } of rows) {
-    buckets.add(date, model, { ...usage, reasoningTokens: null });
+  for (const { instant, model, ...usage } of events) {
+    buckets.add(instant, model, { ...usage, reasoningTokens: null });
   }
   return buckets.list();
 }
 
 export async function collectCursorUsage(
   calendar: Calendar,
+  options: CursorOptions = {},
 ): Promise<CursorUsageResult> {
-  // eslint-disable-next-line turbo/no-undeclared-env-vars
-  const timeoutMs = resolveCursorFetchTimeout(process.env.MYCCUSAGE_CURSOR_FETCH_TIMEOUT_MS);
+  const timeoutMs = resolveCursorFetchTimeout(
+    // eslint-disable-next-line turbo/no-undeclared-env-vars
+    process.env.MYCCUSAGE_CURSOR_FETCH_TIMEOUT_MS,
+  );
 
   let dbPath: string | null;
   try {
@@ -489,31 +541,36 @@ export async function collectCursorUsage(
     ]);
   }
 
-  let csv: string;
+  const now = options.now ?? new Date();
+  const today = calendar.dayOf(now);
+  const start = firstDayWithin(calendar, now, SYNC_WINDOW_DAYS);
+  const window: [number, number] = [
+    options.fullHistory ? 0 : start.getTime(),
+    now.getTime(),
+  ];
+
+  let events: CursorUsageEvent[];
   try {
-    csv = await fetchUsageCsv(token, timeoutMs);
+    const { pages, total } = await fetchUsagePages(token, window, timeoutMs);
+    events = dedupePages(pages, total)
+      .map((raw) => parseUsageEvent(raw, window))
+      .filter((event): event is CursorUsageEvent => event !== null);
   } catch (error) {
     if (error instanceof CursorSkipError) {
       return emptyResult([error.message]);
     }
     throw error;
   }
-
-  let rows: CsvRow[];
-  try {
-    rows = parseCursorCsv(csv);
-  } catch (error) {
-    if (error instanceof CursorSkipError) {
-      return emptyResult([error.message]);
-    }
-    throw error;
-  }
-  if (rows.length === 0) {
-    return emptyResult(["Cursor export contained no usage rows."]);
+  if (events.length === 0) {
+    return emptyResult(["Cursor reported no usage events in the window."]);
   }
 
+  const buckets = aggregateCursorUsage(events, calendar);
+  const refreshFrom = calendar.dayOf(start);
+  const first = buckets.find((bucket) => bucket.date >= refreshFrom)?.date;
   return {
-    buckets: aggregateCursorUsage(rows, calendar),
+    buckets,
+    ...(first ? { range: { from: first, to: today } } : {}),
     skipped: false,
     warnings: [],
   };

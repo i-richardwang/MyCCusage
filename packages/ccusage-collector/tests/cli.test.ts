@@ -13,6 +13,7 @@ import { join } from "path";
 import { promisify } from "util";
 import { fileURLToPath } from "url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { SYNC_PROTOCOL } from "../src/collector";
 import { captureServiceEnvironment } from "../src/service-environment";
 import { CONFIG_ENV_VARS } from "../src/config";
 import type { UsageData } from "../src/types";
@@ -98,7 +99,7 @@ describe("environment-configured CLI", () => {
     );
 
     uploads = [];
-    protocol = 3;
+    protocol = 4;
     server = createServer(async (req, res) => {
       res.setHeader("Content-Type", "application/json");
       if (req.method === "GET") {
@@ -180,7 +181,10 @@ describe("environment-configured CLI", () => {
     ]);
     for (const { data, apiKey } of uploads) {
       expect(apiKey).toBe("test-api-key");
-      expect(data).toMatchObject({ version: 3, timezone: "Asia/Shanghai" });
+      expect(data).toMatchObject({
+        version: SYNC_PROTOCOL,
+        timezone: "Asia/Shanghai",
+      });
       expect(data.range).toEqual({
         from: data.buckets[0]?.date,
         to: today,

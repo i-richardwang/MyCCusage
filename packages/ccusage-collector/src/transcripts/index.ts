@@ -1,5 +1,9 @@
 import { existsSync } from "fs";
-import { addDays, type Calendar } from "../calendar.js";
+import {
+  SYNC_WINDOW_DAYS,
+  firstDayWithin,
+  type Calendar,
+} from "../calendar.js";
 import { estimateRequestCost, type PricingTable } from "../pricing/rates.js";
 import { RequestBuckets } from "../buckets.js";
 import type { DayRange, UsageBucket } from "../types.js";
@@ -27,11 +31,6 @@ export type TranscriptAgent =
   | "codex"
   | "opencode"
   | "antigravity";
-
-// Days re-read on every sync. Older days keep what earlier syncs uploaded.
-const HOURLY_WINDOW_DAYS = 30;
-
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 export interface TranscriptCollection {
   // Recent days covered completely; absent when there is no recent usage
@@ -266,17 +265,9 @@ export function bucketRequests(
   return { buckets: buckets.list(), unpricedModels: [...unpriced].sort() };
 }
 
-// The first whole day after the instant `days` × 24h before `now`, as
-// retention counts: a 25-hour DST day in the window never lets it reach
-// further
-function firstDayWithin(calendar: Calendar, now: Date, days: number): Date {
-  const cutoff = new Date(now.getTime() - days * DAY_MS);
-  return calendar.rangeOf(addDays(calendar.dayOf(cutoff), 1))[0];
-}
-
 /**
  * Hourly usage of the last days whose transcripts are all still on disk, up
- * to HOURLY_WINDOW_DAYS. The range ends today and starts no earlier than the
+ * to SYNC_WINDOW_DAYS. The range ends today and starts no earlier than the
  * first request found, so transcripts lost with a reinstalled machine never
  * erase days the dashboard already holds. Days before the range keep what
  * earlier syncs stored.
@@ -299,7 +290,7 @@ export async function collectTranscriptUsage(
   const start = firstDayWithin(
     calendar,
     now,
-    Math.min(HOURLY_WINDOW_DAYS, source.completeDays),
+    Math.min(SYNC_WINDOW_DAYS, source.completeDays),
   );
   const [, end] = calendar.rangeOf(today);
   const sinceMs = options.fullHistory ? -Infinity : start.getTime();

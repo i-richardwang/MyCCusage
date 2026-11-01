@@ -5,8 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   aggregateCursorUsage,
   collectCursorUsage,
-  parseCursorCsv,
+  dedupePages,
+  parseUsageEvent,
+  parseUsagePage,
   resolveCursorFetchTimeout,
+  type CursorUsageEvent,
 } from "../src/cursor";
 import { createCalendar } from "../src/calendar";
 
@@ -18,6 +21,10 @@ const TOKEN =
     "base64url",
   ) +
   `.test-signature`;
+
+// The sync runs at this instant; its 30-day window starts on 2026-08-09
+const NOW = new Date("2026-09-07T10:00:00Z");
+const WINDOW: [number, number] = [0, NOW.getTime()];
 
 function openDb(dbPath: string) {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -37,86 +44,173 @@ function seedTokenDb(dbPath: string) {
   }
 }
 
-const CSV_HEADER =
-  "Date,Model,Input (w/ Cache Write),Input (w/o Cache Write),Cache Read,Output Tokens,Total Tokens,Cost,Cost to you";
+// One usage event as the dashboard endpoint returns it
+function event(
+  at: string,
+  model: string,
+  tokenUsage: Record<string, number> | null = {
+    inputTokens: 100,
+    outputTokens: 40,
+    cacheReadTokens: 30,
+    cacheWriteTokens: 10,
+    totalCents: 10,
+  },
+) {
+  return {
+    timestamp: String(Date.parse(at)),
+    model,
+    kind: "USAGE_EVENT_KIND_USAGE_BASED",
+    conversationId: "c-1",
+    tokenUsage,
+  };
+}
 
-describe("parseCursorCsv", () => {
-  it("sums rows into account-calendar hours per model", () => {
-    const rows = parseCursorCsv(
-      [
-        CSV_HEADER,
-        '2026-09-07T01:02:00Z,cheap-model,110,100,30,40,280,"$0.10","$0.05"',
-        '2026-09-07T01:40:00Z,cheap-model,10,10,0,1,11,"$0.20","$0.10"',
-        '2026-09-07T02:00:00Z,pricey-model,10,10,0,1,11,"$2.00","$1.00"',
-        '2026-09-08T01:00:00Z,cheap-model,50,50,0,5,55,"$0.05","$0.02"',
-      ].join("\n"),
+const page = (events: unknown[], total = events.length) =>
+  JSON.stringify({ totalUsageEventsCount: total, usageEventsDisplay: events });
+
+describe("parseUsageEvent", () => {
+  it("reads one request with Cursor's cache split and list-price cost", () => {
+    const parsed = parseUsageEvent(
+      event("2026-09-07T01:02:00Z", "cheap-model"),
+      WINDOW,
     );
+    expect(parsed).toEqual({
+      instant: new Date("2026-09-07T01:02:00Z"),
+      model: "cheap-model",
+      inputTokens: 100,
+      outputTokens: 40,
+      cacheCreationTokens: 10,
+      cacheReadTokens: 30,
+      cost: 0.1,
+    });
+  });
 
-    const buckets = aggregateCursorUsage(rows, SHANGHAI);
+  it("accepts a numeric timestamp and drops events without usage", () => {
+    const numeric = { ...event("2026-09-07T01:02:00Z", "m"), timestamp: 1 };
+    expect(parseUsageEvent(numeric, WINDOW)?.instant.getTime()).toBe(1);
     expect(
-      buckets.map(({ date, hourStart, model, requests }) => [
+      parseUsageEvent(event("2026-09-07T01:02:00Z", "m", null), WINDOW),
+    ).toBeNull();
+    expect(
+      parseUsageEvent(event("2026-09-07T01:02:00Z", "m", {}), WINDOW),
+    ).toBeNull();
+  });
+
+  it("keeps only events in the window", () => {
+    const late = event("2026-09-07T10:00:01Z", "m");
+    expect(parseUsageEvent(late, WINDOW)).toBeNull();
+    expect(
+      parseUsageEvent(late, [0, Date.parse("2026-09-08T00:00:00Z")]),
+    ).not.toBeNull();
+  });
+
+  it("throws a skip on an event it does not understand", () => {
+    expect(() =>
+      parseUsageEvent(
+        { ...event("2026-09-07T01:02:00Z", "m"), model: "" },
+        WINDOW,
+      ),
+    ).toThrow(/unrecognized/);
+    expect(() =>
+      parseUsageEvent(
+        event("2026-09-07T01:02:00Z", "m", { inputTokens: -1 }),
+        WINDOW,
+      ),
+    ).toThrow(/invalid totals/);
+    expect(() => parseUsageEvent("row", WINDOW)).toThrow(/unrecognized/);
+  });
+});
+
+describe("parseUsagePage", () => {
+  it("reads events and their count, and an empty window", () => {
+    expect(
+      parseUsagePage({ totalUsageEventsCount: 2, usageEventsDisplay: [1, 2] }),
+    ).toEqual({ events: [1, 2], total: 2 });
+    expect(parseUsagePage({})).toEqual({ events: [] });
+    expect(parseUsagePage({ totalUsageEventsCount: 0 })).toEqual({
+      events: [],
+      total: 0,
+    });
+  });
+
+  it("throws a skip on errors and unknown shapes", () => {
+    expect(() => parseUsagePage({ error: "nope" })).toThrow(/error response/);
+    expect(() => parseUsagePage({ usageEventsDisplay: "x" })).toThrow(
+      /unrecognized/,
+    );
+    expect(() => parseUsagePage([])).toThrow(/not an object/);
+  });
+});
+
+describe("dedupePages", () => {
+  it("drops the events a later page repeats from the one before", () => {
+    const a = { id: "a" };
+    const b = { id: "b" };
+    const c = { id: "c" };
+    // An event arrived between the two reads and pushed b onto page 2
+    expect(
+      dedupePages(
+        [
+          [a, b],
+          [{ ...b }, c],
+        ],
+        3,
+      ),
+    ).toEqual([a, b, c]);
+    expect(dedupePages([[a, b], [c]])).toEqual([a, b, c]);
+  });
+
+  it("throws a skip when the pages do not add up to the count", () => {
+    expect(() => dedupePages([[{ id: "a" }]], 2)).toThrow(/1 of 2/);
+    expect(() => dedupePages([[{ id: "a" }], [{ id: "b" }]], 1)).toThrow(
+      /add up/,
+    );
+  });
+});
+
+describe("aggregateCursorUsage", () => {
+  const request = (at: string, model: string, n: number): CursorUsageEvent => ({
+    instant: new Date(at),
+    model,
+    inputTokens: n,
+    outputTokens: n,
+    cacheCreationTokens: 0,
+    cacheReadTokens: 0,
+    cost: n / 100,
+  });
+
+  it("sums requests into account-calendar hours per model", () => {
+    const buckets = aggregateCursorUsage(
+      [
+        request("2026-09-07T01:02:00Z", "cheap-model", 10),
+        request("2026-09-07T01:40:00Z", "cheap-model", 1),
+        request("2026-09-07T02:00:00Z", "pricey-model", 1),
+        request("2026-09-08T01:00:00Z", "cheap-model", 5),
+      ],
+      SHANGHAI,
+    );
+    expect(
+      buckets.map(({ date, hourStart, model, requests, inputTokens }) => [
         date,
         hourStart,
         model,
         requests,
+        inputTokens,
       ]),
     ).toEqual([
-      ["2026-09-07", "2026-09-07T01:00:00.000Z", "cheap-model", 2],
-      ["2026-09-07", "2026-09-07T02:00:00.000Z", "pricey-model", 1],
-      ["2026-09-08", "2026-09-08T01:00:00.000Z", "cheap-model", 1],
+      ["2026-09-07", "2026-09-07T01:00:00.000Z", "cheap-model", 2, 11],
+      ["2026-09-07", "2026-09-07T02:00:00.000Z", "pricey-model", 1, 1],
+      ["2026-09-08", "2026-09-08T01:00:00.000Z", "cheap-model", 1, 5],
     ]);
-    // input = w/o count; creation = w/ minus w/o; Cost preferred over Cost to you.
-    expect(buckets[0]).toMatchObject({
-      inputTokens: 110,
-      outputTokens: 41,
-      cacheCreationTokens: 10,
-      cacheReadTokens: 30,
-    });
-    expect(buckets[0]?.cost).toBeCloseTo(0.3, 10);
+    expect(buckets[0]?.cost).toBeCloseTo(0.11, 10);
     expect(buckets[0]).not.toHaveProperty("reasoningTokens");
-  });
-
-  it("falls back to Cost to you when Cost is absent", () => {
-    const rows = parseCursorCsv(
-      [
-        "Date,Model,Input (w/ Cache Write),Input (w/o Cache Write),Cache Read,Output Tokens,Cost to you",
-        "2026-09-07T01:02:00Z,test-model,10,10,0,5,$0.42",
-      ].join("\n"),
-    );
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.cost).toBeCloseTo(0.42, 10);
-  });
-
-  it("skips blank lines and zero rows", () => {
-    const rows = parseCursorCsv(
-      [CSV_HEADER, "", "2026-09-07T01:02:00Z,,10,10,0,5,15,$0.1,$0.1", ""].join(
-        "\n",
-      ),
-    );
-    expect(rows).toEqual([]);
-  });
-
-  it("throws a skippable error on a renamed export header", () => {
-    expect(() =>
-      parseCursorCsv(
-        [
-          "Date,Model,Kind,Input Tokens,Output",
-          "2026-09-07T01:02:00Z,test-model,Included,10,20",
-        ].join("\n"),
-      ),
-    ).toThrow(/header unrecognized/);
   });
 
   it("groups instants by the account calendar, not the process zone", () => {
     // 2026-09-07T16:30Z is 2026-09-08 00:30 in Asia/Shanghai (UTC+8).
-    const rows = parseCursorCsv(
-      [
-        CSV_HEADER,
-        "2026-09-07T16:30:00Z,test-model,100,100,0,10,110,$0.1,$0.1",
-      ].join("\n"),
-    );
+    const requests = [request("2026-09-07T16:30:00Z", "m", 1)];
     const bucket = (zone: string) =>
-      aggregateCursorUsage(rows, createCalendar(zone)).map(
+      aggregateCursorUsage(requests, createCalendar(zone)).map(
         ({ date, hourStart }) => [date, hourStart],
       );
     expect(bucket("Asia/Shanghai")).toEqual([
@@ -125,20 +219,6 @@ describe("parseCursorCsv", () => {
     expect(bucket("America/New_York")).toEqual([
       ["2026-09-07", "2026-09-07T16:00:00.000Z"],
     ]);
-  });
-
-  it("keeps date-only rows as their whole day in any calendar", () => {
-    const rows = parseCursorCsv(
-      [CSV_HEADER, "2026-09-07,test-model,100,100,0,10,110,$0.1,$0.1"].join(
-        "\n",
-      ),
-    );
-    for (const zone of ["Asia/Shanghai", "America/Los_Angeles", "UTC"]) {
-      const buckets = aggregateCursorUsage(rows, createCalendar(zone));
-      expect(buckets.map(({ date, hourStart }) => [date, hourStart])).toEqual([
-        ["2026-09-07", undefined],
-      ]);
-    }
   });
 });
 
@@ -164,9 +244,44 @@ describe("collectCursorUsage", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  function seed() {
+    const dbPath = join(dir, "state.vscdb");
+    seedTokenDb(dbPath);
+    vi.stubEnv("MYCCUSAGE_CURSOR_DB", dbPath);
+  }
+
+  interface Call {
+    body: {
+      page: number;
+      pageSize: number;
+      startDate: string;
+      endDate: string;
+    };
+    headers: Record<string, string>;
+  }
+
+  function stubFetch(respond: (call: Call) => Response | Promise<Response>) {
+    const calls: Call[] = [];
+    const mock = vi.fn(
+      async (
+        _url: unknown,
+        init?: { body?: string; headers?: Record<string, string> },
+      ) => {
+        const call = {
+          body: JSON.parse(init?.body ?? "{}"),
+          headers: init?.headers ?? {},
+        };
+        calls.push(call);
+        return respond(call);
+      },
+    );
+    vi.stubGlobal("fetch", mock);
+    return calls;
+  }
+
   it("skips quietly when the state DB is missing", async () => {
     vi.stubEnv("MYCCUSAGE_CURSOR_DB", join(dir, "missing.vscdb"));
-    const result = await collectCursorUsage(SHANGHAI);
+    const result = await collectCursorUsage(SHANGHAI, { now: NOW });
     expect(result.skipped).toBe(true);
     expect(result.buckets).toEqual([]);
     expect(result.warnings).toHaveLength(1);
@@ -181,114 +296,147 @@ describe("collectCursorUsage", () => {
       db.close();
     }
     vi.stubEnv("MYCCUSAGE_CURSOR_DB", dbPath);
-    const result = await collectCursorUsage(SHANGHAI);
+    const result = await collectCursorUsage(SHANGHAI, { now: NOW });
     expect(result.skipped).toBe(true);
     expect(result.warnings[0]).toMatch(/session token/);
   });
 
-  it("sends the sub-scoped cookie first and aggregates the export", async () => {
-    const dbPath = join(dir, "state.vscdb");
-    seedTokenDb(dbPath);
-    vi.stubEnv("MYCCUSAGE_CURSOR_DB", dbPath);
-
-    const cookies: (string | null)[] = [];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (_url: unknown, init?: { headers?: Record<string, string> }) => {
-        cookies.push(init?.headers?.["Cookie"] ?? null);
-        return new Response(
-          [
-            CSV_HEADER,
-            '2026-09-07T01:02:00Z,test-model,10,20,30,40,100,"$1.21","$0.50"',
-          ].join("\n"),
-        );
-      }),
+  it("asks for the last 30 days with the sub-scoped cookie and states them completely", async () => {
+    seed();
+    const calls = stubFetch(
+      () => new Response(page([event("2026-09-07T01:02:00Z", "test-model")])),
     );
 
-    const result = await collectCursorUsage(SHANGHAI);
+    const result = await collectCursorUsage(SHANGHAI, { now: NOW });
     expect(result.skipped).toBe(false);
     expect(result.warnings).toEqual([]);
-    expect(cookies[0]).toBe(
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.headers["Cookie"]).toBe(
       `WorkosCursorSessionToken=auth0|cursor-test-user%3A%3A${TOKEN}`,
     );
+    expect(calls[0]!.body).toEqual({
+      page: 1,
+      pageSize: 1000,
+      // 2026-08-09 00:00 in Shanghai
+      startDate: String(Date.parse("2026-08-08T16:00:00Z")),
+      endDate: String(NOW.getTime()),
+    });
     expect(result.buckets).toEqual([
       {
         date: "2026-09-07",
         hourStart: "2026-09-07T01:00:00.000Z",
         model: "test-model",
-        inputTokens: 20,
+        inputTokens: 100,
         outputTokens: 40,
-        // Cache writes are max(0, 10 - 20)
-        cacheCreationTokens: 0,
+        cacheCreationTokens: 10,
         cacheReadTokens: 30,
-        cost: 1.21,
+        cost: 0.1,
         requests: 1,
       },
     ]);
+    expect(result.range).toEqual({ from: "2026-09-07", to: "2026-09-07" });
+  });
+
+  it("reads every event on a full-history run, stating only the recent days completely", async () => {
+    seed();
+    const calls = stubFetch(
+      () =>
+        new Response(
+          page([
+            event("2026-09-01T01:02:00Z", "test-model"),
+            event("2026-07-01T01:02:00Z", "test-model"),
+          ]),
+        ),
+    );
+
+    const result = await collectCursorUsage(SHANGHAI, {
+      now: NOW,
+      fullHistory: true,
+    });
+    expect(calls[0]!.body.startDate).toBe("0");
+    expect(result.buckets.map((b) => b.date)).toEqual([
+      "2026-07-01",
+      "2026-09-01",
+    ]);
+    expect(result.range).toEqual({ from: "2026-09-01", to: "2026-09-07" });
+  });
+
+  it("pages through the window and drops events repeated across a boundary", async () => {
+    seed();
+    const events = Array.from({ length: 1000 }, (_, i) =>
+      event(
+        new Date(Date.parse("2026-09-07T00:00:00Z") + i * 1000).toISOString(),
+        "m",
+      ),
+    );
+    const newest = event("2026-09-07T05:00:00Z", "m");
+    // The second page repeats the first page's last event, which a new event
+    // pushed over the boundary
+    const pages = [events, [events[999], newest]];
+    const calls = stubFetch(({ body, headers }) => {
+      if (!headers["Cookie"]) return new Response("", { status: 401 });
+      return new Response(page(pages[body.page - 1]!, 1001));
+    });
+
+    const result = await collectCursorUsage(SHANGHAI, { now: NOW });
+    expect(calls.map((c) => c.body.page)).toEqual([1, 2]);
+    expect(result.buckets.reduce((sum, b) => sum + b.requests, 0)).toBe(1001);
   });
 
   it("throws a re-login error only after every credential variant fails", async () => {
-    const dbPath = join(dir, "state.vscdb");
-    seedTokenDb(dbPath);
-    vi.stubEnv("MYCCUSAGE_CURSOR_DB", dbPath);
-
-    const fetchMock = vi.fn(
-      async () => new Response("", { status: 401, statusText: "Unauthorized" }),
+    seed();
+    const calls = stubFetch(
+      () => new Response("", { status: 401, statusText: "Unauthorized" }),
     );
-    vi.stubGlobal("fetch", fetchMock);
 
-    await expect(collectCursorUsage(SHANGHAI)).rejects.toThrow(/sign in again/);
+    await expect(collectCursorUsage(SHANGHAI, { now: NOW })).rejects.toThrow(
+      /sign in again/,
+    );
     // sub cookie + userId cookie + bare token + bearer.
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(calls).toHaveLength(4);
   });
 
   it("soft-skips server failures instead of throwing", async () => {
-    const dbPath = join(dir, "state.vscdb");
-    seedTokenDb(dbPath);
-    vi.stubEnv("MYCCUSAGE_CURSOR_DB", dbPath);
+    seed();
+    const calls = stubFetch(() => new Response("", { status: 503 }));
 
-    const fetchMock = vi.fn(async () => new Response("", { status: 503 }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    const result = await collectCursorUsage(SHANGHAI);
+    const result = await collectCursorUsage(SHANGHAI, { now: NOW });
     expect(result.skipped).toBe(true);
     expect(result.buckets).toEqual([]);
     expect(result.warnings[0]).toMatch(/HTTP 503/);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(calls).toHaveLength(1);
   });
 
   it("soft-skips network failures with the underlying code", async () => {
-    const dbPath = join(dir, "state.vscdb");
-    seedTokenDb(dbPath);
-    vi.stubEnv("MYCCUSAGE_CURSOR_DB", dbPath);
+    seed();
+    stubFetch(() => {
+      throw new TypeError("fetch failed", {
+        cause: Object.assign(new Error("dns down"), { code: "ENOTFOUND" }),
+      });
+    });
 
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        throw new TypeError("fetch failed", {
-          cause: Object.assign(new Error("dns down"), { code: "ENOTFOUND" }),
-        });
-      }),
-    );
-
-    const result = await collectCursorUsage(SHANGHAI);
+    const result = await collectCursorUsage(SHANGHAI, { now: NOW });
     expect(result.skipped).toBe(true);
     expect(result.warnings[0]).toMatch(/ENOTFOUND/);
     expect(result.warnings[0]).not.toMatch(new RegExp(TOKEN));
   });
 
-  it("skips an empty export instead of uploading nothing", async () => {
-    const dbPath = join(dir, "state.vscdb");
-    seedTokenDb(dbPath);
-    vi.stubEnv("MYCCUSAGE_CURSOR_DB", dbPath);
+  it("soft-skips a page it does not understand", async () => {
+    seed();
+    stubFetch(() => new Response(JSON.stringify({ usageEventsDisplay: "?" })));
 
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response(`${CSV_HEADER}\n`)),
-    );
+    const result = await collectCursorUsage(SHANGHAI, { now: NOW });
+    expect(result.skipped).toBe(true);
+    expect(result.warnings[0]).toMatch(/unrecognized/);
+  });
 
-    const result = await collectCursorUsage(SHANGHAI);
+  it("skips an empty window instead of uploading nothing", async () => {
+    seed();
+    stubFetch(() => new Response("{}"));
+
+    const result = await collectCursorUsage(SHANGHAI, { now: NOW });
     expect(result.skipped).toBe(true);
     expect(result.buckets).toEqual([]);
+    expect(result.range).toBeUndefined();
   });
 });

@@ -3,7 +3,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AmpRunner } from "../../src/amp/cli";
-import { aggregateAmpDaily } from "../../src/amp/daily";
+import { aggregateAmpUsage } from "../../src/amp/usage";
 import { loadCachedThreads, syncAmpCache } from "../../src/amp/sync";
 import {
   CALENDAR,
@@ -77,11 +77,11 @@ describe("syncAmpCache", () => {
     // T-1's report was fetched after its last update, so it is kept
     expect(second.reports().sort()).toEqual(["T-2", "T-3"]);
 
-    const daily = aggregateAmpDaily(loadCachedThreads(cacheDir), {
+    const { buckets } = aggregateAmpUsage(loadCachedThreads(cacheDir), {
       calendar: CALENDAR,
       pricing: UNPRICED,
     });
-    expect(tokenTotal(daily[0]!)).toBe(3 * 165);
+    expect(tokenTotal(buckets)).toBe(3 * 165);
   });
 
   it("keeps exports when usage reports hit Amp's hourly limit", async () => {
@@ -109,11 +109,11 @@ describe("syncAmpCache", () => {
     expect(again.reports()).toEqual([]);
 
     // Main-agent usage is still collected
-    const daily = aggregateAmpDaily(loadCachedThreads(cacheDir), {
+    const { buckets } = aggregateAmpUsage(loadCachedThreads(cacheDir), {
       calendar: CALENDAR,
       pricing: UNPRICED,
     });
-    expect(daily[0]!.outputTokens).toBe(2);
+    expect(buckets.map((b) => b.outputTokens)).toEqual([2]);
   });
 
   it("rebuilds the cache for another installation but keeps the rate limit", async () => {

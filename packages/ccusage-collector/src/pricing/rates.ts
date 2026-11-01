@@ -1,9 +1,11 @@
-import type { ModelBreakdown } from "../types.js";
-
-export type TokenUsage = Pick<
-  ModelBreakdown,
-  "inputTokens" | "outputTokens" | "cacheCreationTokens" | "cacheReadTokens"
->;
+// Token counters a cost is estimated from. Input excludes cache reads and
+// writes.
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+}
 
 // USD per token. Absent cache rates mean unknown, not free.
 export interface TokenRates {

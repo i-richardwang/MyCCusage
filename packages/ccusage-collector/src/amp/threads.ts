@@ -91,14 +91,14 @@ export function projectThreadExport(
   };
 }
 
-export function usageDate(
+// When the usage happened: the entry's own time, else the thread's creation
+export function usageInstant(
   entry: AmpUsageEntry,
   created: number | null,
-  calendar: Calendar,
-): string | null {
+): Date | null {
   const parsed = entry.timestamp ? new Date(entry.timestamp) : null;
-  if (parsed && !Number.isNaN(parsed.getTime())) return calendar.dayOf(parsed);
-  return created ? calendar.dayOf(new Date(created)) : null;
+  if (parsed && !Number.isNaN(parsed.getTime())) return parsed;
+  return created ? new Date(created) : null;
 }
 
 // Days with any thread activity: every day subagents may have run
@@ -111,8 +111,8 @@ export function threadActiveDays(
     days.add(calendar.dayOf(new Date(timestamp)));
   }
   for (const entry of thread.usage) {
-    const date = usageDate(entry, thread.created, calendar);
-    if (date) days.add(date);
+    const instant = usageInstant(entry, thread.created);
+    if (instant) days.add(calendar.dayOf(instant));
   }
   return [...days].sort();
 }
