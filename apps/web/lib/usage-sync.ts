@@ -24,7 +24,8 @@ export const SYNC_PROTOCOL = 4;
 const MAX_RANGE_DAYS = 400;
 const MAX_MODEL_LENGTH = 255;
 
-// A stored bucket, before the database adds its bookkeeping columns
+// An uploaded bucket as stored, before the database adds its bookkeeping
+// columns. Uploads always report hours; day buckets are only history
 export interface BucketRow {
   date: string;
   hourStart: Date;

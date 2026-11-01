@@ -28,7 +28,7 @@ const record = (
   agentType: "claude-code",
   model,
   reasoningTokens: null,
-  requests: 1,
+  requests: null,
   ...metrics(tokens, tokens / 100),
   ...overrides,
 });
@@ -63,7 +63,7 @@ describe("hoursIn", () => {
 
 describe("selectUsage", () => {
   const records = [
-    record("2026-10-29", "claude-sonnet-5-5", 100),
+    record("2026-10-29", "", 100),
     record("2026-10-30", "claude-opus-5-5", 600, {
       requests: 4,
       reasoningTokens: 7,
@@ -95,9 +95,12 @@ describe("selectUsage", () => {
     ).toEqual([
       ["claude-opus-5-5", 4, 7, 0.6],
       ["claude-haiku-5-5", 2, null, 0.3],
-      ["claude-sonnet-5-5", 1, null, expect.closeTo(0.1)],
+      ["", null, null, expect.closeTo(0.1)],
     ]);
-    expect(view.summary.totalTokens).toBe(1000);
+    expect(view.summary).toMatchObject({
+      totalTokens: 1000,
+      hourlyCoverage: 0.9,
+    });
     expect(view.hourly?.hours).toHaveLength(48);
     expect(view.hourly?.records).toEqual([hourly[0]]);
   });
@@ -126,7 +129,7 @@ describe("selectUsage", () => {
     });
   });
 
-  it("splits the selection by agent and device, and sums the counts", () => {
+  it("splits the selection by agent and device, and sums reported counts", () => {
     const view = selectUsage(
       {
         ...account,
@@ -155,7 +158,7 @@ describe("selectUsage", () => {
     ]);
     expect(view.summary).toMatchObject({
       activeDays: 2,
-      requests: 9,
+      requests: 6,
       reasoningTokens: 7,
     });
   });
@@ -187,7 +190,7 @@ describe("selectUsage", () => {
     expect(empty.summary).toMatchObject({
       cacheHitRate: null,
       costPerMillionTokens: null,
-      requests: 0,
+      requests: null,
     });
   });
 
@@ -197,6 +200,7 @@ describe("selectUsage", () => {
       to: "2026-10-30",
     });
     expect(view.hourly).toBeNull();
+    expect(view.summary.hourlyCoverage).toBeCloseTo(1900 / 2000);
   });
 
   it("shows hours for short ranges until days are chosen", () => {

@@ -56,6 +56,10 @@ export const HOURLY_RANGE_DAYS = 31;
 // Longest range shown hour by hour until days are chosen
 export const HOURLY_DEFAULT_DAYS = 2;
 
+// Share of tokens with known hours below which the hourly chart notes the
+// rest
+export const FULL_HOURLY_COVERAGE = 0.995;
+
 // A shade between the background and the foreground, so token types read as
 // one quantity apart from the agent and device colors
 const ink = (percent: number) =>

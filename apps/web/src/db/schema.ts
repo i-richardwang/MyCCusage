@@ -34,17 +34,20 @@ export const devices = pgTable(
   },
 );
 
-// Usage of one agent with one model on one device in one hour of the account
-// calendar. Writes operate on whole device/agent days.
+// Usage of one agent with one model on one device in an hour of the account
+// calendar. Usage recorded before collectors reported hours keeps its whole
+// day: hour_start is null, model "" holds what it left unattributed, and
+// requests may be unknown. Writes operate on whole device/agent days, so a
+// day holds either hours or day buckets.
 export const usageBuckets = pgTable(
   "usage_buckets",
   {
     id: serial("id").primaryKey(),
     deviceId: varchar("device_id", { length: 255 }).notNull(),
     agentType: varchar("agent_type", { length: 50 }).notNull(),
-    // Day of the account calendar the hour lies in
+    // Day of the account calendar the bucket lies in
     date: date("date").notNull(),
-    hourStart: timestamp("hour_start", { withTimezone: true }).notNull(),
+    hourStart: timestamp("hour_start", { withTimezone: true }),
     model: varchar("model", { length: 255 }).notNull(),
     // Excludes cache reads and writes
     inputTokens: bigint("input_tokens", { mode: "number" }).notNull().default(0),
@@ -62,8 +65,8 @@ export const usageBuckets = pgTable(
     reasoningTokens: bigint("reasoning_tokens", { mode: "number" }),
     totalTokens: bigint("total_tokens", { mode: "number" }).notNull().default(0),
     cost: numeric("cost", { precision: 14, scale: 6 }).notNull().default("0"),
-    // API requests
-    requests: integer("requests").notNull(),
+    // API requests; null where day history did not count them
+    requests: integer("requests"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -72,13 +75,15 @@ export const usageBuckets = pgTable(
       .defaultNow(),
   },
   (table) => [
-    unique("usage_buckets_unique_bucket").on(
-      table.deviceId,
-      table.agentType,
-      table.date,
-      table.hourStart,
-      table.model,
-    ),
+    unique("usage_buckets_unique_bucket")
+      .on(
+        table.deviceId,
+        table.agentType,
+        table.date,
+        table.hourStart,
+        table.model,
+      )
+      .nullsNotDistinct(),
     index("usage_buckets_date_idx").on(table.date),
     index("usage_buckets_hour_start_idx").on(table.hourStart),
   ],
