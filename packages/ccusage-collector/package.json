@@ -33,7 +33,7 @@
   "author": "Richard Wang",
   "repository": {
     "type": "git",
-    "url": "https://github.com/i-richardwang/MyCCusage.git",
+    "url": "git+https://github.com/i-richardwang/MyCCusage.git",
     "directory": "packages/ccusage-collector"
   },
   "bugs": {
