@@ -42,25 +42,15 @@ export interface Device {
   displayName: string | null;
 }
 
-export interface RatioChartRecord {
-  date: string;
-  ratio: number;
-  averageRatio: number;
-}
-
-export interface RatioChartData {
-  chartData: RatioChartRecord[];
-  chartConfig: Record<string, { label: string; color: string }>;
-}
-
-export interface HourlyChartData {
+// Series of a stacked chart: one point per day or hour, with a value for
+// each series of the config
+export interface SeriesChartData {
   chartData: Record<string, string | number>[];
   chartConfig: ChartConfig;
-  activeAgents: AgentType[];
 }
 
 // Preset time ranges; "custom" is a range picked in the calendar
-export type PresetRange = "all" | "7d" | "14d" | "30d";
+export type PresetRange = "all" | "1d" | "7d" | "14d" | "30d";
 export type TimeRange = PresetRange | "custom";
 
 export interface ChartConfig {
@@ -70,15 +60,11 @@ export interface ChartConfig {
   };
 }
 
-// Pie chart data types
-export interface PieChartRecord {
-  name: string;
-  value: number;
-  fill: string;
-}
+// What the dashboard measures usage in
+export type UsageMetric = "cost" | "tokens";
 
-export interface PieChartData {
-  chartData: PieChartRecord[];
-  chartConfig: ChartConfig;
-  total: number;
-}
+// The unit of time charts and tables show
+export type Resolution = "day" | "hour";
+
+// What the trend chart stacks by
+export type TrendGroup = "agent" | "device";

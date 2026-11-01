@@ -11,39 +11,6 @@ export const CHART_COLORS = [
   "var(--chart-7)",
 ] as const;
 
-export const BASE_CHART_CONFIG = {
-  cost: {
-    label: "Cost",
-    color: "var(--chart-1)",
-  },
-  tokens: {
-    label: "Tokens",
-    color: "var(--chart-2)",
-  },
-} as const;
-
-export const INPUT_OUTPUT_RATIO_CHART_CONFIG = {
-  ratio: {
-    label: "Input/Output Ratio",
-    color: "var(--chart-1)",
-  },
-  averageRatio: {
-    label: "Average Ratio",
-    color: "var(--chart-2)",
-  },
-} as const;
-
-// Agent type colors and configuration
-export const AGENT_COLORS = {
-  "claude-code": "var(--chart-1)",
-  amp: "var(--chart-2)",
-  codex: "var(--chart-3)",
-  opencode: "var(--chart-4)",
-  dimagent: "var(--chart-5)",
-  cursor: "var(--chart-6)",
-  antigravity: "var(--chart-7)",
-} as const;
-
 export const AGENT_CHART_CONFIG = {
   "claude-code": {
     label: "Claude Code",
@@ -75,32 +42,33 @@ export const AGENT_CHART_CONFIG = {
   },
 } as const;
 
-// Cache efficiency pie chart config
-export const CACHE_EFFICIENCY_CHART_CONFIG = {
-  cacheRead: {
-    label: "Cache Read",
-    color: "var(--chart-1)",
-  },
-  cacheCreation: {
-    label: "Cache Creation",
-    color: "var(--chart-2)",
-  },
-  nonCached: {
-    label: "Non-Cached",
-    color: "var(--chart-3)",
-  },
-} as const;
-
 // Length of each preset time range, which ends today
 export const TIME_RANGE_DAYS = {
+  "1d": 1,
   "7d": 7,
   "14d": 14,
   "30d": 30,
 } as const satisfies Record<Exclude<PresetRange, "all">, number>;
 
-// Longest range shown hour by hour
+// Longest range that can be shown hour by hour
 export const HOURLY_RANGE_DAYS = 31;
+
+// Longest range shown hour by hour until days are chosen
+export const HOURLY_DEFAULT_DAYS = 2;
 
 // Share of tokens with known hours below which the hourly chart notes the
 // rest
 export const FULL_HOURLY_COVERAGE = 0.995;
+
+// A shade between the background and the foreground, so token types read as
+// one quantity apart from the agent and device colors
+const ink = (percent: number) =>
+  `color-mix(in oklab, var(--foreground) ${percent}%, var(--background))`;
+
+// Token types, in the order bars and legends show them
+export const TOKEN_TYPE_CONFIG = {
+  inputTokens: { label: "Input", color: ink(60) },
+  cacheReadTokens: { label: "Cache read", color: ink(28) },
+  cacheCreationTokens: { label: "Cache write", color: ink(78) },
+  outputTokens: { label: "Output", color: ink(100) },
+} as const;

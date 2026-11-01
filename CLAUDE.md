@@ -118,8 +118,13 @@ pnpm db:studio               # Open Drizzle Studio to view/edit data
 - The page resolves the selected period to a concrete `DayRange` (all time
   starts on the first recorded day) and calls `selectUsage` once. The resulting
   `UsageView` holds the selected records, one zero-filled entry per day of the
-  range, per-model totals, every hour of the range with its hourly records
-  (ranges up to `HOURLY_RANGE_DAYS`), and the `summary` with every metric.
+  range, per-agent, per-device and per-model totals with their cost and token
+  shares, every hour of the range with its hourly records (ranges up to
+  `HOURLY_RANGE_DAYS`), and the `summary` with every metric. Rates (cache hit
+  rate, cost per million tokens) are defined once for the summary and models.
+- One metric toggle (cost or tokens) drives the page: the overview, the trend
+  chart (stacked by agent or device, per day or per hour), the totals and the
+  model/period breakdown. `lib/format.ts` formats every amount.
 - Input tokens exclude cache reads and writes; output tokens include
   reasoning.
 - Components and hooks read the view. They never filter by agent or date, and

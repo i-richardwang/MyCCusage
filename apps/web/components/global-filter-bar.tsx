@@ -4,7 +4,8 @@ import * as React from "react";
 import { format } from "date-fns";
 import { CalendarIcon } from "lucide-react";
 import { type DateRange } from "react-day-picker";
-import { TimeRange, PresetRange } from "@/types/chart-types";
+import type { PresetRange, TimeRange, UsageMetric } from "@/types/chart-types";
+import { SegmentedControl } from "@/components/segmented-control";
 import {
   type AgentType,
   AGENT_TYPE_LABELS,
@@ -35,6 +36,9 @@ interface GlobalFilterBarProps {
   onDateRangeChange: (dateRange: DateRange | undefined) => void;
   agentFilter: AgentType | "all";
   onAgentFilterChange: (agent: AgentType | "all") => void;
+  // What every card, chart and table measures
+  metric: UsageMetric;
+  onMetricChange: (metric: UsageMetric) => void;
 }
 
 export function GlobalFilterBar({
@@ -44,6 +48,8 @@ export function GlobalFilterBar({
   onDateRangeChange,
   agentFilter,
   onAgentFilterChange,
+  metric,
+  onMetricChange,
 }: GlobalFilterBarProps) {
   const formatDateRange = (range: DateRange | undefined) => {
     if (range?.from) {
@@ -77,6 +83,15 @@ export function GlobalFilterBar({
 
       {/* Time Range Filters */}
       <div className="flex items-center gap-4 flex-wrap">
+        <SegmentedControl
+          label="Measure"
+          value={metric}
+          onChange={onMetricChange}
+          options={[
+            { value: "cost", label: "Cost" },
+            { value: "tokens", label: "Tokens" },
+          ]}
+        />
         <Popover>
           <PopoverTrigger asChild>
             <Button
@@ -121,6 +136,9 @@ export function GlobalFilterBar({
             </SelectItem>
             <SelectItem value="7d" className="rounded-lg">
               Last 7 days
+            </SelectItem>
+            <SelectItem value="1d" className="rounded-lg">
+              Today
             </SelectItem>
             <SelectItem value="custom" className="rounded-lg" disabled>
               Custom
