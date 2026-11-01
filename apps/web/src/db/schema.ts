@@ -34,20 +34,18 @@ export const devices = pgTable(
   },
 );
 
-// Usage of one agent with one model on one device: in an hour of the account
-// calendar when hour_start is set, otherwise in a whole day, for sources and
-// days whose hours are unknown. Writes operate on whole device/agent days.
-// Model "" holds usage its source did not attribute to a model.
+// Usage of one agent with one model on one device in one hour of the account
+// calendar. Writes operate on whole device/agent days.
 export const usageBuckets = pgTable(
   "usage_buckets",
   {
     id: serial("id").primaryKey(),
     deviceId: varchar("device_id", { length: 255 }).notNull(),
     agentType: varchar("agent_type", { length: 50 }).notNull(),
-    // Day of the account calendar the bucket lies in
+    // Day of the account calendar the hour lies in
     date: date("date").notNull(),
-    hourStart: timestamp("hour_start", { withTimezone: true }),
-    model: varchar("model", { length: 255 }).notNull().default(""),
+    hourStart: timestamp("hour_start", { withTimezone: true }).notNull(),
+    model: varchar("model", { length: 255 }).notNull(),
     // Excludes cache reads and writes
     inputTokens: bigint("input_tokens", { mode: "number" }).notNull().default(0),
     // Includes reasoning
@@ -64,8 +62,8 @@ export const usageBuckets = pgTable(
     reasoningTokens: bigint("reasoning_tokens", { mode: "number" }),
     totalTokens: bigint("total_tokens", { mode: "number" }).notNull().default(0),
     cost: numeric("cost", { precision: 14, scale: 6 }).notNull().default("0"),
-    // API requests; null where the source does not count them
-    requests: integer("requests"),
+    // API requests
+    requests: integer("requests").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -74,15 +72,13 @@ export const usageBuckets = pgTable(
       .defaultNow(),
   },
   (table) => [
-    unique("usage_buckets_unique_bucket")
-      .on(
-        table.deviceId,
-        table.agentType,
-        table.date,
-        table.hourStart,
-        table.model,
-      )
-      .nullsNotDistinct(),
+    unique("usage_buckets_unique_bucket").on(
+      table.deviceId,
+      table.agentType,
+      table.date,
+      table.hourStart,
+      table.model,
+    ),
     index("usage_buckets_date_idx").on(table.date),
     index("usage_buckets_hour_start_idx").on(table.hourStart),
   ],

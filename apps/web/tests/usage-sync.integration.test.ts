@@ -55,6 +55,7 @@ const bucket = (date: string, model: string, inputTokens: number) => ({
   cacheReadTokens: 0,
   cost: 1,
   hourStart: `${date}T10:00:00Z`,
+  requests: 1,
 });
 async function upload(
   buckets: ReturnType<typeof bucket>[],
@@ -70,7 +71,7 @@ async function upload(
         "x-api-key": "integration-test-key",
       },
       body: JSON.stringify({
-        version: 3,
+        version: 4,
         timezone: "UTC",
         device: { deviceId, deviceName: "test", agentType },
         buckets,

@@ -19,7 +19,7 @@ import {
 
 // Version of the upload format. The dashboard reports the one it accepts, and
 // the collector uploads only to a dashboard that speaks its own.
-export const SYNC_PROTOCOL = 3;
+export const SYNC_PROTOCOL = 4;
 
 // Cursor's account usage from the cloud. Skipped runs surface their warnings
 // and sync nothing; dead credentials throw.

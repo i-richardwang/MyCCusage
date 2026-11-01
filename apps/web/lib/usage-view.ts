@@ -48,17 +48,15 @@ export interface UsageShares {
   tokenShare: number;
 }
 
-// Counts some sources do not report; null when no selected source does
-export interface ReportedCounts {
+// Counts beside the metrics
+export interface UsageCounts {
   // API requests
-  requests: number | null;
-  // Part of output
+  requests: number;
+  // Part of output; null when no selected source reports it
   reasoningTokens: number | null;
 }
 
-export interface UsageSummary extends UsageMetrics, UsageRates, ReportedCounts {
-  // Share of tokens whose hour is known
-  hourlyCoverage: number;
+export interface UsageSummary extends UsageMetrics, UsageRates, UsageCounts {
   // Days with usage
   activeDays: number;
   // Cost per active day
@@ -78,9 +76,8 @@ export interface ModelTotals
   extends UsageMetrics,
     UsageShares,
     UsageRates,
-    ReportedCounts {
+    UsageCounts {
   agentType: AgentType;
-  // "" for usage its source did not attribute to a model
   model: string;
 }
 
@@ -181,7 +178,7 @@ export function selectUsage(
       ? { hours: hoursIn(range, account.timezone), records: selectedHours }
       : null;
 
-  const summary = summarize(selected, daily, selectedHours);
+  const summary = summarize(selected, daily);
   return {
     range,
     records: selected,
@@ -250,14 +247,14 @@ function addKnown(a: number | null, b: number | null): number | null {
   return a === null ? b : b === null ? a : a + b;
 }
 
-function addCounts(a: ReportedCounts, b: ReportedCounts): ReportedCounts {
+function addCounts(a: UsageCounts, b: UsageCounts): UsageCounts {
   return {
-    requests: addKnown(a.requests, b.requests),
+    requests: a.requests + b.requests,
     reasoningTokens: addKnown(a.reasoningTokens, b.reasoningTokens),
   };
 }
 
-const NO_COUNTS: ReportedCounts = { requests: null, reasoningTokens: null };
+const NO_COUNTS: UsageCounts = { requests: 0, reasoningTokens: null };
 
 // Largest usage first by one metric, then by the other
 export function byMetric(
@@ -292,7 +289,7 @@ function modelTotals(
 ): ModelTotals[] {
   const byModel = new Map<
     string,
-    { agentType: AgentType; model: string; usage: UsageMetrics; counts: ReportedCounts }
+    { agentType: AgentType; model: string; usage: UsageMetrics; counts: UsageCounts }
   >();
   for (const record of records) {
     const key = `${record.agentType}\0${record.model}`;
@@ -320,18 +317,13 @@ function modelTotals(
 function summarize(
   records: UsageRecord[],
   daily: DailyUsage[],
-  hours: HourlyRecord[],
 ): UsageSummary {
   const total = daily.reduce<UsageMetrics>(addUsage, NO_USAGE);
   const activeDays = daily.filter(isActive).length;
   return {
     ...total,
     ...rates(total),
-    ...records.reduce<ReportedCounts>(addCounts, NO_COUNTS),
-    hourlyCoverage: ratio(
-      hours.reduce((sum, { totalTokens }) => sum + totalTokens, 0),
-      total.totalTokens,
-    ),
+    ...records.reduce<UsageCounts>(addCounts, NO_COUNTS),
     activeDays,
     avgDailyCost: ratio(total.totalCost, activeDays),
   };
