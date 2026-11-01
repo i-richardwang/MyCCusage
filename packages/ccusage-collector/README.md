@@ -75,7 +75,7 @@ ccusage-collector service status
 | `ccusage-collector service logs [-f]` | Show the latest 100 log lines; optionally follow |
 | `ccusage-collector sync` | Run single sync operation |
 | `ccusage-collector sync --dry-run` | Test data collection without syncing |
-| `ccusage-collector sync --full-history` | Fill missing historical days of transcript-based agents; combine with `--dry-run` to inspect |
+| `ccusage-collector sync --full-history` | Re-read all transcripts of Claude Code, Codex, OpenCode and Antigravity, one time; combine with `--dry-run` to inspect |
 | `ccusage-collector status` | Check configuration status |
 | `ccusage-collector test` | Test configuration and connection |
 | `ccusage-collector --help` | Show help |
@@ -227,12 +227,19 @@ transcripts, including files older than the normal 30-day refresh window. It app
 scheduled syncs keep the recent refresh window. Other agents collect their
 source-provided history in either mode.
 
-Recent days are refreshed as usual. Before the refresh window (shorter when Claude
-has a shorter retention period), only dates with no stored usage for this device
-and agent are inserted. Existing historical days are preserved in full, including
-their models and hours. Repeating a backfill is safe, but does not upgrade or repair
-already stored old days. Deleted transcripts cannot be recovered; imported old
-Claude days may be partial if some of their transcripts have already expired.
+Codex, OpenCode and Antigravity never delete their transcripts, so every day
+they cover is stated completely and replaces what the dashboard stored for it,
+however old. Use this after a collector update that counts usage differently:
+the dashboard's history is recomputed from the transcripts. Days with no local
+transcripts are left alone.
+
+Claude Code deletes a transcript `cleanupPeriodDays` (default 30) after its last
+write, so a day before that period may survive in some of its sessions only. Days
+within the period replace the stored ones; earlier days are inserted only where
+the dashboard has no usage of this device and agent, and existing ones are kept
+in full. Repeating a backfill is safe. Deleted transcripts cannot be recovered,
+and an imported old Claude day may be partial if some of its transcripts have
+already expired.
 
 ### AMP
 
@@ -257,7 +264,7 @@ Maintainers can refresh the bundled price snapshot with `pnpm --filter ccusage-c
 
 ### Data Format
 
-Each upload holds one agent's usage on one device as buckets: an hour of the account calendar (Claude Code, Codex, OpenCode, Antigravity, DimAgent, Cursor) or a whole day (AMP, and Cursor rows the export dates without a time), per model. A bucket carries input tokens (excluding cache), output tokens (including reasoning), cache-write and cache-read tokens, reasoning tokens and request counts where known, and the cost. The upload replaces every stored bucket of that agent and device on the days it covers: its range for the transcript-based agents, otherwise the days it reports. In full-history mode, dates before `backfillBefore` are inserted only when that device and agent have no stored usage on the date. The decision and writes share one transaction; existing historical days are preserved as a whole.
+Each upload holds one agent's usage on one device as buckets: an hour of the account calendar (Claude Code, Codex, OpenCode, Antigravity, DimAgent, Cursor) or a whole day (AMP, and Cursor rows the export dates without a time), per model. A bucket carries input tokens (excluding cache), output tokens (including reasoning), cache-write and cache-read tokens, reasoning tokens and request counts where known, and the cost. The upload replaces every stored bucket of that agent and device on the days it covers: its range for the transcript-based agents, otherwise the days it reports. A full-history upload of an agent that deletes old transcripts carries `backfillBefore`: dates before it are inserted only when that device and agent have no stored usage on the date. The decision and writes share one transaction; such historical days are preserved as a whole.
 
 Collector and dashboard each name the sync protocol they speak (currently 3); the collector checks the dashboard's before collecting, and either side rejects an upload in another protocol. Update the dashboard first, then the collectors.
 

@@ -220,9 +220,14 @@ describe("environment-configured CLI", () => {
     expect(uploads).toHaveLength(0);
     await runCLI("sync", "--full-history");
     expect(uploads[0]?.data.buckets.map((b) => b.date)).toContain("2024-01-01");
-    expect(uploads.every(({ data }) => Boolean(data.backfillBefore))).toBe(
-      true,
-    );
+    // Claude Code expires transcripts, so its old days only fill gaps; Codex
+    // keeps them all, so its upload states every day completely
+    expect(
+      uploads.map(({ data }) => [data.device.agentType, data.backfillBefore]),
+    ).toEqual([
+      ["claude-code", expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/)],
+      ["codex", undefined],
+    ]);
     uploads = [];
     await runCLI("sync");
     expect(uploads[0]?.data.buckets.map((b) => b.date)).not.toContain(

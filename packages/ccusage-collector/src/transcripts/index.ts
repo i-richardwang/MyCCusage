@@ -36,6 +36,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export interface TranscriptCollection {
   // Recent days covered completely; absent when there is no recent usage
   range?: DayRange;
+  // On a full-history scan of an agent that deletes old transcripts: the
+  // first day every transcript of is still kept. Earlier days may be partial
   backfillBefore?: string;
   buckets: UsageBucket[];
   // Models without known prices; their tokens count at zero cost
@@ -58,7 +60,8 @@ interface TranscriptRequests {
 }
 
 interface TranscriptSource {
-  // How many days back every transcript is still on disk
+  // How many days back every transcript is still on disk; Infinity for an
+  // agent that never deletes its transcripts
   completeDays: number;
   // Every request made at or after sinceMs
   read(sinceMs: number): Promise<TranscriptRequests>;
@@ -263,13 +266,26 @@ export function bucketRequests(
   return { buckets: buckets.list(), unpricedModels: [...unpriced].sort() };
 }
 
+// The first whole day after the instant `days` × 24h before `now`, as
+// retention counts: a 25-hour DST day in the window never lets it reach
+// further
+function firstDayWithin(calendar: Calendar, now: Date, days: number): Date {
+  const cutoff = new Date(now.getTime() - days * DAY_MS);
+  return calendar.rangeOf(addDays(calendar.dayOf(cutoff), 1))[0];
+}
+
 /**
  * Hourly usage of the last days whose transcripts are all still on disk, up
  * to HOURLY_WINDOW_DAYS. The range ends today and starts no earlier than the
  * first request found, so transcripts lost with a reinstalled machine never
  * erase days the dashboard already holds. Days before the range keep what
- * earlier syncs stored. Full-history scans also include older buckets, marked
- * for insertion only on days the server does not already hold.
+ * earlier syncs stored.
+ *
+ * A full-history scan also buckets every older request, and each day it
+ * covers replaces the stored one while the agent still keeps all of its
+ * transcripts. Where the agent deletes old transcripts, a day before the
+ * retention period may be read from a surviving part of its sessions only,
+ * so such days are marked for insertion where the server holds nothing yet.
  */
 export async function collectTranscriptUsage(
   agent: TranscriptAgent,
@@ -280,11 +296,11 @@ export async function collectTranscriptUsage(
   const source = transcriptSource(agent, options);
   const now = options.now ?? new Date();
   const today = calendar.dayOf(now);
-  const days = Math.min(HOURLY_WINDOW_DAYS, source.completeDays);
-  // The first whole day after the instant `days` × 24h ago, as retention
-  // counts: a 25-hour DST day in the window never lets it reach further
-  const cutoff = new Date(now.getTime() - days * DAY_MS);
-  const [start] = calendar.rangeOf(addDays(calendar.dayOf(cutoff), 1));
+  const start = firstDayWithin(
+    calendar,
+    now,
+    Math.min(HOURLY_WINDOW_DAYS, source.completeDays),
+  );
   const [, end] = calendar.rangeOf(today);
   const sinceMs = options.fullHistory ? -Infinity : start.getTime();
 
@@ -297,9 +313,13 @@ export async function collectTranscriptUsage(
   const first = usage.buckets.find(
     (bucket) => bucket.date >= refreshFrom,
   )?.date;
+  const backfillBefore =
+    options.fullHistory && Number.isFinite(source.completeDays)
+      ? calendar.dayOf(firstDayWithin(calendar, now, source.completeDays))
+      : undefined;
   return {
     ...usage,
     ...(first ? { range: { from: first, to: today } } : {}),
-    ...(options.fullHistory ? { backfillBefore: refreshFrom } : {}),
+    ...(backfillBefore ? { backfillBefore } : {}),
   };
 }
