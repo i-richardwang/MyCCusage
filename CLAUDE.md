@@ -91,7 +91,7 @@ pnpm db:studio               # Open Drizzle Studio to view/edit data
 - The collector owns source reads, pricing and account-calendar bucketing. `collector.ts` coordinates the adapters and transport; `sync.ts` owns command locking and run status.
 - Sync protocol 3 defines timezone validation, hourly/model buckets, and `backfillBefore`. It has one version check, with no capability negotiation or legacy upload path.
 - `apps/web/lib/usage-sync.ts` validates uploads and plans which complete days to write. `usage-store.ts` performs that plan in a database transaction; the HTTP route handles authentication and responses.
-- Normal uploads replace complete device/agent days. Full-history uploads preserve any existing day before `backfillBefore`; only missing historical days are inserted. Provider transcript retention may make imported old history incomplete.
+- Normal uploads replace complete device/agent days. A full-history upload replaces every day it covers, except that an agent which deletes old transcripts (Claude Code) sends `backfillBefore`, its retention boundary: earlier days are inserted only where none is stored, since their transcripts may be partial.
 - `selectUsage` derives dashboard totals, models and hourly coverage from the selected records. Components render those results.
 - PostgreSQL integration tests use `MYCCUSAGE_TEST_DATABASE_URL`, a disposable local database, and isolated schemas. CI runs them against PostgreSQL 15.
 

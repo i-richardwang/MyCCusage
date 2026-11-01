@@ -29,7 +29,7 @@ program
   .option("--dry-run", "Collect data but don't sync to server")
   .option(
     "--full-history",
-    "Backfill all available Claude Code and Codex history; preserve existing old days",
+    "Re-read all available transcripts of Claude Code, Codex, OpenCode and Antigravity; Claude Code days past its retention period fill in only where the dashboard has none",
   )
   .action(async (options: { dryRun?: boolean; fullHistory?: boolean }) =>
     runSync(options),

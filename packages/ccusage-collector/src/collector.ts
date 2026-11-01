@@ -50,7 +50,9 @@ async function collectTranscripts(
     });
   console.log(
     fullHistory
-      ? `Read all available ${agent} history; preserve existing days before ${backfillBefore}`
+      ? backfillBefore
+        ? `Read all available ${agent} history; days before ${backfillBefore} fill in only where the dashboard has none`
+        : `Read all available ${agent} history; every day it covers replaces the stored one`
       : range
         ? `Read ${agent} usage from ${range.from} to ${range.to}`
         : `No recent ${agent} usage found`,

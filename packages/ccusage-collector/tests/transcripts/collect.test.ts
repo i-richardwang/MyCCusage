@@ -308,9 +308,14 @@ describe("collectTranscriptUsage", () => {
     expect(usage.range).toEqual({ from: "2026-10-30", to: "2026-10-30" });
   });
 
-  it.each(["claude-code", "codex"] as const)(
-    "backfills old %s buckets without claiming complete old days",
-    async (agent) => {
+  it.each([
+    // Claude Code deletes transcripts after 30 days: older days may be partial
+    ["claude-code", "2026-10-01"],
+    // Codex keeps every transcript: every day it covers is complete
+    ["codex", undefined],
+  ] as const)(
+    "backfills old %s buckets, claiming old days complete only while every transcript is kept",
+    async (agent, backfillBefore) => {
       const old = "2025-01-01T10:00:00Z";
       if (agent === "claude-code") {
         write(
@@ -368,10 +373,43 @@ describe("collectTranscriptUsage", () => {
         "2025-01-01",
         "2026-10-29",
       ]);
-      expect(full.backfillBefore).toBe("2026-10-01");
+      expect(full.backfillBefore).toBe(backfillBefore);
       expect(full.range).toEqual({ from: "2026-10-29", to: "2026-10-30" });
     },
   );
+
+  it("claims Claude Code days complete as far back as its retention period, beyond the refresh window", async () => {
+    mkdirSync(join(home, "long/projects"), { recursive: true });
+    writeFileSync(
+      join(home, "long/settings.json"),
+      JSON.stringify({ cleanupPeriodDays: 90 }),
+    );
+    write(
+      "long/projects/p/s.jsonl",
+      [
+        claudeLine("2026-08-15T10:00:00Z", "1"),
+        claudeLine("2026-10-29T10:00:00Z", "2"),
+      ],
+      now,
+    );
+    const full = await collectTranscriptUsage(
+      "claude-code",
+      calendar,
+      pricing,
+      {
+        now,
+        claudeConfigDirs: [join(home, "long")],
+        fullHistory: true,
+      },
+    );
+    expect(full.buckets.map((b) => b.date)).toEqual([
+      "2026-08-15",
+      "2026-10-29",
+    ]);
+    // Every sync still re-reads 30 days; the backfill replaces 90
+    expect(full.range).toEqual({ from: "2026-10-29", to: "2026-10-30" });
+    expect(full.backfillBefore).toBe("2026-08-02");
+  });
 
   it("reads old files on a history-only backfill without creating a long replacement range", async () => {
     write(
@@ -478,7 +516,8 @@ describe("collectTranscriptUsage", () => {
       "2025-01-01",
       "2026-10-29",
     ]);
-    expect(full.backfillBefore).toBe("2026-10-01");
+    // OpenCode keeps every session: the old day is stated completely
+    expect(full.backfillBefore).toBeUndefined();
   });
 
   it("buckets Antigravity generations by their own time", async () => {
