@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { useUsageStats } from "@/hooks/use-usage-stats";
+import { useUsageHours } from "@/hooks/use-usage-hours";
 import { PlanComparison } from "@/components/plan-comparison";
 import { UsageOverview } from "@/components/usage-overview";
 import { UsageTrend } from "@/components/usage-trend";
@@ -27,7 +28,7 @@ import {
   periodRange,
   selectUsage,
   viewResolution,
-  type ModelTotals,
+  type ModelKey,
   type Period,
 } from "@/lib/usage-view";
 import { Loader2 } from "lucide-react";
@@ -44,7 +45,7 @@ function Dashboard({ stats }: { stats: UsageStatsResponse }) {
     null,
   );
   const [selectedModel, setSelectedModel] = useState<
-    Pick<ModelTotals, "agentType" | "model"> | null
+    ModelKey | null
   >(null);
 
   // "Today" in the account calendar, the zone the collectors bucket days in
@@ -55,17 +56,17 @@ function Dashboard({ stats }: { stats: UsageStatsResponse }) {
     [period, today, stats.records],
   );
 
+  const hours = useUsageHours(range);
+
   // Every card, chart and table shows this view
   const view = useMemo(
-    () => selectUsage(stats, agentFilter, range),
-    [stats, agentFilter, range],
+    () => selectUsage(stats, agentFilter, range, hours),
+    [stats, agentFilter, range, hours],
   );
 
   const deviceSeries = useDeviceSeries(view, stats.devices);
 
   const resolution = viewResolution(view, chosenResolution);
-  // Hours are recorded per agent
-  const trendGroup: TrendGroup = resolution === "hour" ? "agent" : group;
 
   // The selected model as the current view counts it
   const model =
@@ -136,7 +137,7 @@ function Dashboard({ stats }: { stats: UsageStatsResponse }) {
             view={view}
             metric={metric}
             deviceSeries={deviceSeries}
-            group={trendGroup}
+            group={group}
             onGroupChange={setGroup}
             resolution={resolution}
             onResolutionChange={setChosenResolution}
@@ -159,6 +160,8 @@ function Dashboard({ stats }: { stats: UsageStatsResponse }) {
         model={model}
         view={view}
         metric={metric}
+        resolution={resolution}
+        timeZone={stats.timezone}
         onClose={() => setSelectedModel(null)}
       />
     </>

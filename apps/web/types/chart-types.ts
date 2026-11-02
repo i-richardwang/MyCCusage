@@ -41,16 +41,20 @@ export interface UsageRecord extends UsageMetrics, CostSplit {
   reasoningTokens: number | null;
   // API requests; null where day history did not count them
   requests: number | null;
+  // Part of the tokens recorded in hours rather than as day history
+  hourlyTokens: number;
 }
 
-// One agent's usage in one hour of the account calendar, over all devices
-// and models. Day history has no hours.
+// One device's usage of one agent with one model in one hour of the account
+// calendar. Day history has no hours.
 export interface HourlyRecord extends UsageMetrics {
   // ISO instant the hour starts
   hourStart: string;
   // Account-calendar day of the hour
   date: string;
+  deviceId: string;
   agentType: AgentType;
+  model: string;
 }
 
 export interface Device {

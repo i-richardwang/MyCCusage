@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import { hoursIn } from "@/lib/day-range";
 import {
   byMetric,
+  hoursNote,
   modelDaily,
+  modelHourly,
   selectUsage,
+  showsHours,
   viewResolution,
+  type HoursLoad,
 } from "@/lib/usage-view";
 import type { HourlyRecord, UsageRecord } from "@/types/chart-types";
 
@@ -40,6 +44,7 @@ const record = (
   model,
   reasoningTokens: null,
   requests: null,
+  hourlyTokens: 0,
   ...metrics(tokens, tokens / 100),
   ...NO_SPLIT,
   ...overrides,
@@ -49,11 +54,15 @@ const hour = (
   hourStart: string,
   date: string,
   tokens: number,
+  overrides: Partial<HourlyRecord> = {},
 ): HourlyRecord => ({
   hourStart,
   date,
+  deviceId: "d1",
   agentType: "claude-code",
+  model: "claude-opus-5-5",
   ...metrics(tokens, tokens / 100),
+  ...overrides,
 });
 
 describe("hoursIn", () => {
@@ -79,24 +88,38 @@ describe("selectUsage", () => {
     record("2026-10-30", "claude-opus-5-5", 600, {
       requests: 4,
       reasoningTokens: 7,
+      hourlyTokens: 600,
     }),
-    record("2026-10-30", "claude-haiku-5-5", 300, { requests: 2 }),
-    record("2026-10-30", "gpt-5", 1000, { agentType: "codex" }),
+    record("2026-10-30", "claude-haiku-5-5", 300, {
+      requests: 2,
+      hourlyTokens: 300,
+    }),
+    record("2026-10-30", "gpt-5", 1000, {
+      agentType: "codex",
+      hourlyTokens: 1000,
+    }),
   ];
   const hourly = [
-    hour("2026-10-30T01:00:00.000Z", "2026-10-30", 900),
-    {
-      ...hour("2026-10-30T02:00:00.000Z", "2026-10-30", 1000),
-      agentType: "codex" as const,
-    },
+    hour("2026-10-30T01:00:00.000Z", "2026-10-30", 600),
+    hour("2026-10-30T01:00:00.000Z", "2026-10-30", 300, {
+      model: "claude-haiku-5-5",
+      deviceId: "d2",
+    }),
+    hour("2026-10-30T02:00:00.000Z", "2026-10-30", 1000, {
+      agentType: "codex",
+      model: "gpt-5",
+    }),
   ];
-  const account = { records, hourly, timezone: "Asia/Shanghai" };
+  const account = { records, timezone: "Asia/Shanghai" };
+  const loaded: HoursLoad = { status: "loaded", records: hourly };
 
   it("ranks models and counts requests and reasoning where reported", () => {
-    const view = selectUsage(account, "claude-code", {
-      from: "2026-10-29",
-      to: "2026-10-30",
-    });
+    const view = selectUsage(
+      account,
+      "claude-code",
+      { from: "2026-10-29", to: "2026-10-30" },
+      loaded,
+    );
     expect(
       view.models.map(({ model, requests, reasoningTokens, costShare }) => [
         model,
@@ -114,18 +137,53 @@ describe("selectUsage", () => {
       hourlyCoverage: 0.9,
     });
     expect(view.hourly?.hours).toHaveLength(48);
-    expect(view.hourly?.records).toEqual([hourly[0]]);
+    expect(view.hourly?.records).toEqual(hourly.slice(0, 2));
+  });
+
+  it("keeps each hour's device and model, and gives a model every hour", () => {
+    const day = { from: "2026-10-30", to: "2026-10-30" };
+    const view = selectUsage(account, "all", day, loaded);
+    expect(
+      view.hourly?.records.map(({ deviceId, model }) => [deviceId, model]),
+    ).toEqual([
+      ["d1", "claude-opus-5-5"],
+      ["d2", "claude-haiku-5-5"],
+      ["d1", "gpt-5"],
+    ]);
+    const haiku = modelHourly(view, {
+      agentType: "claude-code",
+      model: "claude-haiku-5-5",
+    });
+    expect(haiku).toHaveLength(24);
+    expect(haiku.filter(({ totalTokens }) => totalTokens > 0)).toEqual([
+      expect.objectContaining({
+        hourStart: "2026-10-30T01:00:00.000Z",
+        totalTokens: 300,
+      }),
+    ]);
+  });
+
+  it("notes hours still loading or failed to load", () => {
+    const day = { from: "2026-10-29", to: "2026-10-30" };
+    const loading = selectUsage(account, "all", day, { status: "loading" });
+    expect(loading.hourly).toMatchObject({ status: "loading", records: [] });
+    expect(hoursNote(loading, "hour")).toBe("Loading hours…");
+    expect(hoursNote(loading, "day")).toBeNull();
+    expect(loading.hourly?.hours).toHaveLength(48);
+    const failed = selectUsage(account, "all", day, { status: "failed" });
+    expect(hoursNote(failed, "hour")).toMatch(/could not be loaded/);
+    expect(
+      hoursNote(selectUsage(account, "all", day, loaded), "hour"),
+    ).toBeNull();
   });
 
   it("keeps billed days and models when the source reports cost without tokens", () => {
     const billed = record("2026-10-30", "billed-model", 0, { totalCost: 2 });
     const view = selectUsage(
-      { ...account, records: [billed], hourly: [] },
+      { ...account, records: [billed] },
       "all",
-      {
-        from: "2026-10-30",
-        to: "2026-10-30",
-      },
+      { from: "2026-10-30", to: "2026-10-30" },
+      null,
     );
     expect(view.models).toEqual([
       expect.objectContaining({
@@ -155,6 +213,7 @@ describe("selectUsage", () => {
       },
       "all",
       { from: "2026-10-29", to: "2026-10-30" },
+      null,
     );
     expect(
       view.agents.map(({ agentType, tokenShare }) => [agentType, tokenShare]),
@@ -183,9 +242,10 @@ describe("selectUsage", () => {
       totalCost: 2,
     });
     const view = selectUsage(
-      { ...account, records: [cached], hourly: [] },
+      { ...account, records: [cached] },
       "all",
       { from: "2026-10-30", to: "2026-10-30" },
+      null,
     );
     expect(view.summary.cacheHitRate).toBeCloseTo(0.6);
     expect(view.summary.costPerMillionTokens).toBe(20_000);
@@ -195,9 +255,10 @@ describe("selectUsage", () => {
     });
 
     const empty = selectUsage(
-      { ...account, records: [], hourly: [] },
+      { ...account, records: [] },
       "all",
       { from: "2026-10-30", to: "2026-10-30" },
+      null,
     );
     expect(empty.summary).toMatchObject({
       cacheHitRate: null,
@@ -206,11 +267,12 @@ describe("selectUsage", () => {
     });
   });
 
-  it("leaves hours out of ranges too long to show them", () => {
-    const view = selectUsage(account, "all", {
-      from: "2026-01-01",
-      to: "2026-10-30",
-    });
+  it("shows hours for ranges of up to 31 days, and covers them from days", () => {
+    expect(showsHours({ from: "2026-10-01", to: "2026-10-31" })).toBe(true);
+    expect(showsHours({ from: "2026-10-01", to: "2026-11-01" })).toBe(false);
+    expect(showsHours({ from: "2026-10-02", to: "2026-10-01" })).toBe(false);
+    const year = { from: "2026-01-01", to: "2026-10-30" };
+    const view = selectUsage(account, "all", year, null);
     expect(view.hourly).toBeNull();
     expect(view.summary.hourlyCoverage).toBeCloseTo(1900 / 2000);
   });
@@ -219,22 +281,24 @@ describe("selectUsage", () => {
     const day = { from: "2026-10-30", to: "2026-10-30" };
     const week = { from: "2026-10-24", to: "2026-10-30" };
     const year = { from: "2026-01-01", to: "2026-10-30" };
-    const today = selectUsage(account, "all", day);
+    const today = selectUsage(account, "all", day, loaded);
     expect(viewResolution(today, null)).toBe("hour");
     expect(viewResolution(today, "day")).toBe("day");
-    const lastWeek = selectUsage(account, "all", week);
+    const lastWeek = selectUsage(account, "all", week, loaded);
     expect(viewResolution(lastWeek, null)).toBe("day");
     expect(viewResolution(lastWeek, "hour")).toBe("hour");
-    expect(viewResolution(selectUsage(account, "all", year), "hour")).toBe(
-      "day",
-    );
+    expect(
+      viewResolution(selectUsage(account, "all", year, null), "hour"),
+    ).toBe("day");
   });
 
   it("ranks by either metric and gives a model every day of the range", () => {
-    const view = selectUsage(account, "all", {
-      from: "2026-10-29",
-      to: "2026-10-30",
-    });
+    const view = selectUsage(
+      account,
+      "all",
+      { from: "2026-10-29", to: "2026-10-30" },
+      null,
+    );
     const cheapButLarge = { ...view.models[0]!, totalCost: 0, totalTokens: 9e9 };
     expect([view.models[0]!, cheapButLarge].sort(byMetric("tokens"))[0]).toBe(
       cheapButLarge,
@@ -252,7 +316,6 @@ describe("selectUsage", () => {
     const view = selectUsage(
       {
         timezone: "Asia/Shanghai",
-        hourly: [],
         records: [
           // Split in full: $3 of input and output, $1 of it fast premium
           record("2026-10-30", "split", 300, {
@@ -271,6 +334,7 @@ describe("selectUsage", () => {
       },
       "all",
       range,
+      null,
     );
     expect(view.summary).toMatchObject({
       inputCost: 1,

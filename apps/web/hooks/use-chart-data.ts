@@ -89,8 +89,7 @@ function stack(
   return { chartData, chartConfig };
 }
 
-// The trend chart: the metric per day, stacked by agent or device, or per
-// hour, stacked by agent, the only grouping hours are recorded in
+// The trend chart: the metric per day or per hour, stacked by agent or device
 export function useTrendData(
   view: UsageView,
   deviceSeries: ChartConfig,
@@ -99,39 +98,25 @@ export function useTrendData(
   resolution: Resolution,
 ): SeriesChartData {
   return useMemo(() => {
-    if (resolution === "hour" && view.hourly) {
-      const { hours, records } = view.hourly;
-      return stack(
-        hours,
-        records.map((record) => ({
+    const hourly = resolution === "hour" ? view.hourly : null;
+    const periods = hourly ? hourly.hours : view.daily.map(({ date }) => date);
+    const entries = hourly
+      ? hourly.records.map((record) => ({
           ...record,
           period: record.hourStart,
-          key: record.agentType,
-        })),
-        metric,
-        agentSeries(records.map(({ agentType }) => agentType)),
-      );
-    }
-    const days = view.daily.map(({ date }) => date);
+        }))
+      : view.records.map((record) => ({ ...record, period: record.date }));
     if (group === "device") {
       return stack(
-        days,
-        view.records.map((record) => ({
-          ...record,
-          period: record.date,
-          key: record.deviceId,
-        })),
+        periods,
+        entries.map((entry) => ({ ...entry, key: entry.deviceId })),
         metric,
         deviceSeries,
       );
     }
     return stack(
-      days,
-      view.records.map((record) => ({
-        ...record,
-        period: record.date,
-        key: record.agentType,
-      })),
+      periods,
+      entries.map((entry) => ({ ...entry, key: entry.agentType })),
       metric,
       agentSeries(view.agents.map(({ agentType }) => agentType)),
     );

@@ -15,7 +15,11 @@ export interface UsageStatsResponse {
   devices: Device[];
   // Usage per day, device, agent and model
   records: UsageRecord[];
-  // Usage per hour and agent; day history has no hours
+}
+
+// The hours of a range of account days short enough to show hour by hour
+export interface UsageHoursResponse {
+  // Usage per hour, device, agent and model; day history has no hours
   hourly: HourlyRecord[];
 }
 
