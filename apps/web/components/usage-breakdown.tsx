@@ -24,7 +24,12 @@ import {
   metricValue,
   otherMetric,
 } from "@/lib/format";
-import { byMetric, type ModelTotals, type UsageView } from "@/lib/usage-view";
+import {
+  byMetric,
+  hoursNote,
+  type ModelTotals,
+  type UsageView,
+} from "@/lib/usage-view";
 import { AGENT_TYPES, AGENT_TYPE_LABELS } from "@/types/agent-types";
 import type { Resolution, UsageMetric } from "@/types/chart-types";
 
@@ -240,7 +245,7 @@ function PeriodTable({
                   colSpan={agents.length + 3}
                   className="py-6 text-center text-muted-foreground"
                 >
-                  No usage in this period.
+                  {hoursNote(view, resolution) ?? "No usage in this period."}
                 </td>
               </tr>
             ) : (

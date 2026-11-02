@@ -107,7 +107,8 @@ pnpm db:studio               # Open Drizzle Studio to view/edit data
 **Chart System Structure:**
 ```
 /api/usage-sync/route.ts       # Uploads, validated by /lib/usage-sync.ts
-/api/usage-stats/route.ts      # Day and hour usage from usage_buckets
+/api/usage-stats/route.ts      # Day usage from usage_buckets
+/api/usage-hours/route.ts      # Hour usage of one range of days
 /lib/usage-view.ts             # Selected agent and day range, and every metric
 /types/chart-types.ts          # Unified type definitions
 /constants/chart-config.ts     # Configuration constants
@@ -117,17 +118,25 @@ pnpm db:studio               # Open Drizzle Studio to view/edit data
 
 **Data Flow:**
 - `/api/usage-stats` returns `records` (one device, agent and model on one
-  day, hours summed into their day), `hourly` (one agent in one hour; day history has none), devices, the account time zone and the billing start
-  date.
+  day, hours summed into their day, with the tokens recorded in hours),
+  devices, the account time zone and the billing start date.
+- `/api/usage-hours?from&to` returns the hours of a range short enough to
+  show hour by hour (`showsHours`, up to `HOURLY_RANGE_DAYS`): one device,
+  agent and model in one hour; day history has none. Hours keep every
+  dimension the days have, so every grouping and selection works at either
+  resolution.
 - The page resolves the selected period to a concrete `DayRange` (all time
-  starts on the first recorded day) and calls `selectUsage` once. The resulting
-  `UsageView` holds the selected records, one zero-filled entry per day of the
-  range, per-agent, per-device and per-model totals with their cost and token
-  shares, every hour of the range with its hourly records (ranges up to
-  `HOURLY_RANGE_DAYS`), and the `summary` with every metric. Rates (cache hit
-  rate, cost per million priced tokens) and cost details (the cost split, the
-  share of cost it covers, the share of tokens without a price) are defined
-  once for the summary and models. Records without a split count as none of
+  starts on the first recorded day), loads its hours with `useUsageHours`
+  where it shows them, and calls `selectUsage` once. The resulting `UsageView`
+  holds the selected records, one zero-filled entry per day of the range,
+  per-agent, per-device and per-model totals with their cost and token
+  shares, every hour of the range with its hourly records and whether they
+  have loaded (`hoursNote` stands in for them until they have), and the
+  `summary` with every metric. Hour coverage comes from the days, so it
+  holds for any range. Rates (cache hit rate, cost per million priced
+  tokens) and cost details (the cost split, the share of cost it covers, the
+  share of tokens without a price) are defined once for the summary and
+  models. Records without a split count as none of
   it, so the totals and the model dialog note how much of the cost the
   "Cost by type" bar, cache savings and speed premium cover.
 - One metric toggle (cost or tokens) drives the page: the overview, the trend
@@ -190,7 +199,8 @@ export function useNewChartData(view: UsageView): NewChartData {
 - A metric shown for the selected period belongs in `UsageSummary`
   (`lib/usage-view.ts`), so every card and chart shares one definition
 - A new dimension of usage is added to `usage_buckets`, the upload format and
-  the `/api/usage-stats` select, not as a separate aggregated query
+  the `/api/usage-stats` and `/api/usage-hours` selects, not as a separate
+  aggregated query
 
 ### Adding New API Queries - Standards
 

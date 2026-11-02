@@ -25,7 +25,7 @@ import {
   formatPercent,
   METRIC_NAMES,
 } from "@/lib/format";
-import type { UsageView } from "@/lib/usage-view";
+import { hoursNote, type UsageView } from "@/lib/usage-view";
 import type {
   ChartConfig,
   Resolution,
@@ -37,7 +37,6 @@ interface UsageTrendProps {
   view: UsageView;
   metric: UsageMetric;
   deviceSeries: ChartConfig;
-  // Hours are recorded per agent, so they always stack by agent
   group: TrendGroup;
   onGroupChange: (group: TrendGroup) => void;
   resolution: Resolution;
@@ -56,10 +55,12 @@ function describe(
       ? days
       : `${days} Hours are shown for ranges of ${HOURLY_RANGE_DAYS} days or fewer.`;
   }
+  const note = hoursNote(view, resolution);
+  if (note) return note;
   const { hourlyCoverage, totalTokens } = view.summary;
   return isPartial(hourlyCoverage) && totalTokens > 0
-    ? `Per hour, by agent. Hours are known for ${formatPercent(hourlyCoverage)} of tokens; the rest is history recorded per day.`
-    : "Per hour, by agent.";
+    ? `Per hour, by ${group}. Hours are known for ${formatPercent(hourlyCoverage)} of tokens; the rest is history recorded per day.`
+    : `Per hour, by ${group}.`;
 }
 
 // The metric over the period, per day or per hour
@@ -99,11 +100,7 @@ export function UsageTrend({
             onChange={onGroupChange}
             options={[
               { value: "agent", label: "Agent" },
-              {
-                value: "device",
-                label: "Device",
-                disabled: resolution === "hour",
-              },
+              { value: "device", label: "Device" },
             ]}
           />
           <SegmentedControl

@@ -10,6 +10,7 @@ import {
 } from "@/constants/chart-config";
 import {
   contains,
+  daysBetween,
   daysIn,
   hoursIn,
   lastDays,
@@ -32,6 +33,10 @@ export type Period = PresetRange | DayRange;
 
 export interface DailyUsage extends UsageMetrics {
   date: string;
+}
+
+export interface HourUsage extends UsageMetrics {
+  hourStart: string;
 }
 
 // Rates derived from usage metrics, defined once for the summary and models
@@ -100,9 +105,20 @@ export interface ModelTotals
   model: string;
 }
 
+// What tells one agent's model from another
+export type ModelKey = Pick<ModelTotals, "agentType" | "model">;
+
+// The hours of a range shown hour by hour, which load apart from its days
+export type HoursLoad =
+  | { status: "loading" }
+  | { status: "failed" }
+  | { status: "loaded"; records: HourlyRecord[] };
+
 export interface HourlyView {
   // ISO instant every hour of the range starts
   hours: string[];
+  status: HoursLoad["status"];
+  // The selected hours; none until they are loaded
   records: HourlyRecord[];
 }
 
@@ -120,10 +136,7 @@ export interface UsageView {
   summary: UsageSummary;
 }
 
-export type AccountUsage = Pick<
-  UsageStatsResponse,
-  "records" | "hourly" | "timezone"
->;
+export type AccountUsage = Pick<UsageStatsResponse, "records" | "timezone">;
 
 export const NO_USAGE: UsageMetrics = {
   totalCost: 0,
@@ -170,6 +183,27 @@ export function periodRange(
   return lastDays(today, TIME_RANGE_DAYS[period]);
 }
 
+// Whether a range is short enough to show hour by hour
+export function showsHours({ from, to }: DayRange): boolean {
+  return from <= to && daysBetween(from, to) < HOURLY_RANGE_DAYS;
+}
+
+// Why hours shown at this resolution are missing; null where they are not
+export function hoursNote(
+  view: UsageView,
+  resolution: Resolution,
+): string | null {
+  if (resolution !== "hour" || !view.hourly) return null;
+  switch (view.hourly.status) {
+    case "loading":
+      return "Loading hours…";
+    case "failed":
+      return "Hours could not be loaded. Reload the page to try again.";
+    case "loaded":
+      return null;
+  }
+}
+
 // Hours where the range has them and they are chosen, or the range is short
 // enough to show them by default; days otherwise
 export function viewResolution(
@@ -180,24 +214,29 @@ export function viewResolution(
   return chosen ?? (view.daily.length <= HOURLY_DEFAULT_DAYS ? "hour" : "day");
 }
 
+// The view of one agent, or all, over a range. `hours` are the range's
+// hours, or null where it is too long to show them (see showsHours).
 export function selectUsage(
   account: AccountUsage,
   agent: AgentType | "all",
   range: DayRange,
+  hours: HoursLoad | null,
 ): UsageView {
   const selects = (record: { agentType: AgentType; date: string }) =>
     (agent === "all" || record.agentType === agent) &&
     contains(range, record.date);
   const selected = account.records.filter(selects);
-  const selectedHours = account.hourly.filter(selects);
 
   const daily = dailyUsage(selected, range);
-  const hourly =
-    daily.length <= HOURLY_RANGE_DAYS
-      ? { hours: hoursIn(range, account.timezone), records: selectedHours }
-      : null;
+  const hourly = hours
+    ? {
+        hours: hoursIn(range, account.timezone),
+        status: hours.status,
+        records: hours.status === "loaded" ? hours.records.filter(selects) : [],
+      }
+    : null;
 
-  const summary = summarize(selected, daily, selectedHours);
+  const summary = summarize(selected, daily);
   return {
     range,
     records: selected,
@@ -230,16 +269,30 @@ function dailyUsage(
 }
 
 // Every day of the view's range for one agent's model
-export function modelDaily(
-  view: UsageView,
-  { agentType, model }: Pick<ModelTotals, "agentType" | "model">,
-): DailyUsage[] {
-  return dailyUsage(
-    view.records.filter(
-      (record) => record.agentType === agentType && record.model === model,
-    ),
-    view.range,
-  );
+export function modelDaily(view: UsageView, model: ModelKey): DailyUsage[] {
+  return dailyUsage(view.records.filter(isModel(model)), view.range);
+}
+
+// Every hour of the view's range for one agent's model; none where the view
+// has no hours
+export function modelHourly(view: UsageView, model: ModelKey): HourUsage[] {
+  if (!view.hourly) return [];
+  const byHour = new Map<string, UsageMetrics>();
+  for (const record of view.hourly.records.filter(isModel(model))) {
+    byHour.set(
+      record.hourStart,
+      addUsage(byHour.get(record.hourStart) ?? NO_USAGE, record),
+    );
+  }
+  return view.hourly.hours.map((hourStart) => ({
+    hourStart,
+    ...(byHour.get(hourStart) ?? NO_USAGE),
+  }));
+}
+
+function isModel({ agentType, model }: ModelKey) {
+  return (record: { agentType: AgentType; model: string }) =>
+    record.agentType === agentType && record.model === model;
 }
 
 function rates(
@@ -382,11 +435,7 @@ function modelTotals(
     .sort(byCostThenTokens);
 }
 
-function summarize(
-  records: UsageRecord[],
-  daily: DailyUsage[],
-  hours: HourlyRecord[],
-): UsageSummary {
+function summarize(records: UsageRecord[], daily: DailyUsage[]): UsageSummary {
   const total = daily.reduce<UsageMetrics>(addUsage, NO_USAGE);
   const split = records.reduce<CostSplit>(addSplit, NO_SPLIT);
   const activeDays = daily.filter(isActive).length;
@@ -396,7 +445,7 @@ function summarize(
     ...records.reduce<ReportedCounts>(addCounts, NO_COUNTS),
     ...costDetails(split, total),
     hourlyCoverage: ratio(
-      hours.reduce((sum, { totalTokens }) => sum + totalTokens, 0),
+      records.reduce((sum, { hourlyTokens }) => sum + hourlyTokens, 0),
       total.totalTokens,
     ),
     activeDays,

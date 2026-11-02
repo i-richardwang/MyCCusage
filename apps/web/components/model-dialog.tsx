@@ -17,7 +17,7 @@ import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { TypeShares } from "@/components/type-shares";
 import { UsageFigures, usageFigures } from "@/components/usage-figures";
 import { AGENT_CHART_CONFIG } from "@/constants/chart-config";
-import { formatChartDate } from "@/lib/date-utils";
+import { usePeriodLabels } from "@/hooks/use-period-labels";
 import {
   formatAxisMetric,
   formatMetric,
@@ -26,23 +26,36 @@ import {
   metricShare,
   metricValue,
 } from "@/lib/format";
-import { modelDaily, type ModelTotals, type UsageView } from "@/lib/usage-view";
+import {
+  hoursNote,
+  modelDaily,
+  modelHourly,
+  type ModelTotals,
+  type UsageView,
+} from "@/lib/usage-view";
 import { AGENT_TYPE_LABELS } from "@/types/agent-types";
-import type { UsageMetric } from "@/types/chart-types";
+import type { Resolution, UsageMetric } from "@/types/chart-types";
 
 interface ModelDialogProps {
   model: ModelTotals | null;
   view: UsageView;
   metric: UsageMetric;
+  // Whether the model's trend is per day or per hour
+  resolution: Resolution;
+  timeZone: string;
   onClose: () => void;
 }
 
 // One model's usage in the period, opened from the breakdown
-export function ModelDialog({ model, view, metric, onClose }: ModelDialogProps) {
+export function ModelDialog({
+  model,
+  onClose,
+  ...details
+}: ModelDialogProps) {
   return (
     <Dialog open={model !== null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-3xl">
-        {model && <ModelDetails model={model} view={view} metric={metric} />}
+        {model && <ModelDetails model={model} {...details} />}
       </DialogContent>
     </Dialog>
   );
@@ -52,20 +65,25 @@ function ModelDetails({
   model,
   view,
   metric,
-}: {
-  model: ModelTotals;
-  view: UsageView;
-  metric: UsageMetric;
-}) {
+  resolution,
+  timeZone,
+}: Omit<ModelDialogProps, "onClose"> & { model: ModelTotals }) {
   const agent = AGENT_CHART_CONFIG[model.agentType];
   const chartData = useMemo(
     () =>
-      modelDaily(view, model).map((day) => ({
-        date: day.date,
-        value: metricValue(metric, day),
-      })),
-    [view, model, metric],
+      resolution === "hour"
+        ? modelHourly(view, model).map((hour) => ({
+            period: hour.hourStart,
+            value: metricValue(metric, hour),
+          }))
+        : modelDaily(view, model).map((day) => ({
+            period: day.date,
+            value: metricValue(metric, day),
+          })),
+    [view, model, metric, resolution],
   );
+  const labels = usePeriodLabels(resolution, timeZone);
+  const note = hoursNote(view, resolution);
 
   return (
     <>
@@ -82,6 +100,7 @@ function ModelDetails({
           {AGENT_TYPE_LABELS[model.agentType]} ·{" "}
           {formatPercent(metricShare(metric, model))} of{" "}
           {METRIC_NAMES[metric].noun} in this period
+          {note && <span className="block">{note}</span>}
         </DialogDescription>
       </DialogHeader>
 
@@ -97,12 +116,12 @@ function ModelDetails({
           <BarChart data={chartData}>
             <CartesianGrid vertical={false} />
             <XAxis
-              dataKey="date"
+              dataKey="period"
               tickLine={false}
               axisLine={false}
               tickMargin={8}
-              minTickGap={32}
-              tickFormatter={formatChartDate}
+              minTickGap={resolution === "hour" ? 48 : 32}
+              tickFormatter={labels.tick}
             />
             <YAxis
               tickLine={false}
@@ -114,7 +133,9 @@ function ModelDetails({
               cursor={false}
               content={
                 <ChartTooltipContent
-                  labelFormatter={(label) => formatChartDate(String(label))}
+                  labelFormatter={(_, payload) =>
+                    labels.full(String(payload[0]?.payload?.period ?? ""))
+                  }
                   formatter={(value) => (
                     <span className="font-mono font-medium tabular-nums">
                       {formatMetric(metric, Number(value))}

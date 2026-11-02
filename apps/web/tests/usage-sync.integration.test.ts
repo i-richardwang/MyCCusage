@@ -1,37 +1,22 @@
-import { randomUUID } from "crypto";
-import { readFileSync, readdirSync } from "fs";
-import { join } from "path";
 import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { NextRequest } from "next/server";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
 import { SYNC_PROTOCOL } from "@/lib/usage-sync";
+import {
+  createTestSchema,
+  testDatabaseUrl as url,
+  type TestSchema,
+} from "./test-database";
 
-// Opt in with a disposable local PostgreSQL database. Each run uses its own
-// schema; it never touches application tables or reads DATABASE_URL.
-const url = process.env.MYCCUSAGE_TEST_DATABASE_URL;
-const schema = `backfill_${randomUUID().replaceAll("-", "")}`;
-let admin: Pool;
+let database: TestSchema | undefined;
 let pool: Pool;
 let post: typeof import("@/app/api/usage-sync/route").POST;
 
 beforeAll(async () => {
   if (!url) return;
-  if (!["localhost", "127.0.0.1"].includes(new URL(url).hostname)) {
-    throw new Error("Integration tests require a local disposable database");
-  }
-  admin = new Pool({ connectionString: url });
-  await admin.query(`CREATE SCHEMA ${schema}`);
-  pool = new Pool({
-    connectionString: url,
-    options: `-c search_path=${schema}`,
-  });
-  const migrations = join(process.cwd(), "drizzle");
-  for (const file of readdirSync(migrations)
-    .filter((f) => f.endsWith(".sql"))
-    .sort()) {
-    await pool.query(readFileSync(join(migrations, file), "utf8"));
-  }
+  database = await createTestSchema(url);
+  pool = database.pool;
   vi.stubEnv("API_KEY", "integration-test-key");
   vi.stubEnv("USAGE_TIMEZONE", "UTC");
   vi.doMock("@/src/db", () => ({ db: drizzle(pool) }));
@@ -40,11 +25,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   vi.unstubAllEnvs();
-  if (pool) await pool.end();
-  if (admin) {
-    await admin.query(`DROP SCHEMA ${schema} CASCADE`);
-    await admin.end();
-  }
+  await database?.drop();
 });
 
 const bucket = (date: string, model: string, inputTokens: number) => ({

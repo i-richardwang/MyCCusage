@@ -1,27 +1,15 @@
 import { NextResponse } from "next/server";
-import { isNotNull, sql } from "drizzle-orm";
 import { db } from "@/src/db";
 import { usageBuckets, devices } from "@/src/db/schema";
 import { type AgentType } from "@/types/agent-types";
 import type { UsageStatsResponse } from "@/types/api-types";
 import { getAccountTimeZone } from "@/lib/account-timezone";
-
-// Sums of bigint and numeric columns, as JSON numbers
-const total = (column: unknown) => sql<number>`sum(${column})::float8`;
-const nullableTotal = (column: unknown) =>
-  sql<number | null>`sum(${column})::float8`;
-// Buckets stored without a cost split count as none of it
-const knownTotal = (column: unknown) =>
-  sql<number>`coalesce(sum(${column}), 0)::float8`;
-
-const metrics = {
-  totalCost: total(usageBuckets.cost),
-  totalTokens: total(usageBuckets.totalTokens),
-  inputTokens: total(usageBuckets.inputTokens),
-  outputTokens: total(usageBuckets.outputTokens),
-  cacheCreationTokens: total(usageBuckets.cacheCreationTokens),
-  cacheReadTokens: total(usageBuckets.cacheReadTokens),
-};
+import {
+  hourlyTokens,
+  knownTotal,
+  metrics,
+  nullableTotal,
+} from "@/lib/usage-query";
 
 export async function GET() {
   try {
@@ -37,7 +25,7 @@ export async function GET() {
       );
     }
 
-    const [deviceRows, recordRows, hourlyRows] = await Promise.all([
+    const [deviceRows, recordRows] = await Promise.all([
       db
         .select({
           deviceId: devices.deviceId,
@@ -63,6 +51,7 @@ export async function GET() {
           unpricedTokens: knownTotal(usageBuckets.unpricedTokens),
           reasoningTokens: nullableTotal(usageBuckets.reasoningTokens),
           requests: nullableTotal(usageBuckets.requests),
+          hourlyTokens,
         })
         .from(usageBuckets)
         .groupBy(
@@ -72,24 +61,6 @@ export async function GET() {
           usageBuckets.model,
         )
         .orderBy(usageBuckets.date),
-      db
-        .select({
-          // Day history is filtered out below, so every hour is known
-          hourStart: sql<Date>`${usageBuckets.hourStart}`.mapWith(
-            usageBuckets.hourStart,
-          ),
-          date: usageBuckets.date,
-          agentType: usageBuckets.agentType,
-          ...metrics,
-        })
-        .from(usageBuckets)
-        .where(isNotNull(usageBuckets.hourStart))
-        .groupBy(
-          usageBuckets.hourStart,
-          usageBuckets.date,
-          usageBuckets.agentType,
-        )
-        .orderBy(usageBuckets.hourStart),
     ]);
 
     const response: UsageStatsResponse = {
@@ -98,11 +69,6 @@ export async function GET() {
       devices: deviceRows,
       records: recordRows.map((record) => ({
         ...record,
-        agentType: record.agentType as AgentType,
-      })),
-      hourly: hourlyRows.map(({ hourStart, ...record }) => ({
-        ...record,
-        hourStart: hourStart.toISOString(),
         agentType: record.agentType as AgentType,
       })),
     };
