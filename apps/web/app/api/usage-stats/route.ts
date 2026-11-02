@@ -10,6 +10,9 @@ import { getAccountTimeZone } from "@/lib/account-timezone";
 const total = (column: unknown) => sql<number>`sum(${column})::float8`;
 const nullableTotal = (column: unknown) =>
   sql<number | null>`sum(${column})::float8`;
+// Buckets stored without a cost split count as none of it
+const knownTotal = (column: unknown) =>
+  sql<number>`coalesce(sum(${column}), 0)::float8`;
 
 const metrics = {
   totalCost: total(usageBuckets.cost),
@@ -51,6 +54,13 @@ export async function GET() {
           agentType: usageBuckets.agentType,
           model: usageBuckets.model,
           ...metrics,
+          inputCost: knownTotal(usageBuckets.inputCost),
+          outputCost: knownTotal(usageBuckets.outputCost),
+          cacheCreationCost: knownTotal(usageBuckets.cacheCreationCost),
+          cacheReadCost: knownTotal(usageBuckets.cacheReadCost),
+          cacheSavings: knownTotal(usageBuckets.cacheSavings),
+          speedPremium: knownTotal(usageBuckets.speedPremium),
+          unpricedTokens: knownTotal(usageBuckets.unpricedTokens),
           reasoningTokens: nullableTotal(usageBuckets.reasoningTokens),
           requests: nullableTotal(usageBuckets.requests),
         })

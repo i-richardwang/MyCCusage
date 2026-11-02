@@ -11,6 +11,7 @@ import {
   resolveCursorFetchTimeout,
   type CursorUsageEvent,
 } from "../src/cursor";
+import { NO_COST, type PricingTable } from "../src/pricing/rates";
 import { createCalendar } from "../src/calendar";
 
 const SHANGHAI = createCalendar("Asia/Shanghai");
@@ -68,6 +69,11 @@ function event(
 const page = (events: unknown[], total = events.length) =>
   JSON.stringify({ totalUsageEventsCount: total, usageEventsDisplay: events });
 
+const PRICING: PricingTable = {
+  asOf: "2026-09-01T00:00:00.000Z",
+  models: { "cheap-model": { input: 1e-6, output: 3e-6 } },
+};
+
 describe("parseUsageEvent", () => {
   it("reads one request with Cursor's cache split and list-price cost", () => {
     const parsed = parseUsageEvent(
@@ -81,7 +87,7 @@ describe("parseUsageEvent", () => {
       outputTokens: 40,
       cacheCreationTokens: 10,
       cacheReadTokens: 30,
-      cost: 0.1,
+      reportedCost: 0.1,
     });
   });
 
@@ -176,7 +182,7 @@ describe("aggregateCursorUsage", () => {
     outputTokens: n,
     cacheCreationTokens: 0,
     cacheReadTokens: 0,
-    cost: n / 100,
+    reportedCost: n / 100,
   });
 
   it("sums requests into account-calendar hours per model", () => {
@@ -188,6 +194,7 @@ describe("aggregateCursorUsage", () => {
         request("2026-09-08T01:00:00Z", "cheap-model", 5),
       ],
       SHANGHAI,
+      PRICING,
     );
     expect(
       buckets.map(({ date, hourStart, model, requests, inputTokens }) => [
@@ -206,11 +213,35 @@ describe("aggregateCursorUsage", () => {
     expect(buckets[0]).not.toHaveProperty("reasoningTokens");
   });
 
+  it("splits Cursor's charge by list rates where the model has them", () => {
+    const [cheap, pricey] = aggregateCursorUsage(
+      [
+        request("2026-09-07T01:02:00Z", "cheap-model", 10),
+        request("2026-09-07T02:00:00Z", "pricey-model", 10),
+      ],
+      SHANGHAI,
+      PRICING,
+    );
+    // Input and output at 1:3 list rates share Cursor's $0.10 as 1:3
+    expect(cheap).toMatchObject({
+      cost: 0.1,
+      inputCost: expect.closeTo(0.025, 12),
+      outputCost: expect.closeTo(0.075, 12),
+      unpricedTokens: 0,
+    });
+    expect(pricey).toMatchObject({
+      cost: 0.1,
+      inputCost: 0,
+      outputCost: 0,
+      unpricedTokens: 0,
+    });
+  });
+
   it("groups instants by the account calendar, not the process zone", () => {
     // 2026-09-07T16:30Z is 2026-09-08 00:30 in Asia/Shanghai (UTC+8).
     const requests = [request("2026-09-07T16:30:00Z", "m", 1)];
     const bucket = (zone: string) =>
-      aggregateCursorUsage(requests, createCalendar(zone)).map(
+      aggregateCursorUsage(requests, createCalendar(zone), PRICING).map(
         ({ date, hourStart }) => [date, hourStart],
       );
     expect(bucket("Asia/Shanghai")).toEqual([
@@ -281,7 +312,7 @@ describe("collectCursorUsage", () => {
 
   it("skips quietly when the state DB is missing", async () => {
     vi.stubEnv("MYCCUSAGE_CURSOR_DB", join(dir, "missing.vscdb"));
-    const result = await collectCursorUsage(SHANGHAI, { now: NOW });
+    const result = await collectCursorUsage(SHANGHAI, PRICING, { now: NOW });
     expect(result.skipped).toBe(true);
     expect(result.buckets).toEqual([]);
     expect(result.warnings).toHaveLength(1);
@@ -296,7 +327,7 @@ describe("collectCursorUsage", () => {
       db.close();
     }
     vi.stubEnv("MYCCUSAGE_CURSOR_DB", dbPath);
-    const result = await collectCursorUsage(SHANGHAI, { now: NOW });
+    const result = await collectCursorUsage(SHANGHAI, PRICING, { now: NOW });
     expect(result.skipped).toBe(true);
     expect(result.warnings[0]).toMatch(/session token/);
   });
@@ -307,7 +338,7 @@ describe("collectCursorUsage", () => {
       () => new Response(page([event("2026-09-07T01:02:00Z", "test-model")])),
     );
 
-    const result = await collectCursorUsage(SHANGHAI, { now: NOW });
+    const result = await collectCursorUsage(SHANGHAI, PRICING, { now: NOW });
     expect(result.skipped).toBe(false);
     expect(result.warnings).toEqual([]);
     expect(calls).toHaveLength(1);
@@ -330,6 +361,8 @@ describe("collectCursorUsage", () => {
         outputTokens: 40,
         cacheCreationTokens: 10,
         cacheReadTokens: 30,
+        ...NO_COST,
+        // test-model has no list rates, so the charge stays unsplit
         cost: 0.1,
         requests: 1,
       },
@@ -349,7 +382,7 @@ describe("collectCursorUsage", () => {
         ),
     );
 
-    const result = await collectCursorUsage(SHANGHAI, {
+    const result = await collectCursorUsage(SHANGHAI, PRICING, {
       now: NOW,
       fullHistory: true,
     });
@@ -378,7 +411,7 @@ describe("collectCursorUsage", () => {
       return new Response(page(pages[body.page - 1]!, 1001));
     });
 
-    const result = await collectCursorUsage(SHANGHAI, { now: NOW });
+    const result = await collectCursorUsage(SHANGHAI, PRICING, { now: NOW });
     expect(calls.map((c) => c.body.page)).toEqual([1, 2]);
     expect(result.buckets.reduce((sum, b) => sum + b.requests, 0)).toBe(1001);
   });
@@ -389,9 +422,9 @@ describe("collectCursorUsage", () => {
       () => new Response("", { status: 401, statusText: "Unauthorized" }),
     );
 
-    await expect(collectCursorUsage(SHANGHAI, { now: NOW })).rejects.toThrow(
-      /sign in again/,
-    );
+    await expect(
+      collectCursorUsage(SHANGHAI, PRICING, { now: NOW }),
+    ).rejects.toThrow(/sign in again/);
     // sub cookie + userId cookie + bare token + bearer.
     expect(calls).toHaveLength(4);
   });
@@ -400,7 +433,7 @@ describe("collectCursorUsage", () => {
     seed();
     const calls = stubFetch(() => new Response("", { status: 503 }));
 
-    const result = await collectCursorUsage(SHANGHAI, { now: NOW });
+    const result = await collectCursorUsage(SHANGHAI, PRICING, { now: NOW });
     expect(result.skipped).toBe(true);
     expect(result.buckets).toEqual([]);
     expect(result.warnings[0]).toMatch(/HTTP 503/);
@@ -415,7 +448,7 @@ describe("collectCursorUsage", () => {
       });
     });
 
-    const result = await collectCursorUsage(SHANGHAI, { now: NOW });
+    const result = await collectCursorUsage(SHANGHAI, PRICING, { now: NOW });
     expect(result.skipped).toBe(true);
     expect(result.warnings[0]).toMatch(/ENOTFOUND/);
     expect(result.warnings[0]).not.toMatch(new RegExp(TOKEN));
@@ -425,7 +458,7 @@ describe("collectCursorUsage", () => {
     seed();
     stubFetch(() => new Response(JSON.stringify({ usageEventsDisplay: "?" })));
 
-    const result = await collectCursorUsage(SHANGHAI, { now: NOW });
+    const result = await collectCursorUsage(SHANGHAI, PRICING, { now: NOW });
     expect(result.skipped).toBe(true);
     expect(result.warnings[0]).toMatch(/unrecognized/);
   });
@@ -434,7 +467,7 @@ describe("collectCursorUsage", () => {
     seed();
     stubFetch(() => new Response("{}"));
 
-    const result = await collectCursorUsage(SHANGHAI, { now: NOW });
+    const result = await collectCursorUsage(SHANGHAI, PRICING, { now: NOW });
     expect(result.skipped).toBe(true);
     expect(result.buckets).toEqual([]);
     expect(result.range).toBeUndefined();

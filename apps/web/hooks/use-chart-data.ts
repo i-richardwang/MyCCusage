@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type {
   ChartConfig,
+  CostSplit,
   Device,
   Resolution,
   SeriesChartData,
@@ -183,7 +184,18 @@ export function usePeriodBreakdown(
 
 // Tokens of each type; together they make the total
 export function tokenTypeSegments(usage: UsageMetrics): ShareSegment[] {
-  return (
-    Object.keys(TOKEN_TYPE_CONFIG) as (keyof typeof TOKEN_TYPE_CONFIG)[]
-  ).map((type) => ({ ...TOKEN_TYPE_CONFIG[type], value: usage[type] }));
+  return TOKEN_TYPE_CONFIG.map(({ label, color, tokens }) => ({
+    label,
+    color,
+    value: usage[tokens],
+  }));
+}
+
+// Cost of each token type; together they make the part of cost split by type
+export function costTypeSegments(split: CostSplit): ShareSegment[] {
+  return TOKEN_TYPE_CONFIG.map(({ label, color, cost }) => ({
+    label,
+    color,
+    value: split[cost],
+  }));
 }

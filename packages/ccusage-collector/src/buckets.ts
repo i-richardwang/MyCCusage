@@ -1,26 +1,20 @@
 import type { Calendar } from "./calendar.js";
+import { NO_COST, type PricedUsage, type TokenUsage } from "./pricing/rates.js";
 import type { UsageBucket } from "./types.js";
 
-type Counted = Pick<
-  UsageBucket,
-  | "inputTokens"
-  | "outputTokens"
-  | "cacheCreationTokens"
-  | "cacheReadTokens"
-  | "cost"
->;
+type Counted = TokenUsage & PricedUsage;
 
 const FIELDS: (keyof Counted)[] = [
   "inputTokens",
   "outputTokens",
   "cacheCreationTokens",
   "cacheReadTokens",
-  "cost",
+  ...(Object.keys(NO_COST) as (keyof PricedUsage)[]),
 ];
 
-// One request's usage, or the summed usage of `requests` requests. Input
-// excludes cache reads and writes; reasoning is part of output, null when the
-// source does not report it.
+// One request's usage, priced, or the summed usage of `requests` requests.
+// Input excludes cache reads and writes; reasoning is part of output, null
+// when the source does not report it.
 export interface RequestTotals extends Counted {
   reasoningTokens: number | null;
   // Requests the totals stand for; one when absent
@@ -54,8 +48,8 @@ export class RequestBuckets {
         outputTokens: 0,
         cacheCreationTokens: 0,
         cacheReadTokens: 0,
+        ...NO_COST,
         reasoningTokens: 0,
-        cost: 0,
         requests: 0,
         reportsReasoning: false,
       };

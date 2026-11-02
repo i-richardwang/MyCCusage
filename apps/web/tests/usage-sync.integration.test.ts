@@ -5,6 +5,7 @@ import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { NextRequest } from "next/server";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
+import { SYNC_PROTOCOL } from "@/lib/usage-sync";
 
 // Opt in with a disposable local PostgreSQL database. Each run uses its own
 // schema; it never touches application tables or reads DATABASE_URL.
@@ -54,6 +55,13 @@ const bucket = (date: string, model: string, inputTokens: number) => ({
   cacheCreationTokens: 0,
   cacheReadTokens: 0,
   cost: 1,
+  inputCost: 1,
+  outputCost: 0,
+  cacheCreationCost: 0,
+  cacheReadCost: 0,
+  cacheSavings: 0,
+  speedPremium: 0,
+  unpricedTokens: 0,
   hourStart: `${date}T10:00:00Z`,
   requests: 1,
 });
@@ -71,7 +79,7 @@ async function upload(
         "x-api-key": "integration-test-key",
       },
       body: JSON.stringify({
-        version: 4,
+        version: SYNC_PROTOCOL,
         timezone: "UTC",
         device: { deviceId, deviceName: "test", agentType },
         buckets,
@@ -153,12 +161,26 @@ it.skipIf(!url)(
       deviceId,
     );
     const stored = await pool.query(
-      `SELECT date::text, model, hour_start IS NULL AS whole_day, requests FROM usage_buckets WHERE device_id = $1 ORDER BY date`,
+      `SELECT date::text, model, hour_start IS NULL AS whole_day, requests, input_cost::float8 AS input_cost
+       FROM usage_buckets WHERE device_id = $1 ORDER BY date`,
       [deviceId],
     );
+    // Day history keeps no cost split; uploaded hours carry theirs
     expect(stored.rows).toEqual([
-      { date: "2024-02-01", model: "", whole_day: true, requests: null },
-      { date: "2026-10-02", model: "hours", whole_day: false, requests: 1 },
+      {
+        date: "2024-02-01",
+        model: "",
+        whole_day: true,
+        requests: null,
+        input_cost: null,
+      },
+      {
+        date: "2026-10-02",
+        model: "hours",
+        whole_day: false,
+        requests: 1,
+        input_cost: 1,
+      },
     ]);
   },
 );

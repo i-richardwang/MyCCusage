@@ -3,7 +3,12 @@ import { homedir } from "os";
 import { join, resolve } from "path";
 import { queryRows } from "./sqlite.js";
 import type { Calendar } from "./calendar.js";
-import { RequestBuckets, type RequestTotals } from "./buckets.js";
+import { RequestBuckets } from "./buckets.js";
+import {
+  priceRequest,
+  type PricingTable,
+  type TokenUsage,
+} from "./pricing/rates.js";
 import type { UsageBucket } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -114,12 +119,13 @@ interface Call {
   instant: Date;
   date: string;
   model: string;
-  usage: RequestTotals;
+  usage: TokenUsage;
   exactCost: number | null;
 }
 
 export function collectDimagentUsage(
   calendar: Calendar,
+  pricing: PricingTable,
   dbPath: string = getDimAgentDbPath(),
 ): UsageBucket[] {
   if (!existsSync(dbPath)) return [];
@@ -194,8 +200,6 @@ export function collectDimagentUsage(
         outputTokens,
         cacheCreationTokens,
         cacheReadTokens,
-        reasoningTokens: null,
-        cost: 0,
       },
       // A run still in flight (or just finished) has no exact cost yet
       exactCost: priced && priced.cost > 0 ? priced.cost : null,
@@ -204,7 +208,8 @@ export function collectDimagentUsage(
 
   // Calls without an exact cost are estimated at their model's exact rate on
   // the same day, so the day stays close to DimAgent's own estimate until the
-  // next sync replaces it with the exact cost.
+  // next sync replaces it with the exact cost; without one, at list rates.
+  // DimAgent's cost is split by the model's list rates where they are known.
   const exact = new Map<string, { cost: number; tokens: number }>();
   for (const { date, model, usage, exactCost } of calls) {
     if (exactCost === null) continue;
@@ -218,12 +223,16 @@ export function collectDimagentUsage(
   const buckets = new RequestBuckets(calendar);
   for (const { instant, date, model, usage, exactCost } of calls) {
     const rate = exact.get(`${date}\0${model}`);
-    const cost =
+    const reportedCost =
       exactCost ??
       (rate && rate.tokens > 0
         ? ((usage.inputTokens + usage.outputTokens) * rate.cost) / rate.tokens
-        : 0);
-    buckets.add(instant, model, { ...usage, cost });
+        : null);
+    buckets.add(instant, model, {
+      ...usage,
+      ...priceRequest(pricing, [model], usage, reportedCost),
+      reasoningTokens: null,
+    });
   }
   return buckets.list();
 }

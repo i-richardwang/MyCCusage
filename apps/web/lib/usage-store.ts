@@ -69,6 +69,12 @@ export async function storeUsage(
           deviceId: device.deviceId,
           agentType: device.agentType,
           cost: bucket.cost.toFixed(6),
+          inputCost: bucket.inputCost.toFixed(6),
+          outputCost: bucket.outputCost.toFixed(6),
+          cacheCreationCost: bucket.cacheCreationCost.toFixed(6),
+          cacheReadCost: bucket.cacheReadCost.toFixed(6),
+          cacheSavings: bucket.cacheSavings.toFixed(6),
+          speedPremium: bucket.speedPremium.toFixed(6),
         })),
       );
     }

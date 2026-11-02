@@ -196,7 +196,7 @@ Days and hours follow the dashboard's account time zone (`USAGE_TIMEZONE` on the
 The collector:
 - Reads the transcripts of Claude Code, Codex, OpenCode and Antigravity itself and reports their usage per hour and model (see below)
 - Collects AMP through the `amp` CLI (see below)
-- Parses DimAgent's local SQLite store (`~/.dimcode/v2/dimcode.sqlite`) directly
+- Parses DimAgent's local SQLite store (`~/.dimcode/v2/dimcode.sqlite`) directly. DimAgent's exact run cost is split by the model's LiteLLM rates where they are known; calls without a cost that day are priced from the table
 - Pulls Cursor usage from the account's usage events on cursor.com via the local session token in Cursor's state DB (see below). The events are account-wide, so enable Cursor on exactly one device per account to avoid double-counting
 - Reports every agent per hour and model. AMP's subagent usage is known per day and spread over the day's hours (see below)
 - Uploads all the history DimAgent and AMP keep, and the recent days of the transcript-based agents and Cursor (see below)
@@ -212,6 +212,7 @@ The collector parses each request these agents record in their own session store
 - **OpenCode**: the `opencode*.db` databases and the older `storage/message/` JSON files under `OPENCODE_DATA_DIR` (comma-separated), else `$XDG_DATA_HOME/opencode`, else `~/.local/share/opencode`. A message migrated from the JSON store into the database counts once. OpenCode's own cost is used where it recorded one; a zero cost, as subscriptions record, is priced from the table
 - **Antigravity**: the conversation databases under `ANTIGRAVITY_DATA_DIR` (comma-separated), else the `~/.gemini/antigravity*` roots and `~/.config/antigravity`. Each generation is decoded from its protobuf metadata; the copies Antigravity keeps in steps, generation metadata, retries and backup roots are merged into one request
 - Each request is priced on its own at LiteLLM's rates: long-context rates when its prompt passes the model's threshold, one-hour cache writes at their own rate, Claude fast mode and US-only inference by their multipliers, and Codex priority and ultrafast tiers at their rates. A cost the agent recorded itself (Claude Code's `costUSD`, OpenCode's `cost`) is used as is
+- Cost is split into input, output, cache-write and cache-read parts at those rates, with what cache reads saved over uncached input and what a fast or ultrafast tier cost over standard. A cost the agent recorded itself is split in the same proportions where the model has rates, and stays unsplit where it has none. Tokens neither priced nor costed by the agent are counted as unpriced
 - Reasoning tokens are reported where the agent records them (Codex, OpenCode, Antigravity, and Claude Code versions that report thinking tokens); they are part of output tokens
 - Every sync re-reads the last 30 days, fewer when Claude Code's `cleanupPeriodDays` is shorter, so no day it sends has lost transcripts. The range starts at the first request found: a machine whose transcripts were wiped never erases days the dashboard already has. Older days keep what earlier syncs stored
 
@@ -266,7 +267,7 @@ Notes:
 Cursor meters usage per account in the cloud, so the collector reads it the way the dashboard's usage table does:
 
 - Takes the session token from Cursor's state DB (`<config>/Cursor/User/globalStorage/state.vscdb`, read-only). It never leaves the process
-- Pages through `POST https://cursor.com/api/dashboard/get-filtered-usage-events` for the last 30 days (every event with `--full-history`), 1,000 events a page. Each event is one request with its time, model, uncached input, cache-write, cache-read and output tokens, and `totalCents`, Cursor's valuation at list price, which is reported as the cost
+- Pages through `POST https://cursor.com/api/dashboard/get-filtered-usage-events` for the last 30 days (every event with `--full-history`), 1,000 events a page. Each event is one request with its time, model, uncached input, cache-write, cache-read and output tokens, and `totalCents`, Cursor's valuation at list price, which is reported as the cost and split by the model's LiteLLM rates where they are known
 - Drops the events a page repeats from the one before when usage arrives while the pages are read, checked against the window's event count
 - Skips the run quietly on network errors, timeouts (`MYCCUSAGE_CURSOR_FETCH_TIMEOUT_MS`, default 120000, per page), server errors or a page shape it does not understand, and asks for a new sign-in inside Cursor only when every credential variant is rejected
 - Events without token usage (requests that were not token-based, or errored and not charged) are skipped
@@ -276,9 +277,9 @@ Maintainers can refresh the bundled price snapshot with `pnpm --filter ccusage-c
 
 ### Data Format
 
-Each upload holds one agent's usage on one device as buckets: an hour of the account calendar, per model. A bucket carries input tokens (excluding cache), output tokens (including reasoning), cache-write and cache-read tokens, reasoning tokens where the source reports them, the request count and the cost. The upload replaces every stored bucket of that agent and device on the days it covers: its range for the transcript-based agents and Cursor, otherwise the days it reports. A full-history upload of an agent that deletes old transcripts carries `backfillBefore`: dates before it are inserted only when that device and agent have no stored usage on the date. The decision and writes share one transaction; such historical days are preserved as a whole.
+Each upload holds one agent's usage on one device as buckets: an hour of the account calendar, per model. A bucket carries input tokens (excluding cache), output tokens (including reasoning), cache-write and cache-read tokens, reasoning tokens where the source reports them, the request count, the cost and its split: input, output, cache-write and cache-read parts (adding up to at most the cost, as a cost recorded without rates stays unsplit), cache savings, speed premium and unpriced tokens. The upload replaces every stored bucket of that agent and device on the days it covers: its range for the transcript-based agents and Cursor, otherwise the days it reports. A full-history upload of an agent that deletes old transcripts carries `backfillBefore`: dates before it are inserted only when that device and agent have no stored usage on the date. The decision and writes share one transaction; such historical days are preserved as a whole.
 
-Collector and dashboard each name the sync protocol they speak (currently 4); the collector checks the dashboard's before collecting, and either side rejects an upload in another protocol. Update the dashboard first, then the collectors.
+Collector and dashboard each name the sync protocol they speak (currently 5); the collector checks the dashboard's before collecting, and either side rejects an upload in another protocol. Update the dashboard first, then the collectors.
 
 ## Error Handling
 

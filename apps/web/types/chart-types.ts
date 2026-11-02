@@ -13,8 +13,25 @@ export interface UsageMetrics {
   cacheReadTokens: number;
 }
 
+// How cost splits, as collectors priced it. Zero where it was not recorded:
+// day history, hours synced before collectors split cost, and cost an agent
+// recorded without rates to split it by.
+export interface CostSplit {
+  // Parts of cost by token type
+  inputCost: number;
+  outputCost: number;
+  cacheCreationCost: number;
+  cacheReadCost: number;
+  // What cache reads saved over paying for them as uncached input
+  cacheSavings: number;
+  // Part of cost paid for a fast or ultrafast tier over standard
+  speedPremium: number;
+  // Tokens with no price, counted at zero cost
+  unpricedTokens: number;
+}
+
 // One device's usage of one agent with one model on one day
-export interface UsageRecord extends UsageMetrics {
+export interface UsageRecord extends UsageMetrics, CostSplit {
   date: string;
   deviceId: string;
   agentType: AgentType;

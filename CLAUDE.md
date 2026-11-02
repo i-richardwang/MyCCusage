@@ -84,14 +84,17 @@ pnpm db:studio               # Open Drizzle Studio to view/edit data
   account calendar. Usage recorded before collectors reported hours keeps its
   whole day (no hour; model "" where unattributed; requests possibly unknown).
   Each sync replaces whole days of one device's agent, so a day holds either
-  hours or day history
+  hours or day history. Hours carry the cost split (input, output, cache-write
+  and cache-read cost, cache savings, speed premium, unpriced tokens); day
+  history and hours synced before protocol 5 hold null there
 - `devices` - Device information and metadata
 
 ## Usage collection and synchronization
 
 - `packages/ccusage-collector/src/transcripts/` parses the session stores of Claude Code, Codex, OpenCode and Antigravity request by request; AMP, Cursor and DimAgent have their own adapters.
 - The collector owns source reads, pricing and account-calendar bucketing. `collector.ts` coordinates the adapters and transport; `sync.ts` owns command locking and run status.
-- Sync protocol 4 defines timezone validation, hour/model buckets with request counts, and `backfillBefore`. Uploads never carry day buckets; those exist only as stored history. It has one version check, with no capability negotiation or legacy upload path.
+- The collector prices every source through `priceRequest` or `priceTotals` (`pricing/rates.ts`), which split cost by token type. A cost an agent recorded itself is split in the proportions of list rates, or left unsplit without them.
+- Sync protocol 5 defines timezone validation, hour/model buckets with request counts and the cost split, and `backfillBefore`. Uploads never carry day buckets; those exist only as stored history. It has one version check, with no capability negotiation or legacy upload path.
 - `apps/web/lib/usage-sync.ts` validates uploads and plans which complete days to write. `usage-store.ts` performs that plan in a database transaction; the HTTP route handles authentication and responses.
 - Normal uploads replace complete device/agent days. A full-history upload replaces every day it covers, except that an agent which deletes old transcripts (Claude Code) sends `backfillBefore`, its retention boundary: earlier days are inserted only where none is stored, since their transcripts may be partial.
 - `selectUsage` derives dashboard totals, models and hours from the selected records. Components render those results.
@@ -122,7 +125,11 @@ pnpm db:studio               # Open Drizzle Studio to view/edit data
   range, per-agent, per-device and per-model totals with their cost and token
   shares, every hour of the range with its hourly records (ranges up to
   `HOURLY_RANGE_DAYS`), and the `summary` with every metric. Rates (cache hit
-  rate, cost per million tokens) are defined once for the summary and models.
+  rate, cost per million priced tokens) and cost details (the cost split, the
+  share of cost it covers, the share of tokens without a price) are defined
+  once for the summary and models. Records without a split count as none of
+  it, so the totals and the model dialog note how much of the cost the
+  "Cost by type" bar, cache savings and speed premium cover.
 - One metric toggle (cost or tokens) drives the page: the overview, the trend
   chart (stacked by agent or device, per day or per hour), the totals and the
   model/period breakdown. `lib/format.ts` formats every amount.

@@ -4,9 +4,10 @@ import { join } from "path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadPricing } from "../src/pricing/index";
 import {
-  estimateRequestCost,
-  estimateTokenCost,
   isPricingTable,
+  NO_COST,
+  priceRequest,
+  priceTotals,
   type PricingTable,
 } from "../src/pricing/rates";
 import { parseLiteLlmPricing } from "../src/pricing/litellm";
@@ -38,29 +39,49 @@ const upstream = {
   },
 };
 
+// Tokens of `usage` when no rates price it
+const unpriced = (u: typeof usage) => ({
+  ...NO_COST,
+  unpricedTokens:
+    u.inputTokens + u.outputTokens + u.cacheCreationTokens + u.cacheReadTokens,
+});
+
 describe("token pricing", () => {
   it("prices all four counters at base rates regardless of aggregate size", () => {
-    expect(estimateTokenCost(table, ["test-model"], usage)!.cost).toBeCloseTo(
+    expect(priceTotals(table, ["test-model"], usage).cost).toBeCloseTo(
       0.000465,
     );
     expect(
-      estimateTokenCost(table, ["test-model"], {
+      priceTotals(table, ["test-model"], {
         ...usage,
         inputTokens: 1_000_000,
-      })!.cost,
+      }).cost,
     ).toBeCloseTo(2.000265);
+  });
+
+  it("splits cost by token type and states what cache reads saved", () => {
+    expect(priceTotals(table, ["test-model"], usage)).toEqual({
+      cost: expect.closeTo(0.000465, 12),
+      inputCost: expect.closeTo(100 * 2e-6, 12),
+      outputCost: expect.closeTo(20 * 10e-6, 12),
+      cacheCreationCost: expect.closeTo(10 * 2.5e-6, 12),
+      cacheReadCost: expect.closeTo(200 * 0.2e-6, 12),
+      cacheSavings: expect.closeTo(200 * 1.8e-6, 12),
+      speedPremium: 0,
+      unpricedTokens: 0,
+    });
   });
 
   it("distinguishes missing cache rates from free cache usage", () => {
     const incomplete = { ...table, models: { m: { input: 1, output: 2 } } };
-    expect(estimateTokenCost(incomplete, ["m"], usage)).toBeNull();
-    expect(
-      estimateTokenCost(incomplete, ["m"], {
-        ...usage,
-        cacheCreationTokens: 0,
-        cacheReadTokens: 0,
-      }),
-    ).toEqual({ model: "m", cost: 140 });
+    expect(priceTotals(incomplete, ["m"], usage)).toEqual(unpriced(usage));
+    const uncached = { ...usage, cacheCreationTokens: 0, cacheReadTokens: 0 };
+    expect(priceTotals(incomplete, ["m"], uncached)).toEqual({
+      ...NO_COST,
+      cost: 140,
+      inputCost: 100,
+      outputCost: 40,
+    });
     const free = {
       ...table,
       models: {
@@ -72,13 +93,10 @@ describe("token pricing", () => {
         },
       },
     };
-    expect(estimateTokenCost(free, ["m"], usage)).toEqual({
-      model: "m",
-      cost: 0,
-    });
+    expect(priceTotals(free, ["m"], usage)).toEqual(NO_COST);
   });
 
-  it("uses the first candidate with complete pricing and reports the chosen name", () => {
+  it("uses the first candidate with complete pricing", () => {
     const p = {
       ...table,
       models: {
@@ -88,15 +106,9 @@ describe("token pricing", () => {
       },
     };
     expect(
-      estimateTokenCost(p, ["unknown", "missingCache", "paid"], usage),
-    ).toEqual({
-      model: "paid",
-      cost: expect.closeTo(0.000465),
-    });
-    expect(estimateTokenCost(p, ["free", "paid"], usage)).toEqual({
-      model: "free",
-      cost: 0,
-    });
+      priceTotals(p, ["unknown", "missingCache", "paid"], usage).cost,
+    ).toBeCloseTo(0.000465);
+    expect(priceTotals(p, ["free", "paid"], usage)).toEqual(NO_COST);
   });
 
   it("matches provider and separator variants without crossing model versions or vendors", () => {
@@ -116,7 +128,7 @@ describe("token pricing", () => {
       "muse-test",
       "vertexai/gemini-test",
     ]) {
-      expect(estimateTokenCost(p, [model], usage)!.cost).toBeCloseTo(0.000465);
+      expect(priceTotals(p, [model], usage).cost).toBeCloseTo(0.000465);
     }
     for (const model of [
       "gpt-test-pro",
@@ -125,7 +137,7 @@ describe("token pricing", () => {
       "other/gpt-test",
       "toString",
     ]) {
-      expect(estimateTokenCost(p, [model], usage)).toBeNull();
+      expect(priceTotals(p, [model], usage)).toEqual(unpriced(usage));
     }
   });
 
@@ -186,8 +198,13 @@ describe("request pricing", () => {
     cacheCreationTokens: 1_000,
     cacheReadTokens: 10_000,
   };
-  const cost = (model: string, usage: Parameters<typeof estimateRequestCost>[2]) =>
-    estimateRequestCost(rated, [model], usage)?.cost;
+  const price = (
+    model: string,
+    usage: Parameters<typeof priceRequest>[2],
+    reportedCost: number | null = null,
+  ) => priceRequest(rated, [model], usage, reportedCost);
+  const cost = (model: string, usage: Parameters<typeof priceRequest>[2]) =>
+    price(model, usage).cost;
 
   it("prices one-hour cache writes at their own rate", () => {
     const base = 1_000 * 2e-6 + 100 * 10e-6 + 10_000 * 0.2e-6;
@@ -215,7 +232,7 @@ describe("request pricing", () => {
   });
 
   it("applies fast mode, priority tiers and data residency", () => {
-    const standard = cost("claude", request)!;
+    const standard = cost("claude", request);
     expect(cost("claude", { ...request, speed: "fast" })).toBeCloseTo(
       standard * 2,
       12,
@@ -253,8 +270,82 @@ describe("request pricing", () => {
   it("prices Claude context variants at the base model", () => {
     const variants = { ...table, models: { "claude-test-5": claude } };
     expect(
-      estimateRequestCost(variants, ["claude-test-5[1m]"], request),
-    ).toEqual({ model: "claude-test-5[1m]", cost: cost("claude", request) });
+      priceRequest(variants, ["claude-test-5[1m]"], request, null),
+    ).toEqual(price("claude", request));
+  });
+
+  it("splits a request's surcharges into its parts", () => {
+    const priced = price("claude", {
+      ...request,
+      cacheCreation1hTokens: 600,
+      speed: "fast",
+      inferenceGeo: "us",
+    });
+    const multiple = 2 * 1.1;
+    expect(priced).toEqual({
+      cost: expect.closeTo(
+        (1_000 * 2e-6 +
+          100 * 10e-6 +
+          400 * 2.5e-6 +
+          600 * 4e-6 +
+          10_000 * 0.2e-6) *
+          multiple,
+        12,
+      ),
+      inputCost: expect.closeTo(1_000 * 2e-6 * multiple, 12),
+      outputCost: expect.closeTo(100 * 10e-6 * multiple, 12),
+      cacheCreationCost: expect.closeTo(
+        (400 * 2.5e-6 + 600 * 4e-6) * multiple,
+        12,
+      ),
+      cacheReadCost: expect.closeTo(10_000 * 0.2e-6 * multiple, 12),
+      cacheSavings: expect.closeTo(10_000 * 1.8e-6 * multiple, 12),
+      // Fast mode doubles what the request costs at standard speed
+      speedPremium: expect.closeTo(priced.cost / 2, 12),
+      unpricedTokens: 0,
+    });
+  });
+
+  it("states what a priority or ultrafast tier costs over standard", () => {
+    const codex = { ...request, cacheCreationTokens: 0 };
+    const standard = cost("gpt", codex);
+    for (const speed of ["fast", "ultrafast"] as const) {
+      const priced = price("gpt", { ...codex, speed });
+      expect(priced.speedPremium).toBeCloseTo(priced.cost - standard, 12);
+      expect(priced.speedPremium).toBeGreaterThan(0);
+    }
+    expect(price("gpt", codex).speedPremium).toBe(0);
+  });
+
+  it("keeps an agent's own cost, split in the proportions of list prices", () => {
+    const list = price("claude", { ...request, speed: "fast" });
+    const reported = price("claude", { ...request, speed: "fast" }, list.cost / 2);
+    expect(reported).toEqual({
+      cost: list.cost / 2,
+      inputCost: expect.closeTo(list.inputCost / 2, 12),
+      outputCost: expect.closeTo(list.outputCost / 2, 12),
+      cacheCreationCost: expect.closeTo(list.cacheCreationCost / 2, 12),
+      cacheReadCost: expect.closeTo(list.cacheReadCost / 2, 12),
+      cacheSavings: expect.closeTo(list.cacheSavings / 2, 12),
+      speedPremium: expect.closeTo(list.speedPremium / 2, 12),
+      unpricedTokens: 0,
+    });
+  });
+
+  it("leaves a cost without rates unsplit, and usage without either unpriced", () => {
+    expect(price("unknown", request, 0.25)).toEqual({ ...NO_COST, cost: 0.25 });
+    expect(price("unknown", request)).toEqual({
+      ...NO_COST,
+      unpricedTokens: 12_100,
+    });
+    const free = {
+      ...table,
+      models: { m: { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 } },
+    };
+    expect(priceRequest(free, ["m"], request, 0.25)).toEqual({
+      ...NO_COST,
+      cost: 0.25,
+    });
   });
 
   it("parses tiers, cache lifetimes and multipliers from LiteLLM", () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { aggregateAmpUsage, apportion } from "../../src/amp/usage";
 import { createCalendar, type Calendar } from "../../src/calendar";
+import { NO_COST } from "../../src/pricing/rates";
 import type { UsageBucket } from "../../src/types";
 import {
   CALENDAR,
@@ -18,6 +19,9 @@ import {
 const hourOf = (b: UsageBucket) => b.hourStart;
 const byModel = (buckets: UsageBucket[]) =>
   Object.fromEntries(buckets.map((b) => [b.model, b]));
+
+const unpricedModels = (buckets: UsageBucket[]) =>
+  buckets.filter((b) => b.unpricedTokens > 0).map((b) => b.model);
 
 describe("apportion", () => {
   it("splits a total by weight into integers that add up exactly", () => {
@@ -40,7 +44,7 @@ describe("aggregateAmpUsage", () => {
       cacheCreationTokens: n,
       cacheReadTokens: n,
     });
-    const { buckets } = aggregateAmpUsage(
+    const buckets = aggregateAmpUsage(
       [
         cachedThread({
           id: "T-1",
@@ -88,7 +92,7 @@ describe("aggregateAmpUsage", () => {
       cacheCreationTokens: 100,
       cacheReadTokens: 10,
     };
-    const { buckets } = aggregateAmpUsage(
+    const buckets = aggregateAmpUsage(
       [
         cachedThread({
           id: "T-1",
@@ -113,7 +117,7 @@ describe("aggregateAmpUsage", () => {
   });
 
   it("names export models without their provider prefix", () => {
-    const { buckets } = aggregateAmpUsage(
+    const buckets = aggregateAmpUsage(
       [
         cachedThread({
           id: "T-1",
@@ -132,7 +136,7 @@ describe("aggregateAmpUsage", () => {
       cacheReadTokens: 80,
     });
     const unreconciled: string[] = [];
-    const { buckets } = aggregateAmpUsage(
+    const buckets = aggregateAmpUsage(
       [
         cachedThread({
           id: "T-1",
@@ -162,13 +166,15 @@ describe("aggregateAmpUsage", () => {
         outputTokens: 15 + 10,
         cacheCreationTokens: 0,
         cacheReadTokens: 120 + 80,
-        cost: 0,
+        // The test prices no DeepSeek model
+        ...NO_COST,
+        unpricedTokens: 275,
       },
     ]);
   });
 
   it("spreads subagent usage over the hours of the main agent's tokens", () => {
-    const { buckets } = aggregateAmpUsage(
+    const buckets = aggregateAmpUsage(
       [
         cachedThread({
           id: "T-1",
@@ -234,7 +240,8 @@ describe("aggregateAmpUsage", () => {
         outputTokens: 0 + 10,
         cacheCreationTokens: 0,
         cacheReadTokens: 80 + 125,
-        cost: 0,
+        ...NO_COST,
+        unpricedTokens: 260,
       },
       {
         date: DAY,
@@ -245,7 +252,8 @@ describe("aggregateAmpUsage", () => {
         outputTokens: 10 + 30,
         cacheCreationTokens: 0,
         cacheReadTokens: 290 + 375,
-        cost: 0,
+        ...NO_COST,
+        unpricedTokens: 780,
       },
     ]);
     expect(tokenTotal(buckets)).toBe(990 + 50);
@@ -275,7 +283,7 @@ describe("aggregateAmpUsage", () => {
     };
     const reports = { [DAY_KEY]: { fetchedAt: NOON, report } };
 
-    const { buckets } = aggregateAmpUsage(
+    const buckets = aggregateAmpUsage(
       [cachedThread({ id: "T-1", usage: [agent], reports })],
       { calendar: CALENDAR, pricing: UNPRICED },
     );
@@ -285,7 +293,7 @@ describe("aggregateAmpUsage", () => {
     ]);
 
     // Without a usage entry that day, the thread's messages weigh the hours
-    const { buckets: byMessages } = aggregateAmpUsage(
+    const byMessages = aggregateAmpUsage(
       [
         cachedThread({
           id: "T-1",
@@ -321,7 +329,7 @@ describe("aggregateAmpUsage", () => {
 
   it("reports days whose report could not be used", () => {
     const unreconciled: string[] = [];
-    const { buckets } = aggregateAmpUsage(
+    const buckets = aggregateAmpUsage(
       [
         cachedThread({
           id: "T-1",
@@ -371,20 +379,20 @@ describe("aggregateAmpUsage", () => {
         "deepseek-v4.1-flash": { input: 1, output: 2, cacheRead: 0.1 },
       },
     };
-    const usage = aggregateAmpUsage(threads, { calendar: CALENDAR, pricing });
+    const buckets = aggregateAmpUsage(threads, { calendar: CALENDAR, pricing });
     // Combined main + subagent: input 50, output 25, reads 200; no duplicate main usage.
-    expect(usage.buckets.map((b) => b.cost)).toEqual([120, 0]);
-    expect(usage.unpricedModels).toEqual(["unknown"]);
-    expect(tokenTotal(usage.buckets)).toBe(282);
+    expect(buckets.map((b) => b.cost)).toEqual([120, 0]);
+    expect(unpricedModels(buckets)).toEqual(["unknown"]);
+    expect(tokenTotal(buckets)).toBe(282);
     // Pricing and repeated aggregation do not mutate the cached thread data.
     expect(aggregateAmpUsage(threads, { calendar: CALENDAR, pricing })).toEqual(
-      usage,
+      buckets,
     );
     expect(
       aggregateAmpUsage(threads, {
         calendar: CALENDAR,
         pricing: UNPRICED,
-      }).buckets.map((b) => b.cost),
+      }).map((b) => b.cost),
     ).toEqual([0, 0]);
     // The reconciled export name is a safe fallback when only that name has
     // a price; a different model version is never inferred from its spelling.
@@ -395,8 +403,8 @@ describe("aggregateAmpUsage", () => {
         models: { "deepseek-flash": pricing.models["deepseek-v4.1-flash"] },
       },
     });
-    expect(aliased.buckets.map((b) => b.cost)).toEqual([120, 0]);
-    expect(aliased.unpricedModels).toEqual(["unknown"]);
+    expect(aliased.map((b) => b.cost)).toEqual([120, 0]);
+    expect(unpricedModels(aliased)).toEqual(["unknown"]);
   });
 
   it("prices normalized cache counters and reprices history without changing token totals", () => {
@@ -422,12 +430,12 @@ describe("aggregateAmpUsage", () => {
       asOf: NOON,
       models: { "gpt-test": prices, "claude-test": prices },
     };
-    const usage = aggregateAmpUsage(threads, { calendar: CALENDAR, pricing });
-    expect(usage.buckets.map((b) => [b.model, b.cost])).toEqual([
+    const buckets = aggregateAmpUsage(threads, { calendar: CALENDAR, pricing });
+    expect(buckets.map((b) => [b.model, b.cost])).toEqual([
       ["claude-test", 340],
       ["gpt-test", 140],
     ]);
-    expect(usage.unpricedModels).toEqual([]);
+    expect(unpricedModels(buckets)).toEqual([]);
     const doubled = {
       ...pricing,
       models: {
@@ -444,8 +452,8 @@ describe("aggregateAmpUsage", () => {
       calendar: CALENDAR,
       pricing: doubled,
     });
-    expect(repriced.buckets.map((b) => b.cost)).toEqual([680, 280]);
-    expect(tokenTotal(repriced.buckets)).toBe(tokenTotal(usage.buckets));
+    expect(repriced.map((b) => b.cost)).toEqual([680, 280]);
+    expect(tokenTotal(repriced)).toBe(tokenTotal(buckets));
   });
 
   it("uses a report only for the exact range it was fetched for", () => {
@@ -469,7 +477,7 @@ describe("aggregateAmpUsage", () => {
         calendar,
         pricing: UNPRICED,
         onUnreconciled: (id) => unreconciled.push(id),
-      }).buckets.map((b) => [b.date, hourOf(b), tokenTotal([b])]);
+      }).map((b) => [b.date, hourOf(b), tokenTotal([b])]);
     // Main agent + subagents from the report
     expect(total(CALENDAR)).toEqual([[DAY, NOON, 165]]);
     // Another calendar's day has no report yet: main agent only, and not

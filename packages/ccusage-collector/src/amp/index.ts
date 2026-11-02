@@ -54,17 +54,12 @@ export async function collectAmpUsage(
   const threads = loadCachedThreads();
   if (threads.length === 0) return [];
   const pricing = await loadPricing();
-  const { buckets, unpricedModels } = aggregateAmpUsage(threads, {
+  const buckets = aggregateAmpUsage(threads, {
     calendar,
     onUnreconciled: (threadId, date) =>
       unreconciled.push(`${threadId} ${date}`),
     pricing,
   });
-  if (unpricedModels.length > 0) {
-    console.warn(
-      `Amp API-equivalent cost is incomplete: no usable token pricing for ${unpricedModels.join(", ")}. Their tokens are included, with cost 0.`,
-    );
-  }
   if (unreconciled.length > 0) {
     console.warn(
       `${unreconciled.length} Amp thread-day(s) could not be reconciled with their usage report and count the main agent only (first: ${unreconciled[0]})`,

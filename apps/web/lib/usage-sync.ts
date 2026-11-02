@@ -4,7 +4,11 @@
  *
  *   { version, device, timezone, range?, backfillBefore?, buckets: [{ date, hourStart, model,
  *     inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens,
- *     reasoningTokens?, cost, requests }] }
+ *     reasoningTokens?, cost, inputCost, outputCost, cacheCreationCost,
+ *     cacheReadCost, cacheSavings, speedPremium, unpricedTokens, requests }] }
+ *
+ * The cost parts split cost by token type; they add up to at most cost, as a
+ * cost an agent recorded without rates to split it by is left out.
  *
  * The upload replaces every stored bucket of the device's agent on the days of
  * its range and of its buckets, so it is accepted or rejected as a whole:
@@ -18,11 +22,13 @@ import type { UsageSyncDevice } from "@/types/api-types";
 
 // Upload format the dashboard accepts; collectors refuse dashboards that speak
 // another
-export const SYNC_PROTOCOL = 4;
+export const SYNC_PROTOCOL = 5;
 
 // A range covers at most this many days
 const MAX_RANGE_DAYS = 400;
 const MAX_MODEL_LENGTH = 255;
+// Rounding the collector's sums may carry a part this far past its whole
+const COST_TOLERANCE = 1e-6;
 
 // An uploaded bucket as stored, before the database adds its bookkeeping
 // columns. Uploads always report hours; day buckets are only history
@@ -37,6 +43,13 @@ export interface BucketRow {
   reasoningTokens: number | null;
   totalTokens: number;
   cost: number;
+  inputCost: number;
+  outputCost: number;
+  cacheCreationCost: number;
+  cacheReadCost: number;
+  cacheSavings: number;
+  speedPremium: number;
+  unpricedTokens: number;
   requests: number;
 }
 
@@ -126,6 +139,29 @@ function parseBucket(value: unknown, timeZone: string): BucketRow {
     "cacheCreationTokens",
   );
   const cacheReadTokens = count(value.cacheReadTokens, "cacheReadTokens");
+  const totalTokens =
+    inputTokens + outputTokens + cacheCreationTokens + cacheReadTokens;
+  const cost = amount(value.cost, "cost");
+  const parts = {
+    inputCost: amount(value.inputCost, "inputCost"),
+    outputCost: amount(value.outputCost, "outputCost"),
+    cacheCreationCost: amount(value.cacheCreationCost, "cacheCreationCost"),
+    cacheReadCost: amount(value.cacheReadCost, "cacheReadCost"),
+  };
+  const speedPremium = amount(value.speedPremium, "speedPremium");
+  const unpricedTokens = count(value.unpricedTokens, "unpricedTokens");
+  if (
+    Object.values(parts).reduce((sum, part) => sum + part, 0) >
+    cost + COST_TOLERANCE
+  ) {
+    throw new UploadError("Cost parts must not add up to more than cost");
+  }
+  if (speedPremium > cost + COST_TOLERANCE) {
+    throw new UploadError("speedPremium must not exceed cost");
+  }
+  if (unpricedTokens > totalTokens) {
+    throw new UploadError("unpricedTokens must not exceed the bucket's tokens");
+  }
   return {
     date,
     hourStart: hourStart(value.hourStart, date, timeZone),
@@ -135,9 +171,12 @@ function parseBucket(value: unknown, timeZone: string): BucketRow {
     cacheCreationTokens,
     cacheReadTokens,
     reasoningTokens: optionalCount(value.reasoningTokens, "reasoningTokens"),
-    totalTokens:
-      inputTokens + outputTokens + cacheCreationTokens + cacheReadTokens,
-    cost: amount(value.cost, "cost"),
+    totalTokens,
+    cost,
+    ...parts,
+    cacheSavings: amount(value.cacheSavings, "cacheSavings"),
+    speedPremium,
+    unpricedTokens,
     requests: count(value.requests, "requests"),
   };
 }

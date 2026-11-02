@@ -1,5 +1,5 @@
 // Chart configuration constants
-import type { PresetRange } from "@/types/chart-types";
+import type { CostSplit, PresetRange, UsageMetrics } from "@/types/chart-types";
 
 export const CHART_COLORS = [
   "var(--chart-1)",
@@ -56,19 +56,50 @@ export const HOURLY_RANGE_DAYS = 31;
 // Longest range shown hour by hour until days are chosen
 export const HOURLY_DEFAULT_DAYS = 2;
 
-// Share of tokens with known hours below which the hourly chart notes the
-// rest
-export const FULL_HOURLY_COVERAGE = 0.995;
+// Share of usage below which a view that covers only part of it, such as
+// hours or the cost split, notes the rest
+const FULL_COVERAGE = 0.995;
+
+// Whether a view covers too little of the usage to go without a note
+export function isPartial(coverage: number | null): coverage is number {
+  return coverage !== null && coverage < FULL_COVERAGE;
+}
 
 // A shade between the background and the foreground, so token types read as
 // one quantity apart from the agent and device colors
 const ink = (percent: number) =>
   `color-mix(in oklab, var(--foreground) ${percent}%, var(--background))`;
 
-// Token types, in the order bars and legends show them
-export const TOKEN_TYPE_CONFIG = {
-  inputTokens: { label: "Input", color: ink(60) },
-  cacheReadTokens: { label: "Cache read", color: ink(28) },
-  cacheCreationTokens: { label: "Cache write", color: ink(78) },
-  outputTokens: { label: "Output", color: ink(100) },
-} as const;
+// Token types, in the order bars and legends show them, with the metrics of
+// their tokens and their cost
+export const TOKEN_TYPE_CONFIG = [
+  {
+    label: "Input",
+    color: ink(60),
+    tokens: "inputTokens",
+    cost: "inputCost",
+  },
+  {
+    label: "Cache read",
+    color: ink(28),
+    tokens: "cacheReadTokens",
+    cost: "cacheReadCost",
+  },
+  {
+    label: "Cache write",
+    color: ink(78),
+    tokens: "cacheCreationTokens",
+    cost: "cacheCreationCost",
+  },
+  {
+    label: "Output",
+    color: ink(100),
+    tokens: "outputTokens",
+    cost: "outputCost",
+  },
+] as const satisfies readonly {
+  label: string;
+  color: string;
+  tokens: keyof UsageMetrics;
+  cost: keyof CostSplit;
+}[];

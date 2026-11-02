@@ -65,6 +65,23 @@ export const usageBuckets = pgTable(
     reasoningTokens: bigint("reasoning_tokens", { mode: "number" }),
     totalTokens: bigint("total_tokens", { mode: "number" }).notNull().default(0),
     cost: numeric("cost", { precision: 14, scale: 6 }).notNull().default("0"),
+    // Parts of cost by token type. They add up to cost wherever the collector
+    // priced usage at list rates; a cost the agent recorded without rates to
+    // split it by is left out. Null where the bucket was stored without a
+    // split: day history, and hours synced before collectors split cost.
+    inputCost: numeric("input_cost", { precision: 14, scale: 6 }),
+    outputCost: numeric("output_cost", { precision: 14, scale: 6 }),
+    cacheCreationCost: numeric("cache_creation_cost", {
+      precision: 14,
+      scale: 6,
+    }),
+    cacheReadCost: numeric("cache_read_cost", { precision: 14, scale: 6 }),
+    // What cache reads saved over paying for them as uncached input
+    cacheSavings: numeric("cache_savings", { precision: 14, scale: 6 }),
+    // Part of cost paid for a fast or ultrafast tier over standard
+    speedPremium: numeric("speed_premium", { precision: 14, scale: 6 }),
+    // Tokens with no price, counted at zero cost
+    unpricedTokens: bigint("unpriced_tokens", { mode: "number" }),
     // API requests; null where day history did not count them
     requests: integer("requests"),
     createdAt: timestamp("created_at", { withTimezone: true })

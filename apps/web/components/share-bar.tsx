@@ -12,11 +12,13 @@ interface ShareBarProps {
   label: string;
   segments: ShareSegment[];
   format: (value: number) => string;
+  // What the whole leaves out, where it is not all of the usage
+  note?: string;
 }
 
 // How a whole splits into parts: one full-width bar, and each part's amount
 // and share below it
-export function ShareBar({ label, segments, format }: ShareBarProps) {
+export function ShareBar({ label, segments, format, note }: ShareBarProps) {
   const total = segments.reduce((sum, { value }) => sum + value, 0);
   const parts = segments.filter(({ value }) => value > 0);
   if (total <= 0) return null;
@@ -29,6 +31,7 @@ export function ShareBar({ label, segments, format }: ShareBarProps) {
           {format(total)}
         </span>
       </div>
+      {note && <p className="-mt-2 text-xs text-muted-foreground">{note}</p>}
       <div className="flex h-2 w-full gap-px overflow-hidden rounded-full bg-muted">
         {parts.map((segment) => (
           <div

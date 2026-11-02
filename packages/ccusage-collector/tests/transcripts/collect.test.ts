@@ -53,7 +53,7 @@ describe("bucketRequests", () => {
   it("sums requests into account-calendar hours per model", () => {
     // Kolkata is UTC+5:30, so its hours start at half past UTC hours
     const calendar = createCalendar("Asia/Kolkata");
-    const { buckets } = bucketRequests(
+    const buckets = bucketRequests(
       [
         [
           request({ timestampMs: Date.parse("2026-10-29T08:15:00Z") }),
@@ -92,7 +92,7 @@ describe("bucketRequests", () => {
   it("counts a repeated request once and drops requests outside the range", () => {
     const calendar = createCalendar("UTC");
     const start = Date.parse("2026-10-29T00:00:00Z");
-    const { buckets } = bucketRequests(
+    const buckets = bucketRequests(
       [
         [request({ dedupeKey: "m:r" }), request({ dedupeKey: "m:r" })],
         [request({ dedupeKey: "m:r" }), request({ timestampMs: start - 1 })],
@@ -106,7 +106,7 @@ describe("bucketRequests", () => {
   });
 
   it("prices each request with its cache lifetime and reports unknown models", () => {
-    const { buckets, unpricedModels } = bucketRequests(
+    const buckets = bucketRequests(
       [
         [
           request({
@@ -133,7 +133,9 @@ describe("bucketRequests", () => {
       cost: 0,
       inputTokens: 100,
     });
-    expect(unpricedModels).toEqual(["mystery"]);
+    expect(
+      buckets.filter((b) => b.unpricedTokens > 0).map((b) => b.model),
+    ).toEqual(["mystery"]);
   });
 });
 
@@ -271,7 +273,7 @@ describe("collectTranscriptUsage", () => {
         requests: 1,
       }),
     ]);
-    expect(usage.unpricedModels).toEqual(["gpt-test"]);
+    expect(usage.buckets[0]?.unpricedTokens).toBe(15);
   });
 
   it("starts the range at the first request, leaving earlier days alone", async () => {
@@ -287,7 +289,6 @@ describe("collectTranscriptUsage", () => {
     );
     expect(empty).toEqual({
       buckets: [],
-      unpricedModels: [],
       malformedRecords: 0,
     });
 
@@ -558,8 +559,8 @@ describe("collectTranscriptUsage", () => {
         reasoningTokens: 0,
         requests: 1,
         cost: 0,
+        unpricedTokens: 140,
       }),
     ]);
-    expect(usageByHour.unpricedModels).toEqual(["gemini-2.5-pro"]);
   });
 });

@@ -99,7 +99,7 @@ describe("environment-configured CLI", () => {
     );
 
     uploads = [];
-    protocol = 4;
+    protocol = SYNC_PROTOCOL;
     server = createServer(async (req, res) => {
       res.setHeader("Content-Type", "application/json");
       if (req.method === "GET") {

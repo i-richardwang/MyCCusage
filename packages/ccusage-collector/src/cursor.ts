@@ -4,6 +4,7 @@ import { join, resolve } from "path";
 import { queryRows } from "./sqlite.js";
 import { SYNC_WINDOW_DAYS, firstDayWithin, type Calendar } from "./calendar.js";
 import { RequestBuckets } from "./buckets.js";
+import { priceRequest, type PricingTable } from "./pricing/rates.js";
 import type { DayRange, UsageBucket } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -210,7 +211,8 @@ export interface CursorUsageEvent {
   outputTokens: number;
   cacheCreationTokens: number;
   cacheReadTokens: number;
-  cost: number;
+  // Cursor's valuation of the request at list price
+  reportedCost: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -305,7 +307,8 @@ export function parseUsageEvent(
     outputTokens: count(usage.outputTokens),
     cacheCreationTokens: count(usage.cacheWriteTokens),
     cacheReadTokens: count(usage.cacheReadTokens),
-    cost: typeof usage.totalCents === "number" ? usage.totalCents / 100 : 0,
+    reportedCost:
+      typeof usage.totalCents === "number" ? usage.totalCents / 100 : 0,
   };
   // An errored request, not charged
   const total =
@@ -313,7 +316,7 @@ export function parseUsageEvent(
     event.outputTokens +
     event.cacheCreationTokens +
     event.cacheReadTokens;
-  return total === 0 && event.cost === 0 ? null : event;
+  return total === 0 && event.reportedCost === 0 ? null : event;
 }
 
 // Length of the longest run that ends `previous` and starts `current`, up to
@@ -486,20 +489,27 @@ async function fetchUsagePages(
   return { pages, ...(total !== undefined ? { total } : {}) };
 }
 
-// Each event is one request, summed into its hour per model
+// Each event is one request, summed into its hour per model. Cursor's
+// valuation is the cost, split by the model's list rates where they are known.
 export function aggregateCursorUsage(
   events: CursorUsageEvent[],
   calendar: Calendar,
+  pricing: PricingTable,
 ): UsageBucket[] {
   const buckets = new RequestBuckets(calendar);
-  for (const { instant, model, ...usage } of events) {
-    buckets.add(instant, model, { ...usage, reasoningTokens: null });
+  for (const { instant, model, reportedCost, ...usage } of events) {
+    buckets.add(instant, model, {
+      ...usage,
+      ...priceRequest(pricing, [model], usage, reportedCost),
+      reasoningTokens: null,
+    });
   }
   return buckets.list();
 }
 
 export async function collectCursorUsage(
   calendar: Calendar,
+  pricing: PricingTable,
   options: CursorOptions = {},
 ): Promise<CursorUsageResult> {
   const timeoutMs = resolveCursorFetchTimeout(
@@ -565,7 +575,7 @@ export async function collectCursorUsage(
     return emptyResult(["Cursor reported no usage events in the window."]);
   }
 
-  const buckets = aggregateCursorUsage(events, calendar);
+  const buckets = aggregateCursorUsage(events, calendar, pricing);
   const refreshFrom = calendar.dayOf(start);
   const first = buckets.find((bucket) => bucket.date >= refreshFrom)?.date;
   return {

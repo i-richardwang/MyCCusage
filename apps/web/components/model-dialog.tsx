@@ -14,16 +14,14 @@ import {
   ChartTooltipContent,
 } from "@workspace/ui/components/chart";
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
-import { ShareBar } from "@/components/share-bar";
+import { TypeShares } from "@/components/type-shares";
 import { UsageFigures, usageFigures } from "@/components/usage-figures";
 import { AGENT_CHART_CONFIG } from "@/constants/chart-config";
-import { tokenTypeSegments } from "@/hooks/use-chart-data";
 import { formatChartDate } from "@/lib/date-utils";
 import {
   formatAxisMetric,
   formatMetric,
   formatPercent,
-  formatTokens,
   METRIC_NAMES,
   metricShare,
   metricValue,
@@ -134,11 +132,7 @@ function ModelDetails({
           </BarChart>
         </ChartContainer>
 
-        <ShareBar
-          label="Tokens by type"
-          segments={tokenTypeSegments(model)}
-          format={formatTokens}
-        />
+        <TypeShares usage={model} />
       </div>
     </>
   );

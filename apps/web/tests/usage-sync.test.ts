@@ -16,6 +16,13 @@ const bucket = {
   cacheReadTokens: 400,
   reasoningTokens: 2,
   cost: 0.25,
+  inputCost: 0.01,
+  outputCost: 0.04,
+  cacheCreationCost: 0.1,
+  cacheReadCost: 0.08,
+  cacheSavings: 0.5,
+  speedPremium: 0.1,
+  unpricedTokens: 0,
   requests: 3,
 };
 const upload = (overrides: Record<string, unknown> = {}) => ({
@@ -141,9 +148,28 @@ describe("parseUpload", () => {
       error(upload({ buckets: [{ ...bucket, cost: Number.NaN }] })),
     ).toContain("cost");
     expect(
+      error(upload({ buckets: [{ ...bucket, cacheSavings: undefined }] })),
+    ).toContain("cacheSavings");
+    expect(
       error(upload({ range: { from: "2026-10-30", to: "2026-10-01" } })),
     ).toContain("range");
     expect(error(upload({ buckets: undefined }))).toContain("buckets array");
+  });
+
+  it("keeps the cost split within the bucket's cost and tokens", () => {
+    // Parts of a cost the agent recorded without rates are left out
+    expect(parse(upload({ buckets: [{ ...bucket, inputCost: 0 }] })).ok).toBe(
+      true,
+    );
+    expect(error(upload({ buckets: [{ ...bucket, outputCost: 0.1 }] }))).toBe(
+      "Cost parts must not add up to more than cost",
+    );
+    expect(
+      error(upload({ buckets: [{ ...bucket, speedPremium: 0.3 }] })),
+    ).toContain("speedPremium");
+    expect(
+      error(upload({ buckets: [{ ...bucket, unpricedTokens: 436 }] })),
+    ).toContain("unpricedTokens");
   });
 
   it("names the protocol it speaks to collectors that speak another", () => {
