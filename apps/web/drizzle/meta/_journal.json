@@ -43,6 +43,13 @@
       "when": 1793534008457,
       "tag": "0005_usage_day_history",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793588043684,
+      "tag": "0006_usage_cost_split",
+      "breakpoints": true
     }
   ]
 }

@@ -128,50 +128,130 @@ function findRates(
   return undefined;
 }
 
-export interface TokenCostEstimate {
+// What usage cost, split the way providers bill it
+export interface PricedUsage {
   cost: number;
-  model: string;
+  // Parts of cost by token type. They add up to cost wherever rates priced
+  // the usage; a cost the agent recorded without rates to split it by stays
+  // unsplit, its parts zero.
+  inputCost: number;
+  outputCost: number;
+  cacheCreationCost: number;
+  cacheReadCost: number;
+  // What cache reads saved over paying for them as uncached input
+  cacheSavings: number;
+  // Part of cost paid for a fast or ultrafast tier over standard
+  speedPremium: number;
+  // Tokens neither rates nor the agent priced; they count at zero cost
+  unpricedTokens: number;
 }
 
-// Cost of the usage at one set of rates; null when a counter the usage
-// needs has no rate
-function costAt(rates: TokenRates, usage: TokenUsage): number | null {
+export const NO_COST: PricedUsage = {
+  cost: 0,
+  inputCost: 0,
+  outputCost: 0,
+  cacheCreationCost: 0,
+  cacheReadCost: 0,
+  cacheSavings: 0,
+  speedPremium: 0,
+  unpricedTokens: 0,
+};
+
+type CostParts = Pick<
+  PricedUsage,
+  "inputCost" | "outputCost" | "cacheCreationCost" | "cacheReadCost"
+>;
+
+// Usage priced at list rates, before an agent's own cost replaces them
+interface ListPrice {
+  parts: CostParts;
+  cacheSavings: number;
+}
+
+const partsTotal = (parts: CostParts) =>
+  parts.inputCost +
+  parts.outputCost +
+  parts.cacheCreationCost +
+  parts.cacheReadCost;
+
+// The usage at one set of rates; null when a counter the usage needs has no
+// rate
+function listPrice(rates: TokenRates, usage: TokenUsage): ListPrice | null {
   if (
     (usage.cacheCreationTokens > 0 && rates.cacheCreation === undefined) ||
     (usage.cacheReadTokens > 0 && rates.cacheRead === undefined)
   )
     return null;
-  return (
-    usage.inputTokens * rates.input +
-    usage.outputTokens * rates.output +
-    usage.cacheCreationTokens * (rates.cacheCreation ?? 0) +
-    usage.cacheReadTokens * (rates.cacheRead ?? 0)
-  );
+  const cacheRead = rates.cacheRead ?? 0;
+  return {
+    parts: {
+      inputCost: usage.inputTokens * rates.input,
+      outputCost: usage.outputTokens * rates.output,
+      cacheCreationCost: usage.cacheCreationTokens * (rates.cacheCreation ?? 0),
+      cacheReadCost: usage.cacheReadTokens * cacheRead,
+    },
+    cacheSavings: usage.cacheReadTokens * Math.max(rates.input - cacheRead, 0),
+  };
 }
 
-// The first candidate model whose rates price the usage. null distinguishes
-// missing pricing from an explicitly free model.
-function firstPriced(
-  table: PricingTable,
-  models: readonly string[],
-  price: (rates: ModelRates) => number | null,
-): TokenCostEstimate | null {
-  for (const model of models) {
-    const rates = findRates(table.models, model);
-    const cost = rates ? price(rates) : null;
-    if (cost !== null) return { model, cost };
-  }
-  return null;
+const tokenTotal = (usage: TokenUsage) =>
+  usage.inputTokens +
+  usage.outputTokens +
+  usage.cacheCreationTokens +
+  usage.cacheReadTokens;
+
+const scaled = (parts: CostParts, scale: number): CostParts => ({
+  inputCost: parts.inputCost * scale,
+  outputCost: parts.outputCost * scale,
+  cacheCreationCost: parts.cacheCreationCost * scale,
+  cacheReadCost: parts.cacheReadCost * scale,
+});
+
+// Usage priced at list rates, standard costing what the same usage costs
+// without a speed tier. An agent's own cost is kept, split in the
+// proportions of the list price.
+function fromListPrice(
+  list: ListPrice,
+  standard: number,
+  reportedCost: number | null,
+): PricedUsage {
+  const listCost = partsTotal(list.parts);
+  if (reportedCost !== null && listCost <= 0)
+    return { ...NO_COST, cost: reportedCost };
+  const scale = reportedCost === null ? 1 : reportedCost / listCost;
+  return {
+    cost: reportedCost ?? listCost,
+    ...scaled(list.parts, scale),
+    cacheSavings: list.cacheSavings * scale,
+    speedPremium: Math.max(listCost - standard, 0) * scale,
+    unpricedTokens: 0,
+  };
 }
 
-// Price aggregated usage at flat API-equivalent rates. Aggregates cannot
-// establish a request's context tier, cache TTL or speed tier.
-export function estimateTokenCost(
+// Usage no rates price: the agent's own cost, unsplit, or nothing
+function withoutListPrice(
+  usage: TokenUsage,
+  reportedCost: number | null,
+): PricedUsage {
+  return reportedCost === null
+    ? { ...NO_COST, unpricedTokens: tokenTotal(usage) }
+    : { ...NO_COST, cost: reportedCost };
+}
+
+// Price aggregated usage at flat API-equivalent rates of the first candidate
+// model that prices it. Aggregates cannot establish a request's context tier,
+// cache TTL or speed tier.
+export function priceTotals(
   table: PricingTable,
   models: readonly string[],
   usage: TokenUsage,
-): TokenCostEstimate | null {
-  return firstPriced(table, models, (rates) => costAt(rates, usage));
+): PricedUsage {
+  for (const model of models) {
+    const rates = findRates(table.models, model);
+    const list = rates && listPrice(rates, usage);
+    if (list) return fromListPrice(list, partsTotal(list.parts), null);
+  }
+  return withoutListPrice(usage, null);
 }
 
 // One API request, the unit providers bill. Input excludes cache reads and
@@ -185,54 +265,83 @@ export interface RequestUsage extends TokenUsage {
   inferenceGeo?: string;
 }
 
-// Price one request. A request whose prompt passes the long-context threshold
-// is billed entirely at long-context rates, as Anthropic and OpenAI do.
-export function estimateRequestCost(
-  table: PricingTable,
-  models: readonly string[],
+// One request at a model's list rates and a speed. A request whose prompt
+// passes the long-context threshold is billed entirely at long-context rates,
+// as Anthropic and OpenAI do.
+function requestListPrice(
+  prices: ModelRates,
   usage: RequestUsage,
-): TokenCostEstimate | null {
+  speed: RequestUsage["speed"],
+): ListPrice | null {
   const prompt =
     usage.inputTokens + usage.cacheCreationTokens + usage.cacheReadTokens;
+  const context: ContextRates =
+    prices.longContext && prompt > prices.longContext.threshold
+      ? prices.longContext
+      : prices;
+  const tier =
+    speed === "fast"
+      ? context.priority
+      : speed === "ultrafast"
+        ? context.ultrafast
+        : undefined;
+  const variant = tier ?? context;
+  // A variant without cache rates of its own uses its context's, then the
+  // model's
+  const rates: TokenRates = {
+    ...variant,
+    cacheCreation:
+      variant.cacheCreation ?? context.cacheCreation ?? prices.cacheCreation,
+    cacheRead: variant.cacheRead ?? context.cacheRead ?? prices.cacheRead,
+  };
+  const list = listPrice(rates, usage);
+  if (!list) return null;
+  // One-hour writes keep their premium over five-minute writes in every tier
+  const premium =
+    prices.cacheCreation1h !== undefined && prices.cacheCreation
+      ? prices.cacheCreation1h / prices.cacheCreation
+      : 1;
   const cacheCreation1h = Math.min(
     usage.cacheCreation1hTokens ?? 0,
     usage.cacheCreationTokens,
   );
-  return firstPriced(table, models, (prices) => {
-    const context: ContextRates =
-      prices.longContext && prompt > prices.longContext.threshold
-        ? prices.longContext
-        : prices;
-    const tier =
-      usage.speed === "fast"
-        ? context.priority
-        : usage.speed === "ultrafast"
-          ? context.ultrafast
-          : undefined;
-    const variant = tier ?? context;
-    // A variant without cache rates of its own uses its context's, then the
-    // model's
-    const rates: TokenRates = {
-      ...variant,
-      cacheCreation:
-        variant.cacheCreation ?? context.cacheCreation ?? prices.cacheCreation,
-      cacheRead: variant.cacheRead ?? context.cacheRead ?? prices.cacheRead,
-    };
-    const cost = costAt(rates, usage);
-    if (cost === null) return null;
-    // One-hour writes keep their premium over five-minute writes in every tier
-    const premium =
-      prices.cacheCreation1h !== undefined && prices.cacheCreation
-        ? prices.cacheCreation1h / prices.cacheCreation
-        : 1;
-    const oneHourWrites =
-      cacheCreation1h * (rates.cacheCreation ?? 0) * (premium - 1);
-    // Claude fast mode is a multiple of the rates instead of a tier
-    const speedMultiple =
-      usage.speed === "fast" && !tier ? (prices.multipliers?.fast ?? 1) : 1;
-    const geoMultiple = usage.inferenceGeo
-      ? (prices.multipliers?.[usage.inferenceGeo] ?? 1)
-      : 1;
-    return (cost + oneHourWrites) * speedMultiple * geoMultiple;
-  });
+  const parts = {
+    ...list.parts,
+    cacheCreationCost:
+      list.parts.cacheCreationCost +
+      cacheCreation1h * (rates.cacheCreation ?? 0) * (premium - 1),
+  };
+  // Claude fast mode is a multiple of the rates instead of a tier
+  const speedMultiple =
+    speed === "fast" && !tier ? (prices.multipliers?.fast ?? 1) : 1;
+  const geoMultiple = usage.inferenceGeo
+    ? (prices.multipliers?.[usage.inferenceGeo] ?? 1)
+    : 1;
+  const multiple = speedMultiple * geoMultiple;
+  return {
+    parts: scaled(parts, multiple),
+    cacheSavings: list.cacheSavings * multiple,
+  };
+}
+
+// Price one request at the rates of the first candidate model that prices
+// it. A cost the agent recorded itself is preferred over list prices.
+export function priceRequest(
+  table: PricingTable,
+  models: readonly string[],
+  usage: RequestUsage,
+  reportedCost: number | null,
+): PricedUsage {
+  const speed = usage.speed ?? "standard";
+  for (const model of models) {
+    const prices = findRates(table.models, model);
+    const list = prices && requestListPrice(prices, usage, speed);
+    if (!list) continue;
+    const standard =
+      speed === "standard"
+        ? list
+        : (requestListPrice(prices, usage, "standard") ?? list);
+    return fromListPrice(list, partsTotal(standard.parts), reportedCost);
+  }
+  return withoutListPrice(usage, reportedCost);
 }

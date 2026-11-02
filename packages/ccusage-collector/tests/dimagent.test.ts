@@ -4,8 +4,11 @@ import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createCalendar } from "../src/calendar";
 import { collectDimagentUsage, getDimAgentDbPath } from "../src/dimagent";
+import { NO_COST, type PricingTable } from "../src/pricing/rates";
 
 const SHANGHAI = createCalendar("Asia/Shanghai");
+// No list rates: DimAgent's own costs stay unsplit
+const PRICING: PricingTable = { asOf: "2026-07-01T00:00:00.000Z", models: {} };
 
 function openDb(dbPath: string) {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -69,7 +72,7 @@ describe("collectDimagentUsage", () => {
   });
 
   it("returns empty result when the database does not exist", () => {
-    expect(collectDimagentUsage(SHANGHAI, join(dir, "missing.sqlite"))).toEqual(
+    expect(collectDimagentUsage(SHANGHAI, PRICING, join(dir, "missing.sqlite"))).toEqual(
       [],
     );
   });
@@ -105,7 +108,7 @@ describe("collectDimagentUsage", () => {
     );
 
     // Input excludes cache reads: 1000-400=600, 500-0=500 and 200-50=150
-    expect(collectDimagentUsage(SHANGHAI, dbPath)).toEqual([
+    expect(collectDimagentUsage(SHANGHAI, PRICING, dbPath)).toEqual([
       {
         date: "2026-07-01",
         hourStart: "2026-07-01T10:00:00.000Z",
@@ -114,6 +117,7 @@ describe("collectDimagentUsage", () => {
         outputTokens: 100,
         cacheCreationTokens: 0,
         cacheReadTokens: 400,
+        ...NO_COST,
         cost: 0.5,
         requests: 1,
       },
@@ -125,6 +129,7 @@ describe("collectDimagentUsage", () => {
         outputTokens: 50,
         cacheCreationTokens: 0,
         cacheReadTokens: 0,
+        ...NO_COST,
         cost: 0.05,
         requests: 1,
       },
@@ -136,6 +141,7 @@ describe("collectDimagentUsage", () => {
         outputTokens: 20,
         cacheCreationTokens: 30,
         cacheReadTokens: 50,
+        ...NO_COST,
         cost: 0.1,
         requests: 1,
       },
@@ -170,7 +176,7 @@ describe("collectDimagentUsage", () => {
     // gpt-main counted once (60 in + 20 out), orphan fork kept once (30 in),
     // plugin overhead excluded, bad JSON skipped.
     expect(
-      collectDimagentUsage(SHANGHAI, dbPath).map(
+      collectDimagentUsage(SHANGHAI, PRICING, dbPath).map(
         ({ model, inputTokens, outputTokens, cacheReadTokens, cost, requests }) => [
           model,
           inputTokens,
@@ -205,7 +211,7 @@ describe("collectDimagentUsage", () => {
       `,
     );
 
-    const buckets = collectDimagentUsage(SHANGHAI, dbPath);
+    const buckets = collectDimagentUsage(SHANGHAI, PRICING, dbPath);
     // Exact 1.1, and 1.1 estimated at the same rate; tokens counted once each
     expect(
       buckets.map(({ hourStart, inputTokens, outputTokens, cost }) => [
@@ -233,7 +239,7 @@ describe("collectDimagentUsage", () => {
     );
 
     const bucket = (zone: string) =>
-      collectDimagentUsage(createCalendar(zone), dbPath).map(
+      collectDimagentUsage(createCalendar(zone), PRICING, dbPath).map(
         ({ date, hourStart }) => [date, hourStart],
       );
     expect(bucket("Asia/Shanghai")).toEqual([
@@ -264,13 +270,12 @@ describe("collectDimagentUsage", () => {
     );
 
     expect(
-      collectDimagentUsage(SHANGHAI, dbPath).map(({ model, cost }) => [
-        model,
-        cost,
-      ]),
+      collectDimagentUsage(SHANGHAI, PRICING, dbPath).map(
+        ({ model, cost, unpricedTokens }) => [model, cost, unpricedTokens],
+      ),
     ).toEqual([
-      ["cheap-model", 0.01],
-      ["other-model", 0],
+      ["cheap-model", 0.01, 0],
+      ["other-model", 0, 11],
     ]);
   });
 });

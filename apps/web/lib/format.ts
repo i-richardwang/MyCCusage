@@ -14,6 +14,16 @@ export function formatUsd(amount: number): string {
   })}`;
 }
 
+// The cost of usage, or "Unpriced" when none of its tokens had a price
+export function formatCost(usage: {
+  totalCost: number;
+  unpricedShare: number | null;
+}): string {
+  return usage.unpricedShare === 1 && usage.totalCost === 0
+    ? "Unpriced"
+    : formatUsd(usage.totalCost);
+}
+
 // An amount that may be negative, always with its sign: +$1.00, -$1.00
 export function formatSignedUsd(amount: number): string {
   return `${amount < 0 ? "-" : "+"}${formatUsd(Math.abs(amount))}`;

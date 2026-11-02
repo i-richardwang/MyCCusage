@@ -77,7 +77,7 @@ describe("syncAmpCache", () => {
     // T-1's report was fetched after its last update, so it is kept
     expect(second.reports().sort()).toEqual(["T-2", "T-3"]);
 
-    const { buckets } = aggregateAmpUsage(loadCachedThreads(cacheDir), {
+    const buckets = aggregateAmpUsage(loadCachedThreads(cacheDir), {
       calendar: CALENDAR,
       pricing: UNPRICED,
     });
@@ -109,7 +109,7 @@ describe("syncAmpCache", () => {
     expect(again.reports()).toEqual([]);
 
     // Main-agent usage is still collected
-    const { buckets } = aggregateAmpUsage(loadCachedThreads(cacheDir), {
+    const buckets = aggregateAmpUsage(loadCachedThreads(cacheDir), {
       calendar: CALENDAR,
       pricing: UNPRICED,
     });

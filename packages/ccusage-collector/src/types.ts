@@ -1,4 +1,5 @@
 import type { AgentType } from "./agents.js";
+import type { PricedUsage } from "./pricing/rates.js";
 export type { AgentType } from "./agents.js";
 
 export interface DeviceIdentity {
@@ -17,8 +18,9 @@ export interface DayRange {
   to: string;
 }
 
-// One agent's usage of one model in one hour of the account calendar
-export interface UsageBucket {
+// One agent's usage of one model in one hour of the account calendar, with
+// its cost split as it was priced
+export interface UsageBucket extends PricedUsage {
   date: string;
   // ISO instant the hour starts
   hourStart: string;
@@ -31,7 +33,6 @@ export interface UsageBucket {
   cacheReadTokens: number;
   // Part of outputTokens; absent when the source does not report it
   reasoningTokens?: number;
-  cost: number;
   // API requests
   requests: number;
 }

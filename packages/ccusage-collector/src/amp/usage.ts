@@ -1,6 +1,6 @@
 import { RequestBuckets } from "../buckets.js";
 import type { Calendar } from "../calendar.js";
-import { estimateTokenCost, type PricingTable } from "../pricing/rates.js";
+import { NO_COST, priceTotals, type PricingTable } from "../pricing/rates.js";
 import type { UsageBucket } from "../types.js";
 import { mergeDayUsage, stripProvider, type AmpModelUsage } from "./report.js";
 import {
@@ -84,12 +84,6 @@ interface ThreadDay {
   activity: Map<string, number>;
 }
 
-export interface AmpUsage {
-  buckets: UsageBucket[];
-  // Models without usable prices; their tokens count at zero cost
-  unpricedModels: string[];
-}
-
 interface AggregateOptions {
   calendar: Calendar;
   onUnreconciled?: (threadId: string, date: string) => void;
@@ -110,7 +104,7 @@ interface AggregateOptions {
 export function aggregateAmpUsage(
   threads: AmpCachedThread[],
   { calendar, onUnreconciled = () => {}, pricing }: AggregateOptions,
-): AmpUsage {
+): UsageBucket[] {
   // Export and report name some models differently; learn the mapping from
   // reconciled days so the other days use the report names too.
   const aliases = new Map<string, string>();
@@ -176,7 +170,7 @@ export function aggregateAmpUsage(
         outputTokens: entry.outputTokens,
         cacheCreationTokens: entry.cacheCreationTokens,
         cacheReadTokens: entry.cacheReadTokens,
-        cost: 0,
+        ...NO_COST,
         reasoningTokens: null,
       });
       const totals = agent.get(model) ?? zero();
@@ -227,7 +221,7 @@ export function aggregateAmpUsage(
         if (COUNTERS.every((counter) => share[counter] === 0)) return;
         buckets.add(new Date(hour), usage.model, {
           ...share,
-          cost: 0,
+          ...NO_COST,
           reasoningTokens: null,
         });
       });
@@ -240,16 +234,13 @@ export function aggregateAmpUsage(
     names.push(exportName);
     pricingAliases.set(reportName, names);
   }
-  const unpriced = new Set<string>();
-  const priced = buckets.list().map((bucket) => {
+  return buckets.list().map((bucket) => ({
+    ...bucket,
     // Prefer routing names, then aliases established by reconciliation
-    const estimate = estimateTokenCost(
+    ...priceTotals(
       pricing,
       [bucket.model, ...(pricingAliases.get(bucket.model) ?? [])],
       bucket,
-    );
-    if (!estimate) unpriced.add(bucket.model);
-    return { ...bucket, cost: estimate?.cost ?? 0 };
-  });
-  return { buckets: priced, unpricedModels: [...unpriced].sort() };
+    ),
+  }));
 }

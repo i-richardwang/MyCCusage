@@ -17,6 +17,7 @@ import {
 } from "@/lib/day-range";
 import type { UsageStatsResponse } from "@/types/api-types";
 import type {
+  CostSplit,
   HourlyRecord,
   PresetRange,
   Resolution,
@@ -38,7 +39,7 @@ export interface UsageRates {
   // Share of input tokens read from cache; cache writes count as misses.
   // Null without input.
   cacheHitRate: number | null;
-  // Cost per million tokens; null without tokens
+  // Cost per million priced tokens; null without them
   costPerMillionTokens: number | null;
 }
 
@@ -57,7 +58,20 @@ export interface ReportedCounts {
   reasoningTokens: number | null;
 }
 
-export interface UsageSummary extends UsageMetrics, UsageRates, ReportedCounts {
+// The cost split of a selection, with how much of its cost and tokens it
+// accounts for
+export interface CostDetails extends CostSplit {
+  // Share of cost split by token type; null without cost
+  splitCoverage: number | null;
+  // Share of tokens with no price; null without tokens
+  unpricedShare: number | null;
+}
+
+export interface UsageSummary
+  extends UsageMetrics,
+    UsageRates,
+    ReportedCounts,
+    CostDetails {
   // Share of tokens whose hour is known
   hourlyCoverage: number;
   // Days with usage
@@ -79,7 +93,8 @@ export interface ModelTotals
   extends UsageMetrics,
     UsageShares,
     UsageRates,
-    ReportedCounts {
+    ReportedCounts,
+    CostDetails {
   agentType: AgentType;
   // "" for day history not attributed to a model
   model: string;
@@ -227,14 +242,17 @@ export function modelDaily(
   );
 }
 
-function rates(usage: UsageMetrics): UsageRates {
+function rates(
+  usage: UsageMetrics,
+  { unpricedTokens }: Pick<CostSplit, "unpricedTokens">,
+): UsageRates {
   const input =
     usage.inputTokens + usage.cacheReadTokens + usage.cacheCreationTokens;
   return {
     cacheHitRate: input > 0 ? usage.cacheReadTokens / input : null,
     costPerMillionTokens:
-      usage.totalTokens > 0
-        ? (usage.totalCost * 1_000_000) / usage.totalTokens
+      usage.totalTokens > unpricedTokens
+        ? (usage.totalCost * 1_000_000) / (usage.totalTokens - unpricedTokens)
         : null,
   };
 }
@@ -259,6 +277,44 @@ function addCounts(a: ReportedCounts, b: ReportedCounts): ReportedCounts {
 }
 
 const NO_COUNTS: ReportedCounts = { requests: null, reasoningTokens: null };
+
+const NO_SPLIT: CostSplit = {
+  inputCost: 0,
+  outputCost: 0,
+  cacheCreationCost: 0,
+  cacheReadCost: 0,
+  cacheSavings: 0,
+  speedPremium: 0,
+  unpricedTokens: 0,
+};
+
+function addSplit(a: CostSplit, b: CostSplit): CostSplit {
+  return {
+    inputCost: a.inputCost + b.inputCost,
+    outputCost: a.outputCost + b.outputCost,
+    cacheCreationCost: a.cacheCreationCost + b.cacheCreationCost,
+    cacheReadCost: a.cacheReadCost + b.cacheReadCost,
+    cacheSavings: a.cacheSavings + b.cacheSavings,
+    speedPremium: a.speedPremium + b.speedPremium,
+    unpricedTokens: a.unpricedTokens + b.unpricedTokens,
+  };
+}
+
+function costDetails(split: CostSplit, usage: UsageMetrics): CostDetails {
+  const parts =
+    split.inputCost +
+    split.outputCost +
+    split.cacheCreationCost +
+    split.cacheReadCost;
+  return {
+    ...split,
+    // Rounding may carry the parts a little past their whole
+    splitCoverage:
+      usage.totalCost > 0 ? Math.min(parts / usage.totalCost, 1) : null,
+    unpricedShare:
+      usage.totalTokens > 0 ? split.unpricedTokens / usage.totalTokens : null,
+  };
+}
 
 // Largest usage first by one metric, then by the other
 export function byMetric(
@@ -293,7 +349,13 @@ function modelTotals(
 ): ModelTotals[] {
   const byModel = new Map<
     string,
-    { agentType: AgentType; model: string; usage: UsageMetrics; counts: ReportedCounts }
+    {
+      agentType: AgentType;
+      model: string;
+      usage: UsageMetrics;
+      counts: ReportedCounts;
+      split: CostSplit;
+    }
   >();
   for (const record of records) {
     const key = `${record.agentType}\0${record.model}`;
@@ -303,17 +365,19 @@ function modelTotals(
       model: record.model,
       usage: addUsage(totals?.usage ?? NO_USAGE, record),
       counts: addCounts(totals?.counts ?? NO_COUNTS, record),
+      split: addSplit(totals?.split ?? NO_SPLIT, record),
     });
   }
   return [...byModel.values()]
     .filter(({ usage }) => isActive(usage))
-    .map(({ agentType, model, usage, counts }) => ({
+    .map(({ agentType, model, usage, counts, split }) => ({
       agentType,
       model,
       ...usage,
       ...counts,
+      ...costDetails(split, usage),
       ...shares(usage, total),
-      ...rates(usage),
+      ...rates(usage, split),
     }))
     .sort(byCostThenTokens);
 }
@@ -324,11 +388,13 @@ function summarize(
   hours: HourlyRecord[],
 ): UsageSummary {
   const total = daily.reduce<UsageMetrics>(addUsage, NO_USAGE);
+  const split = records.reduce<CostSplit>(addSplit, NO_SPLIT);
   const activeDays = daily.filter(isActive).length;
   return {
     ...total,
-    ...rates(total),
+    ...rates(total, split),
     ...records.reduce<ReportedCounts>(addCounts, NO_COUNTS),
+    ...costDetails(split, total),
     hourlyCoverage: ratio(
       hours.reduce((sum, { totalTokens }) => sum + totalTokens, 0),
       total.totalTokens,

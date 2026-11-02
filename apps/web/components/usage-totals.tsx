@@ -7,10 +7,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@workspace/ui/components/card";
-import { ShareBar } from "@/components/share-bar";
+import { TypeShares } from "@/components/type-shares";
 import { UsageFigures, usageFigures } from "@/components/usage-figures";
-import { tokenTypeSegments } from "@/hooks/use-chart-data";
-import { formatTokens } from "@/lib/format";
 import type { UsageSummary } from "@/lib/usage-view";
 
 interface UsageTotalsProps {
@@ -30,11 +28,7 @@ export function UsageTotals({ summary }: UsageTotalsProps) {
       </CardHeader>
       <CardContent className="flex flex-col gap-8 px-4 pt-4 sm:px-6 sm:pt-6">
         <UsageFigures figures={usageFigures(summary)} />
-        <ShareBar
-          label="Tokens by type"
-          segments={tokenTypeSegments(summary)}
-          format={formatTokens}
-        />
+        <TypeShares usage={summary} />
       </CardContent>
     </Card>
   );

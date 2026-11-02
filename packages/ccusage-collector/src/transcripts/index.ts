@@ -4,7 +4,7 @@ import {
   firstDayWithin,
   type Calendar,
 } from "../calendar.js";
-import { estimateRequestCost, type PricingTable } from "../pricing/rates.js";
+import { priceRequest, type PricingTable } from "../pricing/rates.js";
 import { RequestBuckets } from "../buckets.js";
 import type { DayRange, UsageBucket } from "../types.js";
 import {
@@ -39,8 +39,6 @@ export interface TranscriptCollection {
   // first day every transcript of is still kept. Earlier days may be partial
   backfillBefore?: string;
   buckets: UsageBucket[];
-  // Models without known prices; their tokens count at zero cost
-  unpricedModels: string[];
   // Usage records skipped as inconsistent
   malformedRecords: number;
 }
@@ -230,10 +228,9 @@ export function bucketRequests(
   calendar: Calendar,
   pricing: PricingTable,
   [startMs, endMs]: [number, number],
-): Pick<TranscriptCollection, "buckets" | "unpricedModels"> {
+): UsageBucket[] {
   const seen = new Set<string>();
   const buckets = new RequestBuckets(calendar);
-  const unpriced = new Set<string>();
   for (const requests of files) {
     for (const request of requests) {
       if (request.dedupeKey !== null) {
@@ -243,26 +240,26 @@ export function bucketRequests(
       if (request.timestampMs < startMs || request.timestampMs >= endMs) {
         continue;
       }
-      let cost = request.reportedCost;
-      if (cost === null) {
-        const models = request.rateModel
-          ? [request.model, request.rateModel]
-          : [request.model];
-        const estimate = estimateRequestCost(pricing, models, request);
-        if (!estimate) unpriced.add(request.model);
-        cost = estimate?.cost ?? 0;
-      }
+      const models = request.rateModel
+        ? [request.model, request.rateModel]
+        : [request.model];
+      const priced = priceRequest(
+        pricing,
+        models,
+        request,
+        request.reportedCost,
+      );
       buckets.add(new Date(request.timestampMs), request.model, {
         inputTokens: request.inputTokens,
         outputTokens: request.outputTokens,
         cacheCreationTokens: request.cacheCreationTokens,
         cacheReadTokens: request.cacheReadTokens,
         reasoningTokens: request.reasoningTokens,
-        cost,
+        ...priced,
       });
     }
   }
-  return { buckets: buckets.list(), unpricedModels: [...unpriced].sort() };
+  return buckets.list();
 }
 
 /**
@@ -297,7 +294,7 @@ export async function collectTranscriptUsage(
 
   const { files, malformedRecords } = await source.read(sinceMs);
   const usage = {
-    ...bucketRequests(files, calendar, pricing, [sinceMs, end.getTime()]),
+    buckets: bucketRequests(files, calendar, pricing, [sinceMs, end.getTime()]),
     malformedRecords,
   };
   const refreshFrom = calendar.dayOf(start);

@@ -15,10 +15,10 @@ import { usePeriodBreakdown } from "@/hooks/use-chart-data";
 import { usePeriodLabels } from "@/hooks/use-period-labels";
 import {
   formatCount,
+  formatCost,
   formatMetric,
   formatPercent,
   formatTokens,
-  formatUsd,
   METRIC_NAMES,
   metricShare,
   metricValue,
@@ -168,7 +168,7 @@ function ModelTable({
                     )}
                   </td>
                   <td className={`px-2 py-2.5 ${emphasis("cost")}`}>
-                    {formatUsd(model.totalCost)}
+                    {formatCost(model)}
                   </td>
                   <td className={`px-2 py-2.5 ${emphasis("tokens")}`}>
                     {formatTokens(model.totalTokens)}

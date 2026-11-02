@@ -17,6 +17,17 @@ const metrics = (tokens: number, cost: number) => ({
   cacheReadTokens: 0,
 });
 
+// Synced without a cost split, as day history and earlier hours are
+const NO_SPLIT = {
+  inputCost: 0,
+  outputCost: 0,
+  cacheCreationCost: 0,
+  cacheReadCost: 0,
+  cacheSavings: 0,
+  speedPremium: 0,
+  unpricedTokens: 0,
+};
+
 const record = (
   date: string,
   model: string,
@@ -30,6 +41,7 @@ const record = (
   reasoningTokens: null,
   requests: null,
   ...metrics(tokens, tokens / 100),
+  ...NO_SPLIT,
   ...overrides,
 });
 
@@ -233,5 +245,51 @@ describe("selectUsage", () => {
       expect.objectContaining({ date: "2026-10-29", totalTokens: 0 }),
       expect.objectContaining({ date: "2026-10-30", totalTokens: 600 }),
     ]);
+  });
+
+  it("sums the cost split and states the cost and tokens it accounts for", () => {
+    const range = { from: "2026-10-30", to: "2026-10-30" };
+    const view = selectUsage(
+      {
+        timezone: "Asia/Shanghai",
+        hourly: [],
+        records: [
+          // Split in full: $3 of input and output, $1 of it fast premium
+          record("2026-10-30", "split", 300, {
+            inputCost: 1,
+            outputCost: 2,
+            cacheSavings: 0.5,
+            speedPremium: 1,
+          }),
+          // Recorded without a split
+          record("2026-10-30", "history", 100),
+          record("2026-10-30", "unknown", 100, {
+            totalCost: 0,
+            unpricedTokens: 100,
+          }),
+        ],
+      },
+      "all",
+      range,
+    );
+    expect(view.summary).toMatchObject({
+      inputCost: 1,
+      outputCost: 2,
+      cacheSavings: 0.5,
+      speedPremium: 1,
+      unpricedTokens: 100,
+      splitCoverage: 0.75,
+      unpricedShare: 0.2,
+      // $4 over the 400 tokens with a price
+      costPerMillionTokens: 10_000,
+    });
+    const models = Object.fromEntries(view.models.map((m) => [m.model, m]));
+    expect(models.split).toMatchObject({ splitCoverage: 1, unpricedShare: 0 });
+    expect(models.history).toMatchObject({ splitCoverage: 0 });
+    expect(models.unknown).toMatchObject({
+      splitCoverage: null,
+      unpricedShare: 1,
+      costPerMillionTokens: null,
+    });
   });
 });

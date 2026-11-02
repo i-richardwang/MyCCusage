@@ -1,12 +1,14 @@
 "use client";
 
+import { isPartial } from "@/constants/chart-config";
 import {
+  formatCost,
   formatCount,
   formatPercent,
   formatTokens,
   formatUsd,
 } from "@/lib/format";
-import type { ReportedCounts, UsageRates } from "@/lib/usage-view";
+import type { CostDetails, ReportedCounts, UsageRates } from "@/lib/usage-view";
 import type { UsageMetrics } from "@/types/chart-types";
 
 export interface Figure {
@@ -16,13 +18,18 @@ export interface Figure {
   note?: string;
 }
 
-// The figures of a selection, or of one model in it; rates without a base and
-// counts no selected record carries are left out
+// The figures of a selection, or of one model in it; rates without a base,
+// counts no selected record carries and amounts nothing recorded are left out
 export function usageFigures(
-  usage: UsageMetrics & UsageRates & ReportedCounts,
+  usage: UsageMetrics & UsageRates & ReportedCounts & CostDetails,
 ): Figure[] {
+  // Savings and premium are known only where cost was split; say how much
+  const withSplitCoverage = (note: string) =>
+    isPartial(usage.splitCoverage)
+      ? `${note}; covers ${formatPercent(usage.splitCoverage)} of cost`
+      : note;
   const figures: (Figure | null)[] = [
-    { label: "API cost", value: formatUsd(usage.totalCost) },
+    { label: "API cost", value: formatCost(usage) },
     { label: "Tokens", value: formatTokens(usage.totalTokens) },
     usage.costPerMillionTokens === null
       ? null
@@ -37,6 +44,27 @@ export function usageFigures(
           value: formatPercent(usage.cacheHitRate),
           note: "Input read from cache",
         },
+    usage.cacheSavings > 0
+      ? {
+          label: "Cache savings",
+          value: formatUsd(usage.cacheSavings),
+          note: withSplitCoverage("Cache reads over uncached input"),
+        }
+      : null,
+    usage.speedPremium > 0
+      ? {
+          label: "Speed premium",
+          value: formatUsd(usage.speedPremium),
+          note: withSplitCoverage("Fast tiers over standard"),
+        }
+      : null,
+    usage.unpricedShare
+      ? {
+          label: "Unpriced",
+          value: formatTokens(usage.unpricedTokens),
+          note: `${formatPercent(usage.unpricedShare)} of tokens, counted at $0`,
+        }
+      : null,
     usage.requests === null
       ? null
       : { label: "Requests", value: formatCount(usage.requests) },

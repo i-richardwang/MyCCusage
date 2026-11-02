@@ -19,18 +19,21 @@ import {
 
 // Version of the upload format. The dashboard reports the one it accepts, and
 // the collector uploads only to a dashboard that speaks its own.
-export const SYNC_PROTOCOL = 4;
+export const SYNC_PROTOCOL = 5;
 
 // Cursor's account usage from the cloud. Skipped runs surface their warnings
 // and sync nothing; dead credentials throw.
 async function collectCursor(
   calendar: Calendar,
+  pricing: PricingTable,
   fullHistory: boolean,
 ): Promise<CollectedUsage> {
   console.log("Collecting cursor usage data from the account's usage events");
-  const { buckets, range, warnings } = await collectCursorUsage(calendar, {
-    fullHistory,
-  });
+  const { buckets, range, warnings } = await collectCursorUsage(
+    calendar,
+    pricing,
+    { fullHistory },
+  );
   for (const warning of warnings) {
     console.warn(warning);
   }
@@ -47,7 +50,7 @@ async function collectTranscripts(
   pricing: PricingTable,
   fullHistory: boolean,
 ): Promise<CollectedUsage> {
-  const { range, buckets, backfillBefore, unpricedModels, malformedRecords } =
+  const { range, buckets, backfillBefore, malformedRecords } =
     await collectTranscriptUsage(agent, calendar, pricing, {
       claudeConfigDirs: config.claudeConfigDirs,
       fullHistory,
@@ -61,11 +64,6 @@ async function collectTranscripts(
         ? `Read ${agent} usage from ${range.from} to ${range.to}`
         : `No recent ${agent} usage found`,
   );
-  if (unpricedModels.length > 0) {
-    console.warn(
-      `No prices for ${unpricedModels.join(", ")}; their usage counts at zero cost.`,
-    );
-  }
   if (malformedRecords > 0) {
     console.warn(
       `Skipped ${malformedRecords} inconsistent ${agent} usage records.`,
@@ -97,9 +95,9 @@ async function collectFromSource(
       );
     case "dimagent":
       console.log("Collecting dimagent usage data from local SQLite store");
-      return { buckets: collectDimagentUsage(calendar) };
+      return { buckets: collectDimagentUsage(calendar, await pricing()) };
     case "cursor":
-      return collectCursor(calendar, fullHistory);
+      return collectCursor(calendar, await pricing(), fullHistory);
     // AMP threads live server-side; they are read through the `amp` CLI
     case "amp":
       return { buckets: await collectAmpUsage(calendar, pricing) };
@@ -189,6 +187,18 @@ export class UsageCollector {
       };
 
       console.log(`Collected ${data.buckets.length} usage buckets`);
+      const unpriced = [
+        ...new Set(
+          buckets
+            .filter((bucket) => bucket.unpricedTokens > 0)
+            .map((bucket) => bucket.model),
+        ),
+      ].sort();
+      if (unpriced.length > 0) {
+        console.warn(
+          `No prices for ${unpriced.join(", ")}; their tokens count at zero cost.`,
+        );
+      }
       return data;
     } catch (error) {
       if (error instanceof Error) {
