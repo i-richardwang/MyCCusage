@@ -107,7 +107,8 @@ async function readCodexFile(path: string): Promise<FileRequests> {
 }
 
 // Codex keys requests only when a session appears in several files, as a
-// rollout moved to the archive mid-scan does. Within one file, equal events
+// rollout moved to the archive mid-scan does, or one whose plain copy is still
+// there once its compressed copy is written. Within one file, equal events
 // stay distinct by their occurrence.
 function keySharedSessions(files: UsageRequest[][]): void {
   const fileOf = new Map<string, number>();

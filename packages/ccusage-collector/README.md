@@ -31,7 +31,7 @@ bunx ccusage-collector sync
 
 Deploy the [MyCCusage dashboard](../../README.md) and use its `API_KEY` when configuring the collector.
 
-- Node.js ≥20 (Bun may be used to install the package)
+- Node.js ≥20 (Bun may be used to install the package); Node.js ≥22.15 to read Codex rollouts that Codex has compressed
 - macOS with a logged-in graphical user session, or Linux with a running systemd user manager, for native scheduling
 - `amp` CLI installed and logged in (AMP)
 - At least one supported coding agent installed and configured
@@ -208,7 +208,7 @@ The collector:
 The collector parses each request these agents record in their own session stores. The parsers are adapted from [T3 Code](https://github.com/pingdotgg/t3code) (MIT).
 
 - **Claude Code**: the `projects/` directories of its config directories (see above). It repeats a message's usage on every content block; each request (`message.id` and `requestId`) counts once, across files and config directories. Advisor calls count under their own model
-- **Codex**: `sessions/` and `archived_sessions/` under `CODEX_HOME` (default `~/.codex`). Usage carries its model and service tier from earlier lines of the rollout. Cumulative counters validate each request, history copied into forked or subagent rollouts is skipped, and a session seen both live and archived counts once
+- **Codex**: `sessions/` and `archived_sessions/` under `CODEX_HOME` (default `~/.codex`), plain `.jsonl` rollouts and the `.jsonl.zst` copies Codex compresses them into. Usage carries its model and service tier from earlier lines of the rollout. Cumulative counters validate each request, history copied into forked or subagent rollouts is skipped, and a session seen in several files (live and archived, or plain and compressed) counts once
 - **OpenCode**: the `opencode*.db` databases and the older `storage/message/` JSON files under `OPENCODE_DATA_DIR` (comma-separated), else `$XDG_DATA_HOME/opencode`, else `~/.local/share/opencode`. A message migrated from the JSON store into the database counts once. OpenCode's own cost is used where it recorded one; a zero cost, as subscriptions record, is priced from the table
 - **Antigravity**: the conversation databases under `ANTIGRAVITY_DATA_DIR` (comma-separated), else the `~/.gemini/antigravity*` roots and `~/.config/antigravity`. Each generation is decoded from its protobuf metadata; the copies Antigravity keeps in steps, generation metadata, retries and backup roots are merged into one request
 - Each request is priced on its own at LiteLLM's rates: long-context rates when its prompt passes the model's threshold, one-hour cache writes at their own rate, Claude fast mode and US-only inference by their multipliers, and Codex priority and ultrafast tiers at their rates. A cost the agent recorded itself (Claude Code's `costUSD`, OpenCode's `cost`) is used as is
