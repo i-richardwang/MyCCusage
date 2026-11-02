@@ -8,6 +8,7 @@ import {
 } from "fs";
 import { tmpdir } from "os";
 import { dirname, join } from "path";
+import { zstdCompressSync } from "zlib";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createCalendar } from "../../src/calendar";
 import type { PricingTable } from "../../src/pricing/rates";
@@ -151,8 +152,9 @@ describe("collectTranscriptUsage", () => {
 
   function write(path: string, lines: unknown[], mtime: Date) {
     const file = join(home, path);
+    const text = lines.map((line) => JSON.stringify(line)).join("\n");
     mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(file, lines.map((line) => JSON.stringify(line)).join("\n"));
+    writeFileSync(file, path.endsWith(".zst") ? zstdCompressSync(text) : text);
     utimesSync(file, mtime, mtime);
   }
 
@@ -274,6 +276,65 @@ describe("collectTranscriptUsage", () => {
       }),
     ]);
     expect(usage.buckets[0]?.unpricedTokens).toBe(15);
+  });
+
+  it("reads compressed Codex rollouts and counts a rollout kept in both forms once", async () => {
+    const tokenCount = (timestamp: string, outputTokens: number) => ({
+      type: "event_msg",
+      timestamp,
+      payload: {
+        type: "token_count",
+        info: {
+          last_token_usage: { input_tokens: 10, output_tokens: outputTokens },
+        },
+      },
+    });
+    const rollout = (id: string, ...events: unknown[]) => [
+      { type: "session_meta", payload: { id } },
+      { type: "turn_context", payload: { model: "gpt-test" } },
+      ...events,
+    ];
+    const mtime = new Date("2026-10-29T12:00:00Z");
+    const sessions = "codex/sessions/2026/10/29";
+    const first = tokenCount("2026-10-29T10:00:00Z", 5);
+    write(`${sessions}/rollout-plain.jsonl`, rollout("plain", first), mtime);
+    // Compression finished with a request the plain copy does not have yet
+    write(`${sessions}/rollout-both.jsonl`, rollout("both", first), mtime);
+    write(
+      `${sessions}/rollout-both.jsonl.zst`,
+      rollout("both", first, tokenCount("2026-10-29T10:30:00Z", 7)),
+      mtime,
+    );
+    // Neither is a transcript; reading either would fail the scan
+    for (const name of ["notes.zst", "rollout-next.jsonl.zst.tmp"]) {
+      writeFileSync(join(home, sessions, name), "not zstd");
+    }
+
+    const usage = await collectTranscriptUsage("codex", calendar, pricing, {
+      env: { CODEX_HOME: join(home, "codex") },
+      now,
+    });
+    expect(usage.buckets).toEqual([
+      expect.objectContaining({
+        model: "gpt-test",
+        inputTokens: 30,
+        outputTokens: 17,
+        requests: 3,
+      }),
+    ]);
+  });
+
+  it("fails on a damaged compressed rollout instead of skipping its usage", async () => {
+    const file = join(home, "codex/sessions/2026/10/29/rollout-1.jsonl.zst");
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, "not zstd");
+
+    await expect(
+      collectTranscriptUsage("codex", calendar, pricing, {
+        env: { CODEX_HOME: join(home, "codex") },
+        now,
+      }),
+    ).rejects.toThrow();
   });
 
   it("starts the range at the first request, leaving earlier days alone", async () => {
